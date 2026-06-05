@@ -1,0 +1,28 @@
+{
+  "name": "unitedlinkgroup",
+  "private": true,
+  "packageManager": "npm@10.9.3",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "prettier": "latest",
+    "typescript": "latest",
+    "metro": "0.83.3"
+  },
+  "overrides": {
+    "metro": "0.83.3",
+    "react-native": "0.76.6",
+    "react": "18.3.1",
+    "react-native-gesture-handler": "~2.28.0",
+    "react-native-safe-area-context": "~5.6.0"
+  }
+}

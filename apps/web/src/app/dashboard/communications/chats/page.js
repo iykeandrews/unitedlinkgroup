@@ -1,0 +1,1438 @@
+"use strict";
+'use client';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.default = ChatsPage;
+const react_1 = require("react");
+const framer_motion_1 = require("framer-motion");
+const socket_io_client_1 = require("socket.io-client");
+const navigation_1 = require("next/navigation");
+const lucide_react_1 = require("lucide-react");
+const api_1 = __importDefault(require("../../../../lib/api"));
+const Modal_1 = require("../../../../components/Modal");
+const sonner_1 = require("sonner");
+const types_1 = require("@unitedlinkgroup/types");
+function formatTime(ts) {
+    try {
+        return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    catch {
+        return '';
+    }
+}
+function formatDay(ts) {
+    try {
+        return new Date(ts).toLocaleDateString();
+    }
+    catch {
+        return '';
+    }
+}
+function fileUrlToAbsolute(url) {
+    if (!url)
+        return url;
+    if (url.startsWith('http://') || url.startsWith('https://'))
+        return url;
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+    const path = `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+    if (!url.startsWith('/uploads/'))
+        return path;
+    try {
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        if (!token)
+            return path;
+        const u = new URL(path);
+        u.searchParams.set('token', token);
+        return u.toString();
+    }
+    catch {
+        return path;
+    }
+}
+function initials(name) {
+    var _a, _b;
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0)
+        return '?';
+    const a = ((_a = parts[0]) === null || _a === void 0 ? void 0 : _a[0]) || '';
+    const b = parts.length > 1 ? ((_b = parts[parts.length - 1]) === null || _b === void 0 ? void 0 : _b[0]) || '' : '';
+    return (a + b).toUpperCase();
+}
+function Avatar({ name, imageUrl, size = 40 }) {
+    if (imageUrl) {
+        return (<img src={fileUrlToAbsolute(imageUrl)} alt={name} width={size} height={size} className="rounded-full object-cover border border-gray-200 dark:border-slate-700"/>);
+    }
+    return (<div className="rounded-full flex items-center justify-center font-bold text-xs bg-gradient-to-br from-indigo-500 to-purple-600 text-white border border-white/30" style={{ width: size, height: size }}>
+      {initials(name)}
+    </div>);
+}
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '🎉', '✅', '👀', '🤝', '💯', '🚀', '😄', '😡', '🤔', '🙌', '⭐️'];
+function ChatsPage() {
+    return (<react_1.Suspense fallback={<div className="p-6 text-sm text-gray-500 dark:text-gray-400">Loading chats…</div>}>
+      <ChatsPageInner />
+    </react_1.Suspense>);
+}
+function ChatsPageInner() {
+    var _a, _b, _c;
+    const searchParams = (0, navigation_1.useSearchParams)();
+    const [profile, setProfile] = (0, react_1.useState)(null);
+    const [threads, setThreads] = (0, react_1.useState)([]);
+    const [loadingThreads, setLoadingThreads] = (0, react_1.useState)(true);
+    const [selectedThreadId, setSelectedThreadId] = (0, react_1.useState)(null);
+    const [selectedThread, setSelectedThread] = (0, react_1.useState)(null);
+    const [messages, setMessages] = (0, react_1.useState)([]);
+    const [loadingMessages, setLoadingMessages] = (0, react_1.useState)(false);
+    const [loadingMore, setLoadingMore] = (0, react_1.useState)(false);
+    const [query, setQuery] = (0, react_1.useState)('');
+    const [draft, setDraft] = (0, react_1.useState)('');
+    const [emojiOpen, setEmojiOpen] = (0, react_1.useState)(false);
+    const [replyTo, setReplyTo] = (0, react_1.useState)(null);
+    const [pendingAttachments, setPendingAttachments] = (0, react_1.useState)([]);
+    const [createOpen, setCreateOpen] = (0, react_1.useState)(false);
+    const [createMode, setCreateMode] = (0, react_1.useState)('GROUP');
+    const [createTitle, setCreateTitle] = (0, react_1.useState)('');
+    const [createImageUrl, setCreateImageUrl] = (0, react_1.useState)(null);
+    const [employees, setEmployees] = (0, react_1.useState)([]);
+    const [selectedEmployeeId, setSelectedEmployeeId] = (0, react_1.useState)('');
+    const [selectedMembers, setSelectedMembers] = (0, react_1.useState)({});
+    const [creating, setCreating] = (0, react_1.useState)(false);
+    const [manageOpen, setManageOpen] = (0, react_1.useState)(false);
+    const [manageAddEmployeeId, setManageAddEmployeeId] = (0, react_1.useState)('');
+    const [managing, setManaging] = (0, react_1.useState)(false);
+    const [manageTitle, setManageTitle] = (0, react_1.useState)('');
+    const [manageImageUrl, setManageImageUrl] = (0, react_1.useState)(null);
+    const [presence, setPresence] = (0, react_1.useState)({});
+    const [typing, setTyping] = (0, react_1.useState)({});
+    const [socketEmployeeId, setSocketEmployeeId] = (0, react_1.useState)(null);
+    const [editing, setEditing] = (0, react_1.useState)(null);
+    const [confirmDelete, setConfirmDelete] = (0, react_1.useState)(null);
+    const [highlightMessageId, setHighlightMessageId] = (0, react_1.useState)(null);
+    const [isMobile, setIsMobile] = (0, react_1.useState)(false);
+    const [now, setNow] = (0, react_1.useState)(() => Date.now());
+    const [showJumpToBottom, setShowJumpToBottom] = (0, react_1.useState)(false);
+    const currentEmployeeId = (profile === null || profile === void 0 ? void 0 : profile.employeeId) || socketEmployeeId || null;
+    const role = (profile === null || profile === void 0 ? void 0 : profile.role) || null;
+    const canAdmin = role === types_1.UserRole.SUPER_ADMIN || role === types_1.UserRole.BUSINESS_ADMIN;
+    const socketRef = (0, react_1.useRef)(null);
+    const listRef = (0, react_1.useRef)(null);
+    const messagesRef = (0, react_1.useRef)(null);
+    const endRef = (0, react_1.useRef)(null);
+    const attachmentInputRef = (0, react_1.useRef)(null);
+    const groupImageInputRef = (0, react_1.useRef)(null);
+    const composerRef = (0, react_1.useRef)(null);
+    const dropActiveRef = (0, react_1.useRef)(false);
+    const [groupImageTarget, setGroupImageTarget] = (0, react_1.useState)('create');
+    const [deeplinkMessageId, setDeeplinkMessageId] = (0, react_1.useState)(null);
+    const deeplinkAttemptsRef = (0, react_1.useRef)(0);
+    const lastDeeplinkKeyRef = (0, react_1.useRef)(null);
+    const highlightTimeoutRef = (0, react_1.useRef)(null);
+    const isNearBottomRef = (0, react_1.useRef)(true);
+    const unseenNewRef = (0, react_1.useRef)(0);
+    const scrollFetchInFlightRef = (0, react_1.useRef)(false);
+    const lastMessagesScrollTopRef = (0, react_1.useRef)(null);
+    const pendingPrependScrollRef = (0, react_1.useRef)(null);
+    const deeplinkThreadId = searchParams.get('threadId');
+    const deeplinkTargetMessageId = searchParams.get('messageId');
+    const scrollToBottom = (behavior = 'auto') => {
+        var _a;
+        unseenNewRef.current = 0;
+        isNearBottomRef.current = true;
+        setShowJumpToBottom(false);
+        (_a = endRef.current) === null || _a === void 0 ? void 0 : _a.scrollIntoView({ behavior });
+    };
+    const filteredThreads = (0, react_1.useMemo)(() => {
+        const q = query.trim().toLowerCase();
+        if (!q)
+            return threads;
+        return threads.filter((t) => { var _a; return t.displayTitle.toLowerCase().includes(q) || (((_a = t.lastMessage) === null || _a === void 0 ? void 0 : _a.text) || '').toLowerCase().includes(q); });
+    }, [threads, query]);
+    (0, react_1.useEffect)(() => {
+        const id = window.setInterval(() => setNow(Date.now()), 30000);
+        return () => window.clearInterval(id);
+    }, []);
+    (0, react_1.useEffect)(() => {
+        const threadId = deeplinkThreadId;
+        if (!threadId)
+            return;
+        if (loadingThreads)
+            return;
+        if (selectedThreadId === threadId)
+            return;
+        const exists = threads.some((t) => t.id === threadId);
+        if (!exists)
+            return;
+        selectThread(threadId);
+    }, [deeplinkThreadId, loadingThreads, threads, selectedThreadId]);
+    (0, react_1.useEffect)(() => {
+        const threadId = deeplinkThreadId;
+        const messageId = deeplinkTargetMessageId;
+        if (!threadId || !messageId)
+            return;
+        if (selectedThreadId !== threadId)
+            return;
+        const key = `${threadId}:${messageId}`;
+        if (lastDeeplinkKeyRef.current === key)
+            return;
+        lastDeeplinkKeyRef.current = key;
+        deeplinkAttemptsRef.current = 0;
+        setDeeplinkMessageId(messageId);
+    }, [deeplinkThreadId, deeplinkTargetMessageId, selectedThreadId]);
+    (0, react_1.useEffect)(() => {
+        if (!selectedThreadId)
+            return;
+        if (!deeplinkMessageId)
+            return;
+        if (loadingMessages || loadingMore)
+            return;
+        const el = document.getElementById(`m_${deeplinkMessageId}`);
+        if (el) {
+            const container = messagesRef.current;
+            if (container) {
+                const c = container.getBoundingClientRect();
+                const r = el.getBoundingClientRect();
+                const target = container.scrollTop + (r.top - c.top) - (c.height / 2) + (r.height / 2);
+                container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+            }
+            else {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            setHighlightMessageId(deeplinkMessageId);
+            const id = deeplinkMessageId;
+            setDeeplinkMessageId(null);
+            if (highlightTimeoutRef.current) {
+                window.clearTimeout(highlightTimeoutRef.current);
+            }
+            highlightTimeoutRef.current = window.setTimeout(() => {
+                setHighlightMessageId((prev) => (prev === id ? null : prev));
+            }, 3500);
+            return;
+        }
+        if (messages.length === 0)
+            return;
+        if (deeplinkAttemptsRef.current >= 8) {
+            setDeeplinkMessageId(null);
+            return;
+        }
+        deeplinkAttemptsRef.current += 1;
+        fetchMessages(selectedThreadId, messages[0].createdAt, 'prepend');
+    }, [selectedThreadId, deeplinkMessageId, loadingMessages, loadingMore, messages]);
+    (0, react_1.useEffect)(() => {
+        return () => {
+            if (highlightTimeoutRef.current) {
+                window.clearTimeout(highlightTimeoutRef.current);
+            }
+        };
+    }, []);
+    const selectedTypingIds = (0, react_1.useMemo)(() => {
+        if (!selectedThreadId)
+            return [];
+        const map = typing[selectedThreadId] || {};
+        return Object.entries(map)
+            .filter(([, v]) => v)
+            .map(([k]) => k)
+            .filter((id) => id !== currentEmployeeId);
+    }, [typing, selectedThreadId, currentEmployeeId]);
+    const canEditMessage = (m) => {
+        if (!currentEmployeeId)
+            return false;
+        if (m.deletedAt)
+            return false;
+        if (!canAdmin && m.senderEmployeeId !== currentEmployeeId)
+            return false;
+        const ageMs = now - new Date(m.createdAt).getTime();
+        if (ageMs > 30 * 60 * 1000)
+            return false;
+        const hasReply = messages.some((x) => { var _a; return ((_a = x.replyTo) === null || _a === void 0 ? void 0 : _a.id) === m.id; });
+        if (hasReply)
+            return false;
+        return true;
+    };
+    const otherParticipant = (0, react_1.useMemo)(() => {
+        if (!selectedThread || selectedThread.type !== 'DIRECT' || !currentEmployeeId)
+            return null;
+        return selectedThread.participants.find((p) => p.employeeId !== currentEmployeeId) || null;
+    }, [selectedThread, currentEmployeeId]);
+    const otherPresence = otherParticipant ? presence[otherParticipant.employeeId] : null;
+    const fetchProfile = async () => {
+        try {
+            const res = await api_1.default.get('/auth/profile');
+            setProfile(res.data || null);
+        }
+        catch {
+            setProfile(null);
+        }
+    };
+    const fetchThreads = async () => {
+        var _a, _b;
+        try {
+            setLoadingThreads(true);
+            const res = await api_1.default.get('/chats/threads');
+            setThreads(Array.isArray(res.data) ? res.data : []);
+        }
+        catch (e) {
+            sonner_1.toast.error(((_b = (_a = e === null || e === void 0 ? void 0 : e.response) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.message) || 'Failed to load chats');
+            setThreads([]);
+        }
+        finally {
+            setLoadingThreads(false);
+        }
+    };
+    const fetchEmployees = async () => {
+        try {
+            const res = await api_1.default.get('/employees/chat-directory');
+            setEmployees(Array.isArray(res.data) ? res.data : []);
+        }
+        catch {
+            setEmployees([]);
+        }
+    };
+    const fetchThreadDetail = async (threadId) => {
+        var _a, _b;
+        try {
+            const res = await api_1.default.get(`/chats/threads/${threadId}`);
+            setSelectedThread(res.data || null);
+            setManageTitle(((_a = res.data) === null || _a === void 0 ? void 0 : _a.title) || '');
+            setManageImageUrl(((_b = res.data) === null || _b === void 0 ? void 0 : _b.imageUrl) || null);
+        }
+        catch {
+            setSelectedThread(null);
+        }
+    };
+    const fetchMessages = async (threadId, before, mode = 'replace') => {
+        var _a, _b;
+        try {
+            if (mode === 'replace')
+                setLoadingMessages(true);
+            if (mode === 'prepend') {
+                setLoadingMore(true);
+                const container = messagesRef.current;
+                if (container) {
+                    pendingPrependScrollRef.current = { height: container.scrollHeight, top: container.scrollTop };
+                }
+            }
+            const res = await api_1.default.get(`/chats/threads/${threadId}/messages`, { params: { take: 50, ...(before ? { before } : {}) } });
+            const incoming = Array.isArray(res.data) ? res.data : [];
+            setMessages((prev) => (mode === 'replace' ? incoming : [...incoming, ...prev]));
+            if (mode === 'prepend') {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        const pending = pendingPrependScrollRef.current;
+                        const container = messagesRef.current;
+                        if (!pending || !container)
+                            return;
+                        const newHeight = container.scrollHeight;
+                        container.scrollTop = pending.top + (newHeight - pending.height);
+                        pendingPrependScrollRef.current = null;
+                    });
+                });
+            }
+        }
+        catch (e) {
+            sonner_1.toast.error(((_b = (_a = e === null || e === void 0 ? void 0 : e.response) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.message) || 'Failed to load messages');
+            if (mode === 'replace')
+                setMessages([]);
+        }
+        finally {
+            setLoadingMessages(false);
+            setLoadingMore(false);
+        }
+    };
+    const connectSocket = () => {
+        if (socketRef.current)
+            return;
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        const selectedBusinessRaw = typeof window !== 'undefined' ? localStorage.getItem('selectedBusiness') : null;
+        let businessId = null;
+        if (selectedBusinessRaw) {
+            try {
+                const parsed = JSON.parse(selectedBusinessRaw);
+                if (parsed === null || parsed === void 0 ? void 0 : parsed.id)
+                    businessId = parsed.id;
+            }
+            catch { }
+        }
+        const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+        const socket = (0, socket_io_client_1.io)(base, {
+            auth: { token, businessId },
+            transports: ['websocket', 'polling'],
+        });
+        socketRef.current = socket;
+        socket.on('socket:ready', (e) => {
+            const employeeId = (e === null || e === void 0 ? void 0 : e.employeeId) || null;
+            setSocketEmployeeId(employeeId);
+        });
+        socket.on('disconnect', () => {
+            setSocketEmployeeId(null);
+        });
+        socket.on('presence:update', (p) => {
+            if (!(p === null || p === void 0 ? void 0 : p.employeeId))
+                return;
+            setPresence((prev) => ({ ...prev, [p.employeeId]: { online: !!p.online, lastSeenAt: p.lastSeenAt || null } }));
+        });
+        socket.on('presence:snapshot', (entries) => {
+            if (!Array.isArray(entries))
+                return;
+            setPresence((prev) => {
+                const next = { ...prev };
+                for (const entry of entries) {
+                    if (!(entry === null || entry === void 0 ? void 0 : entry.employeeId))
+                        continue;
+                    next[entry.employeeId] = {
+                        online: !!entry.online,
+                        lastSeenAt: entry.lastSeenAt || null,
+                    };
+                }
+                return next;
+            });
+        });
+        socket.on('typing:update', (e) => {
+            const threadId = e === null || e === void 0 ? void 0 : e.threadId;
+            const employeeId = e === null || e === void 0 ? void 0 : e.employeeId;
+            const isTyping = !!(e === null || e === void 0 ? void 0 : e.typing);
+            if (!threadId || !employeeId)
+                return;
+            setTyping((prev) => ({
+                ...prev,
+                [threadId]: { ...(prev[threadId] || {}), [employeeId]: isTyping },
+            }));
+        });
+        socket.on('read:update', (e) => {
+            const threadId = e === null || e === void 0 ? void 0 : e.threadId;
+            const employeeId = e === null || e === void 0 ? void 0 : e.employeeId;
+            const lastReadAt = e === null || e === void 0 ? void 0 : e.lastReadAt;
+            if (!threadId || !employeeId)
+                return;
+            setThreads((prev) => prev.map((t) => t.id !== threadId
+                ? t
+                : {
+                    ...t,
+                    participants: t.participants.map((p) => (p.employeeId === employeeId ? { ...p, lastReadAt } : p)),
+                    unreadCount: employeeId === currentEmployeeId ? 0 : t.unreadCount,
+                }));
+            setSelectedThread((prev) => prev && prev.id === threadId
+                ? {
+                    ...prev,
+                    participants: prev.participants.map((p) => (p.employeeId === employeeId ? { ...p, lastReadAt } : p)),
+                }
+                : prev);
+        });
+        socket.on('message:new', (m) => {
+            if (!(m === null || m === void 0 ? void 0 : m.threadId) || !(m === null || m === void 0 ? void 0 : m.id))
+                return;
+            const message = m;
+            setThreads((prev) => prev
+                .map((t) => t.id !== message.threadId
+                ? t
+                : {
+                    ...t,
+                    updatedAt: message.createdAt,
+                    lastMessage: {
+                        id: message.id,
+                        text: message.text,
+                        createdAt: message.createdAt,
+                        senderEmployeeId: message.senderEmployeeId,
+                        senderName: message.senderName,
+                        attachments: (message.attachments || []).map((a) => ({
+                            id: a.id,
+                            type: a.type,
+                            url: a.url,
+                            originalName: a.originalName,
+                            mimeType: a.mimeType,
+                        })),
+                    },
+                    unreadCount: selectedThreadId === message.threadId || message.senderEmployeeId === currentEmployeeId
+                        ? t.unreadCount
+                        : (t.unreadCount || 0) + 1,
+                })
+                .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()));
+            setMessages((prev) => {
+                if (selectedThreadId !== message.threadId)
+                    return prev;
+                if (message.clientId) {
+                    const idx = prev.findIndex((p) => p.clientId && p.clientId === message.clientId);
+                    if (idx >= 0) {
+                        const next = prev.slice();
+                        next[idx] = { ...message, pending: false };
+                        return next;
+                    }
+                }
+                if (prev.some((p) => p.id === message.id))
+                    return prev;
+                return [...prev, message];
+            });
+            if (selectedThreadId === message.threadId) {
+                const shouldAutoscroll = isNearBottomRef.current || message.senderEmployeeId === currentEmployeeId;
+                if (shouldAutoscroll) {
+                    requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('smooth')));
+                }
+                else {
+                    unseenNewRef.current += 1;
+                    setShowJumpToBottom(true);
+                }
+                socket.emit('read:mark', { threadId: message.threadId });
+                try {
+                    window.dispatchEvent(new Event('notifications:refresh'));
+                }
+                catch { }
+            }
+        });
+        socket.on('message:ack', (ack) => {
+            const clientId = ack === null || ack === void 0 ? void 0 : ack.clientId;
+            const messageId = ack === null || ack === void 0 ? void 0 : ack.messageId;
+            const createdAt = ack === null || ack === void 0 ? void 0 : ack.createdAt;
+            if (!clientId || !messageId)
+                return;
+            setMessages((prev) => {
+                const idx = prev.findIndex((m) => m.clientId === clientId);
+                if (idx < 0)
+                    return prev;
+                const next = prev.slice();
+                next[idx] = { ...next[idx], id: messageId, createdAt, pending: false };
+                return next;
+            });
+        });
+        socket.on('message:updated', (e) => {
+            const messageId = e === null || e === void 0 ? void 0 : e.messageId;
+            const text = e === null || e === void 0 ? void 0 : e.text;
+            const editedAt = (e === null || e === void 0 ? void 0 : e.editedAt) || null;
+            if (!messageId)
+                return;
+            setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, text, editedAt } : m)));
+        });
+        socket.on('message:deleted', (e) => {
+            const messageId = e === null || e === void 0 ? void 0 : e.messageId;
+            const deletedAt = (e === null || e === void 0 ? void 0 : e.deletedAt) || new Date().toISOString();
+            if (!messageId)
+                return;
+            setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, text: null, deletedAt, attachments: [], reactions: [], replyTo: m.replyTo } : m));
+        });
+        socket.on('reactions:updated', (e) => {
+            const messageId = e === null || e === void 0 ? void 0 : e.messageId;
+            const reactions = Array.isArray(e === null || e === void 0 ? void 0 : e.reactions) ? e.reactions : null;
+            if (!messageId || !reactions)
+                return;
+            setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)));
+        });
+    };
+    const joinThreadRoom = (threadId) => {
+        const socket = socketRef.current;
+        if (!socket)
+            return;
+        socket.emit('thread:join', { threadId });
+    };
+    const leaveThreadRoom = (threadId) => {
+        const socket = socketRef.current;
+        if (!socket)
+            return;
+        socket.emit('thread:leave', { threadId });
+    };
+    const selectThread = async (threadId) => {
+        var _a;
+        if (selectedThreadId)
+            leaveThreadRoom(selectedThreadId);
+        setSelectedThreadId(threadId);
+        setSelectedThread(null);
+        setMessages([]);
+        setReplyTo(null);
+        setEmojiOpen(false);
+        lastMessagesScrollTopRef.current = null;
+        joinThreadRoom(threadId);
+        await Promise.all([fetchThreadDetail(threadId), fetchMessages(threadId)]);
+        setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, unreadCount: 0 } : t)));
+        (_a = socketRef.current) === null || _a === void 0 ? void 0 : _a.emit('read:mark', { threadId });
+        if (!socketRef.current || !socketRef.current.connected) {
+            try {
+                await api_1.default.post(`/chats/threads/${threadId}/read`);
+            }
+            catch { }
+        }
+        try {
+            window.dispatchEvent(new Event('notifications:refresh'));
+        }
+        catch { }
+        requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('auto')));
+    };
+    const onScrollMessages = async () => {
+        const el = messagesRef.current;
+        if (!el || loadingMore || loadingMessages || !selectedThreadId)
+            return;
+        const prevTop = lastMessagesScrollTopRef.current;
+        const currentTop = el.scrollTop;
+        const scrollingUp = prevTop !== null ? currentTop < prevTop : false;
+        lastMessagesScrollTopRef.current = currentTop;
+        const delta = el.scrollHeight - el.scrollTop - el.clientHeight;
+        const nearBottom = delta < 140;
+        isNearBottomRef.current = nearBottom;
+        if (nearBottom) {
+            unseenNewRef.current = 0;
+            setShowJumpToBottom(false);
+        }
+        if (!scrollingUp)
+            return;
+        if (el.scrollTop > 50)
+            return;
+        if (scrollFetchInFlightRef.current)
+            return;
+        const first = messages[0];
+        if (!(first === null || first === void 0 ? void 0 : first.createdAt))
+            return;
+        scrollFetchInFlightRef.current = true;
+        try {
+            await fetchMessages(selectedThreadId, first.createdAt, 'prepend');
+        }
+        finally {
+            scrollFetchInFlightRef.current = false;
+        }
+    };
+    const sendTyping = (on) => {
+        const socket = socketRef.current;
+        if (!socket || !selectedThreadId)
+            return;
+        socket.emit(on ? 'typing:start' : 'typing:stop', { threadId: selectedThreadId });
+    };
+    const removePendingAttachment = (id) => {
+        setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+    };
+    const sendMessage = async (attachments) => {
+        var _a, _b, _c;
+        const mergedAttachments = [...pendingAttachments, ...(attachments || [])];
+        if (!selectedThreadId || (!draft.trim() && mergedAttachments.length === 0))
+            return;
+        const socket = socketRef.current;
+        const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const text = draft.trim();
+        setDraft('');
+        setEmojiOpen(false);
+        setPendingAttachments([]);
+        const apiAttachments = mergedAttachments.map((a) => ({
+            type: a.type,
+            url: a.url,
+            filename: a.filename,
+            originalName: a.originalName,
+            mimeType: a.mimeType,
+            size: a.size,
+        }));
+        if (!socket || !socket.connected) {
+            try {
+                const res = await api_1.default.post(`/chats/threads/${selectedThreadId}/messages`, {
+                    text: text || undefined,
+                    replyToId: (replyTo === null || replyTo === void 0 ? void 0 : replyTo.id) || undefined,
+                    attachments: apiAttachments,
+                });
+                const serverSenderEmployeeId = ((_a = res.data) === null || _a === void 0 ? void 0 : _a.senderEmployeeId) || null;
+                if (!currentEmployeeId && serverSenderEmployeeId) {
+                    setSocketEmployeeId(serverSenderEmployeeId);
+                }
+                setReplyTo(null);
+                await Promise.all([fetchMessages(selectedThreadId), fetchThreads()]);
+                requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('smooth')));
+            }
+            catch (e) {
+                sonner_1.toast.error(((_c = (_b = e === null || e === void 0 ? void 0 : e.response) === null || _b === void 0 ? void 0 : _b.data) === null || _c === void 0 ? void 0 : _c.message) || 'Failed to send message');
+            }
+            finally {
+                sendTyping(false);
+            }
+            return;
+        }
+        const optimistic = {
+            id: clientId,
+            threadId: selectedThreadId,
+            senderEmployeeId: currentEmployeeId || 'me',
+            senderName: 'You',
+            text: text || null,
+            createdAt: new Date().toISOString(),
+            editedAt: null,
+            deletedAt: null,
+            replyTo: replyTo
+                ? { id: replyTo.id, senderEmployeeId: replyTo.senderEmployeeId, senderName: replyTo.senderName, text: replyTo.text }
+                : null,
+            attachments: mergedAttachments,
+            reactions: [],
+            pending: true,
+            clientId,
+        };
+        setMessages((prev) => [...prev, optimistic]);
+        setReplyTo(null);
+        requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('smooth')));
+        socket.emit('message:send', {
+            threadId: selectedThreadId,
+            clientId,
+            text: text || undefined,
+            replyToId: (replyTo === null || replyTo === void 0 ? void 0 : replyTo.id) || undefined,
+            attachments: apiAttachments,
+        });
+        sendTyping(false);
+    };
+    const insertEmoji = (emoji) => {
+        const el = composerRef.current;
+        if (!el) {
+            setDraft((p) => `${p}${emoji}`);
+            setEmojiOpen(false);
+            return;
+        }
+        const start = typeof el.selectionStart === 'number' ? el.selectionStart : el.value.length;
+        const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : el.value.length;
+        setDraft((prev) => `${prev.slice(0, start)}${emoji}${prev.slice(end)}`);
+        setEmojiOpen(false);
+        requestAnimationFrame(() => {
+            el.focus();
+            const pos = start + emoji.length;
+            try {
+                el.setSelectionRange(pos, pos);
+            }
+            catch { }
+        });
+    };
+    const uploadFiles = async (files) => {
+        var _a, _b, _c, _d, _e;
+        const arr = Array.from(files);
+        if (arr.length === 0)
+            return;
+        const uploaded = [];
+        for (const file of arr) {
+            const form = new FormData();
+            form.append('file', file);
+            try {
+                const isImage = typeof file.type === 'string' && file.type.startsWith('image/');
+                const isVideo = typeof file.type === 'string' && file.type.startsWith('video/');
+                const endpoint = isImage ? '/uploads/images' : '/uploads';
+                const res = await api_1.default.post(endpoint, form, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                });
+                const url = (_a = res.data) === null || _a === void 0 ? void 0 : _a.url;
+                const mimeType = file.type || null;
+                const type = isImage ? 'IMAGE' : isVideo ? 'VIDEO' : 'FILE';
+                uploaded.push({
+                    id: `a_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                    type,
+                    url,
+                    filename: ((_b = res.data) === null || _b === void 0 ? void 0 : _b.filename) || null,
+                    originalName: ((_c = res.data) === null || _c === void 0 ? void 0 : _c.originalName) || file.name,
+                    mimeType,
+                    size: file.size,
+                });
+            }
+            catch (e) {
+                sonner_1.toast.error(((_e = (_d = e === null || e === void 0 ? void 0 : e.response) === null || _d === void 0 ? void 0 : _d.data) === null || _e === void 0 ? void 0 : _e.message) || `Upload failed: ${file.name}`);
+            }
+        }
+        if (uploaded.length) {
+            setPendingAttachments((prev) => [...prev, ...uploaded]);
+            requestAnimationFrame(() => { var _a; return (_a = composerRef.current) === null || _a === void 0 ? void 0 : _a.focus(); });
+        }
+    };
+    const uploadGroupImage = async (file) => {
+        var _a;
+        const form = new FormData();
+        form.append('file', file);
+        const res = await api_1.default.post('/uploads/images', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        return (_a = res.data) === null || _a === void 0 ? void 0 : _a.url;
+    };
+    const openCreate = async () => {
+        setCreateMode(canAdmin ? 'GROUP' : 'DIRECT');
+        setCreateTitle('');
+        setCreateImageUrl(null);
+        setSelectedEmployeeId('');
+        setSelectedMembers({});
+        await fetchEmployees();
+        setCreateOpen(true);
+    };
+    const createThread = async () => {
+        var _a, _b, _c, _d;
+        try {
+            setCreating(true);
+            if (createMode === 'DIRECT') {
+                if (!selectedEmployeeId) {
+                    sonner_1.toast.error('Select an employee');
+                    return;
+                }
+                const res = await api_1.default.post('/chats/threads/direct', { employeeId: selectedEmployeeId });
+                setCreateOpen(false);
+                await fetchThreads();
+                if ((_a = res.data) === null || _a === void 0 ? void 0 : _a.id)
+                    await selectThread(res.data.id);
+                return;
+            }
+            const title = createTitle.trim();
+            if (!title) {
+                sonner_1.toast.error('Group name is required');
+                return;
+            }
+            const memberEmployeeIds = Object.entries(selectedMembers)
+                .filter(([, v]) => v)
+                .map(([k]) => k);
+            if (!currentEmployeeId && memberEmployeeIds.length === 0) {
+                sonner_1.toast.error('Select at least one member');
+                return;
+            }
+            const res = await api_1.default.post('/chats/threads/group', { title, imageUrl: createImageUrl || undefined, memberEmployeeIds });
+            setCreateOpen(false);
+            await fetchThreads();
+            if ((_b = res.data) === null || _b === void 0 ? void 0 : _b.id)
+                await selectThread(res.data.id);
+            sonner_1.toast.success('Group created');
+        }
+        catch (e) {
+            sonner_1.toast.error(((_d = (_c = e === null || e === void 0 ? void 0 : e.response) === null || _c === void 0 ? void 0 : _c.data) === null || _d === void 0 ? void 0 : _d.message) || 'Failed to create chat');
+        }
+        finally {
+            setCreating(false);
+        }
+    };
+    const updateGroup = async () => {
+        var _a, _b;
+        if (!selectedThreadId)
+            return;
+        try {
+            setManaging(true);
+            await api_1.default.patch(`/chats/threads/${selectedThreadId}`, { title: manageTitle.trim(), imageUrl: manageImageUrl || undefined });
+            await Promise.all([fetchThreadDetail(selectedThreadId), fetchThreads()]);
+            sonner_1.toast.success('Group updated');
+        }
+        catch (e) {
+            sonner_1.toast.error(((_b = (_a = e === null || e === void 0 ? void 0 : e.response) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.message) || 'Failed to update group');
+        }
+        finally {
+            setManaging(false);
+        }
+    };
+    const addMember = async () => {
+        var _a, _b;
+        if (!selectedThreadId || !manageAddEmployeeId)
+            return;
+        try {
+            setManaging(true);
+            await api_1.default.post(`/chats/threads/${selectedThreadId}/members`, { employeeId: manageAddEmployeeId });
+            setManageAddEmployeeId('');
+            await Promise.all([fetchThreadDetail(selectedThreadId), fetchThreads()]);
+            sonner_1.toast.success('Member added');
+        }
+        catch (e) {
+            sonner_1.toast.error(((_b = (_a = e === null || e === void 0 ? void 0 : e.response) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.message) || 'Failed to add member');
+        }
+        finally {
+            setManaging(false);
+        }
+    };
+    const removeMember = async (employeeId) => {
+        var _a, _b;
+        if (!selectedThreadId)
+            return;
+        try {
+            setManaging(true);
+            await api_1.default.delete(`/chats/threads/${selectedThreadId}/members/${employeeId}`);
+            await Promise.all([fetchThreadDetail(selectedThreadId), fetchThreads()]);
+            sonner_1.toast.success('Member removed');
+        }
+        catch (e) {
+            sonner_1.toast.error(((_b = (_a = e === null || e === void 0 ? void 0 : e.response) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.message) || 'Failed to remove member');
+        }
+        finally {
+            setManaging(false);
+        }
+    };
+    const toggleReaction = async (messageId, emoji) => {
+        var _a, _b, _c;
+        const socket = socketRef.current;
+        if (!selectedThreadId)
+            return;
+        setMessages((prev) => prev.map((m) => {
+            var _a;
+            if (m.id !== messageId)
+                return m;
+            const has = (_a = m.reactions) === null || _a === void 0 ? void 0 : _a.some((r) => r.emoji === emoji && r.employeeId === currentEmployeeId);
+            if (has) {
+                return { ...m, reactions: m.reactions.filter((r) => !(r.emoji === emoji && r.employeeId === currentEmployeeId)) };
+            }
+            return {
+                ...m,
+                reactions: [
+                    ...(m.reactions || []),
+                    { id: `r_${Date.now()}`, emoji, employeeId: currentEmployeeId || 'me', employeeName: 'You' },
+                ],
+            };
+        }));
+        if (!socket || !socket.connected) {
+            const msg = messages.find((m) => m.id === messageId);
+            const has = (_a = msg === null || msg === void 0 ? void 0 : msg.reactions) === null || _a === void 0 ? void 0 : _a.some((r) => r.emoji === emoji && r.employeeId === currentEmployeeId);
+            try {
+                if (has) {
+                    await api_1.default.delete(`/chats/messages/${messageId}/reactions`, { params: { emoji } });
+                }
+                else {
+                    await api_1.default.post(`/chats/messages/${messageId}/reactions`, { emoji });
+                }
+                await fetchMessages(selectedThreadId);
+            }
+            catch (e) {
+                sonner_1.toast.error(((_c = (_b = e === null || e === void 0 ? void 0 : e.response) === null || _b === void 0 ? void 0 : _b.data) === null || _c === void 0 ? void 0 : _c.message) || 'Failed to update reaction');
+            }
+            return;
+        }
+        socket.emit('reaction:toggle', { messageId, emoji });
+    };
+    const handleDrop = async (files) => {
+        dropActiveRef.current = false;
+        await uploadFiles(files);
+    };
+    (0, react_1.useEffect)(() => {
+        const onResize = () => setIsMobile(window.innerWidth < 1024);
+        onResize();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
+    (0, react_1.useEffect)(() => {
+        fetchProfile().then(() => {
+            connectSocket();
+        });
+        fetchThreads();
+    }, []);
+    (0, react_1.useEffect)(() => {
+        unseenNewRef.current = 0;
+        isNearBottomRef.current = true;
+        setShowJumpToBottom(false);
+    }, [selectedThreadId]);
+    (0, react_1.useEffect)(() => {
+        return () => {
+            var _a;
+            if (selectedThreadId)
+                leaveThreadRoom(selectedThreadId);
+            (_a = socketRef.current) === null || _a === void 0 ? void 0 : _a.disconnect();
+            socketRef.current = null;
+        };
+    }, [selectedThreadId]);
+    const selectedMemberIds = (0, react_1.useMemo)(() => new Set(((selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.participants) || []).map((p) => p.employeeId)), [selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.participants]);
+    return (<div className="flex flex-col h-full w-full bg-slate-50/50 dark:bg-slate-950/50">
+      <div className="flex-1 w-full p-6 min-h-0">
+        <div className="flex items-center justify-between gap-4 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-2xl border border-gray-200/50 dark:border-slate-700/50 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl bg-indigo-100 dark:bg-indigo-900/30">
+              <lucide_react_1.MessageSquare className="h-6 w-6 text-indigo-600 dark:text-indigo-400"/>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-white">Chats</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">Real-time messaging</div>
+            </div>
+          </div>
+          <button type="button" onClick={openCreate} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold flex items-center gap-2">
+            <lucide_react_1.Plus className="h-4 w-4"/>
+            New chat
+          </button>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-14rem)] min-h-0">
+          <div className={`lg:col-span-4 rounded-2xl border border-gray-200/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl overflow-hidden flex flex-col min-h-0 ${isMobile && selectedThreadId ? 'hidden' : ''}`}>
+            <div className="p-4 border-b border-gray-200/60 dark:border-slate-700/60">
+              <div className="relative">
+                <lucide_react_1.Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"/>
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats" className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm"/>
+              </div>
+            </div>
+
+            <div ref={listRef} className="flex-1 overflow-y-auto min-h-0">
+              {loadingThreads ? (<div className="p-6 text-sm text-gray-500 dark:text-gray-400">Loading chats…</div>) : filteredThreads.length === 0 ? (<div className="p-6 text-sm text-gray-500 dark:text-gray-400">No chats found.</div>) : (<div className="divide-y divide-gray-200/60 dark:divide-slate-700/60">
+                  {filteredThreads.map((t) => {
+                var _a;
+                const active = t.id === selectedThreadId;
+                return (<framer_motion_1.motion.button key={t.id} type="button" onClick={() => selectThread(t.id)} className={`w-full text-left p-4 transition-colors ${active ? 'bg-indigo-50 dark:bg-indigo-900/10' : 'hover:bg-gray-50 dark:hover:bg-slate-800/40'}`} whileHover={{ x: 2 }}>
+                        <div className="flex items-start gap-3">
+                          <Avatar name={t.displayTitle} imageUrl={t.displayImageUrl} size={44}/>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="font-semibold text-gray-900 dark:text-white truncate">{t.displayTitle}</div>
+                              <div className="text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                {t.lastMessage ? formatTime(t.lastMessage.createdAt) : ''}
+                              </div>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between gap-3">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                {t.lastMessage
+                        ? `${t.type === 'GROUP' ? `${t.lastMessage.senderName}: ` : ''}${t.lastMessage.text || (((_a = t.lastMessage.attachments) === null || _a === void 0 ? void 0 : _a.length) ? 'Attachment' : '')}`
+                        : 'No messages yet'}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {t.type === 'GROUP' && (<div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
+                                    <lucide_react_1.Users className="h-3.5 w-3.5"/>
+                                    {t.participants.length}
+                                  </div>)}
+                                {t.unreadCount > 0 && (<div className="min-w-5 h-5 px-1.5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center">
+                                    {t.unreadCount > 99 ? '99+' : t.unreadCount}
+                                  </div>)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </framer_motion_1.motion.button>);
+            })}
+                </div>)}
+            </div>
+          </div>
+
+          <div className={`lg:col-span-8 rounded-2xl border border-gray-200/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl overflow-hidden flex flex-col min-h-0 ${isMobile && !selectedThreadId ? 'hidden' : ''}`} onDragEnter={(e) => {
+            if (!selectedThreadId)
+                return;
+            e.preventDefault();
+            dropActiveRef.current = true;
+        }} onDragOver={(e) => {
+            if (!selectedThreadId)
+                return;
+            e.preventDefault();
+            dropActiveRef.current = true;
+        }} onDrop={(e) => {
+            var _a;
+            if (!selectedThreadId)
+                return;
+            e.preventDefault();
+            if ((_a = e.dataTransfer.files) === null || _a === void 0 ? void 0 : _a.length)
+                handleDrop(e.dataTransfer.files);
+        }}>
+            <div className="p-4 border-b border-gray-200/60 dark:border-slate-700/60 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-3">
+                  {isMobile && selectedThreadId && (<button type="button" onClick={() => {
+                setSelectedThreadId(null);
+                setSelectedThread(null);
+                setMessages([]);
+            }} className="p-2 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-800/40">
+                      <lucide_react_1.ArrowLeft className="h-5 w-5 text-gray-500"/>
+                    </button>)}
+                  {selectedThreadId ? (<>
+                      <Avatar name={(selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.title) || ((_a = threads.find((t) => t.id === selectedThreadId)) === null || _a === void 0 ? void 0 : _a.displayTitle) || 'Chat'} imageUrl={(selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.imageUrl) || ((_b = threads.find((t) => t.id === selectedThreadId)) === null || _b === void 0 ? void 0 : _b.displayImageUrl)} size={38}/>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-gray-900 dark:text-white truncate">
+                          {(selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.type) === 'GROUP'
+                ? (selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.title) || 'Group'
+                : ((_c = threads.find((t) => t.id === selectedThreadId)) === null || _c === void 0 ? void 0 : _c.displayTitle) || 'Chat'}
+                        </div>
+                        <div className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                          {(selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.type) === 'DIRECT' && otherParticipant ? ((otherPresence === null || otherPresence === void 0 ? void 0 : otherPresence.online) ? ('Online') : (otherPresence === null || otherPresence === void 0 ? void 0 : otherPresence.lastSeenAt) ? (`Last seen ${formatDay(otherPresence.lastSeenAt)} ${formatTime(otherPresence.lastSeenAt)}`) : ('Offline')) : (selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.type) === 'GROUP' ? (`${selectedThread.participants.length} members`) : (' ')}
+                        </div>
+                      </div>
+                    </>) : (<div className="font-semibold text-gray-900 dark:text-white truncate">Select a chat</div>)}
+                </div>
+                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {selectedThreadId ? '' : 'Choose a conversation from the left'}
+                </div>
+              </div>
+              {selectedThreadId && (selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.type) === 'GROUP' && canAdmin && (<button type="button" onClick={async () => {
+                await fetchEmployees();
+                setManageAddEmployeeId('');
+                setManageOpen(true);
+            }} className="px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 text-sm font-semibold flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700/40">
+                  <lucide_react_1.Settings className="h-4 w-4"/>
+                  Manage
+                </button>)}
+            </div>
+
+            <div ref={messagesRef} onScroll={onScrollMessages} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
+              {!selectedThreadId ? (<div className="h-full flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">Select a chat to start messaging.</div>) : loadingMessages ? (<div className="text-sm text-gray-500 dark:text-gray-400">Loading messages…</div>) : loadingMore ? (<div className="text-sm text-gray-500 dark:text-gray-400">Loading more…</div>) : messages.length === 0 ? (<div className="text-sm text-gray-500 dark:text-gray-400">No messages yet.</div>) : (<framer_motion_1.AnimatePresence initial={false}>
+                  {messages.map((m) => {
+                var _a, _b;
+                const mine = (!!currentEmployeeId && m.senderEmployeeId === currentEmployeeId) ||
+                    (!currentEmployeeId &&
+                        role === types_1.UserRole.SUPER_ADMIN &&
+                        (m.senderEmployeeId === 'me' || m.senderName === 'You'));
+                const directRead = (selectedThread === null || selectedThread === void 0 ? void 0 : selectedThread.type) === 'DIRECT' &&
+                    mine &&
+                    (otherParticipant === null || otherParticipant === void 0 ? void 0 : otherParticipant.lastReadAt) &&
+                    new Date(otherParticipant.lastReadAt).getTime() >= new Date(m.createdAt).getTime();
+                const bubbleColor = mine
+                    ? role === types_1.UserRole.SUPER_ADMIN
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-white border-gray-200 dark:border-slate-700';
+                return (<framer_motion_1.motion.div key={m.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[86%] rounded-2xl px-4 py-3 border ${bubbleColor} ${highlightMessageId === m.id ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-white dark:ring-offset-slate-900' : ''}`}>
+                          <div className={`text-xs flex items-center justify-between gap-3 ${mine ? 'text-indigo-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                            <div className="truncate">
+                              {m.senderName || 'Unknown'} • {formatTime(m.createdAt)}
+                              {m.editedAt ? ' • edited' : ''}
+                              {m.pending ? ' • sending…' : ''}
+                            </div>
+                            {mine && (<div className="flex items-center gap-1 text-[11px]">
+                                <span>{directRead ? '✓✓' : '✓'}</span>
+                              </div>)}
+                          </div>
+
+                          {m.replyTo && (<button type="button" onClick={() => {
+                            var _a;
+                            const el = document.getElementById(`m_${(_a = m.replyTo) === null || _a === void 0 ? void 0 : _a.id}`);
+                            if (!el)
+                                return;
+                            const container = messagesRef.current;
+                            if (container) {
+                                const c = container.getBoundingClientRect();
+                                const r = el.getBoundingClientRect();
+                                const target = container.scrollTop + (r.top - c.top) - (c.height / 2) + (r.height / 2);
+                                container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+                            }
+                            else {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }} className={`mt-2 w-full text-left rounded-xl px-3 py-2 border ${mine ? 'border-white/20 bg-white/10' : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40'}`}>
+                              <div className={`text-[11px] font-semibold ${mine ? 'text-indigo-100' : 'text-gray-600 dark:text-gray-300'}`}>{m.replyTo.senderName}</div>
+                              <div className={`text-xs truncate ${mine ? 'text-indigo-50' : 'text-gray-500 dark:text-gray-400'}`}>{m.replyTo.text || 'Message'}</div>
+                            </button>)}
+
+                          <div id={`m_${m.id}`} className="mt-2 text-sm whitespace-pre-wrap break-words">
+                            {m.deletedAt ? (<span className="italic opacity-80">Message deleted</span>) : (editing === null || editing === void 0 ? void 0 : editing.messageId) === m.id ? (<div className="space-y-2">
+                                <textarea value={editing.text} onChange={(e) => setEditing({ messageId: m.id, text: e.target.value })} rows={2} className={`w-full resize-none rounded-xl px-3 py-2 text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${mine ? 'bg-white/10 border-white/20 text-white placeholder:text-indigo-100' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700'}`}/>
+                                <div className="flex items-center justify-end gap-2">
+                                  <button type="button" onClick={() => setEditing(null)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${mine ? 'border-white/20 bg-white/10 text-white' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200'}`}>
+                                    Cancel
+                                  </button>
+                                  <button type="button" onClick={async () => {
+                            var _a, _b, _c;
+                            const socket = socketRef.current;
+                            const text = editing.text.trim();
+                            if (!text)
+                                return;
+                            if (!canEditMessage(m)) {
+                                sonner_1.toast.error('You can only edit within 30 minutes and before any replies');
+                                setEditing(null);
+                                return;
+                            }
+                            if (!socket || !socket.connected) {
+                                try {
+                                    const res = await api_1.default.patch(`/chats/messages/${m.id}`, { text });
+                                    const editedAt = ((_a = res === null || res === void 0 ? void 0 : res.data) === null || _a === void 0 ? void 0 : _a.editedAt) || new Date().toISOString();
+                                    setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, text, editedAt } : x)));
+                                }
+                                catch (e) {
+                                    sonner_1.toast.error(((_c = (_b = e === null || e === void 0 ? void 0 : e.response) === null || _b === void 0 ? void 0 : _b.data) === null || _c === void 0 ? void 0 : _c.message) || 'Failed to edit message');
+                                }
+                                setEditing(null);
+                                return;
+                            }
+                            socket.emit('message:edit', { messageId: m.id, text });
+                            setEditing(null);
+                        }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${mine ? 'bg-white text-indigo-700' : 'bg-indigo-600 text-white'}`}>
+                                    Save
+                                  </button>
+                                </div>
+                              </div>) : (m.text)}
+                          </div>
+
+                          {((_a = m.attachments) === null || _a === void 0 ? void 0 : _a.length) > 0 && (<div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {m.attachments.map((a) => {
+                            const abs = fileUrlToAbsolute(a.url);
+                            const isImage = a.type === 'IMAGE';
+                            const isVideo = a.type === 'VIDEO';
+                            return (<a key={a.id} href={abs} target="_blank" rel="noreferrer" className={`rounded-xl overflow-hidden border ${mine ? 'border-white/20 bg-white/10' : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40'} hover:opacity-95 transition-opacity`}>
+                                    {isImage ? (<img src={abs} alt={a.originalName || 'image'} className="w-full h-44 object-cover"/>) : isVideo ? (<video src={abs} controls className="w-full h-44 object-cover"/>) : (<div className="p-3 text-xs">
+                                        <div className={`font-semibold ${mine ? 'text-indigo-50' : 'text-gray-700 dark:text-gray-200'}`}>{a.originalName || 'File'}</div>
+                                        <div className={`${mine ? 'text-indigo-100' : 'text-gray-500 dark:text-gray-400'}`}>{a.mimeType || 'document'}</div>
+                                      </div>)}
+                                  </a>);
+                        })}
+                            </div>)}
+
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {((_b = m.reactions) === null || _b === void 0 ? void 0 : _b.length) > 0 && (<div className="flex items-center gap-1 flex-wrap">
+                                  {Object.entries(m.reactions.reduce((acc, r) => {
+                            acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                            return acc;
+                        }, {})).map(([emoji, count]) => (<button key={emoji} type="button" onClick={() => toggleReaction(m.id, emoji)} className={`px-2 py-1 rounded-full text-xs font-semibold border ${mine ? 'border-white/20 bg-white/10 text-white' : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 text-gray-800 dark:text-gray-200'}`}>
+                                      {emoji} {count}
+                                    </button>))}
+                                </div>)}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {QUICK_EMOJIS.slice(0, 5).map((e) => (<button key={e} type="button" onClick={() => toggleReaction(m.id, e)} className={`w-8 h-8 rounded-xl text-sm border transition-colors ${mine ? 'border-white/20 bg-white/10 hover:bg-white/15 text-white' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40'}`}>
+                                  {e}
+                                </button>))}
+                              <button type="button" onClick={() => setReplyTo(m)} className={`w-8 h-8 rounded-xl text-[11px] font-bold border transition-colors ${mine ? 'border-white/20 bg-white/10 hover:bg-white/15 text-white' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40 text-gray-700 dark:text-gray-200'}`}>
+                                ↩
+                              </button>
+                              {canEditMessage(m) && (<button type="button" onClick={() => setEditing({ messageId: m.id, text: m.text || '' })} className={`w-8 h-8 rounded-xl border transition-colors flex items-center justify-center ${mine ? 'border-white/20 bg-white/10 hover:bg-white/15 text-white' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40'}`}>
+                                  <lucide_react_1.Pencil className="h-4 w-4"/>
+                                </button>)}
+                              {(mine || canAdmin) && (<button type="button" onClick={() => setConfirmDelete(m)} className={`w-8 h-8 rounded-xl border transition-colors flex items-center justify-center ${mine ? 'border-white/20 bg-white/10 hover:bg-white/15 text-white' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40 text-gray-700 dark:text-gray-200'}`}>
+                                  <lucide_react_1.Trash2 className="h-4 w-4"/>
+                                </button>)}
+                            </div>
+                          </div>
+                        </div>
+                      </framer_motion_1.motion.div>);
+            })}
+                </framer_motion_1.AnimatePresence>)}
+              <div ref={endRef}/>
+              {selectedThreadId && showJumpToBottom && (<div className="sticky bottom-3 flex justify-end pointer-events-none">
+                  <button type="button" onClick={() => scrollToBottom('smooth')} className="pointer-events-auto px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold flex items-center gap-2 shadow-lg">
+                    <lucide_react_1.ArrowDown className="h-4 w-4"/>
+                    Jump to latest
+                  </button>
+                </div>)}
+            </div>
+
+            <div className="p-4 border-t border-gray-200/60 dark:border-slate-700/60 bg-white dark:bg-slate-900">
+              {selectedThreadId && selectedTypingIds.length > 0 && (<div className="mb-2 text-xs text-gray-500 dark:text-gray-400">{selectedTypingIds.length === 1 ? 'Typing…' : 'Multiple people typing…'}</div>)}
+
+              {replyTo && (<div className="mb-3 rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-gray-700 dark:text-gray-200">Replying to {replyTo.senderName}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{replyTo.text || 'Message'}</div>
+                  </div>
+                  <button type="button" onClick={() => setReplyTo(null)} className="text-gray-400 hover:text-gray-600">
+                    ✕
+                  </button>
+                </div>)}
+
+              {pendingAttachments.length > 0 && (<div className="mb-3 flex flex-wrap gap-2">
+                  {pendingAttachments.map((a) => {
+                const abs = fileUrlToAbsolute(a.url);
+                const isImage = a.type === 'IMAGE';
+                const isVideo = a.type === 'VIDEO';
+                return (<div key={a.id} className="relative w-24 h-24 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800">
+                        {isImage ? (<img src={abs} alt={a.originalName || 'image'} className="w-full h-full object-cover"/>) : isVideo ? (<video src={abs} className="w-full h-full object-cover"/>) : (<div className="p-2 text-xs">
+                            <div className="font-semibold text-gray-700 dark:text-gray-200 line-clamp-2">{a.originalName || 'File'}</div>
+                            <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{a.mimeType || 'document'}</div>
+                          </div>)}
+                        <button type="button" onClick={() => removePendingAttachment(a.id)} className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/55 hover:bg-black/65 text-white flex items-center justify-center" aria-label="Remove attachment">
+                          <lucide_react_1.X className="h-4 w-4"/>
+                        </button>
+                      </div>);
+            })}
+                </div>)}
+
+              <div className="flex items-end gap-3">
+                <div className="flex items-center gap-2">
+                  <button type="button" disabled={!selectedThreadId} onClick={() => { var _a; return (_a = attachmentInputRef.current) === null || _a === void 0 ? void 0 : _a.click(); }} className="w-11 h-11 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40 flex items-center justify-center disabled:opacity-50">
+                    <lucide_react_1.Paperclip className="h-5 w-5 text-gray-600 dark:text-gray-200"/>
+                  </button>
+                  <button type="button" disabled={!selectedThreadId} onClick={() => setEmojiOpen((v) => !v)} className="w-11 h-11 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40 flex items-center justify-center disabled:opacity-50">
+                    <lucide_react_1.Smile className="h-5 w-5 text-gray-600 dark:text-gray-200"/>
+                  </button>
+                </div>
+
+                <div className="flex-1 relative">
+                  <textarea ref={composerRef} value={draft} onChange={(e) => {
+            setDraft(e.target.value);
+            sendTyping(true);
+        }} onBlur={() => sendTyping(false)} rows={1} disabled={!selectedThreadId} placeholder={selectedThreadId ? 'Write a message…' : 'Select a chat first'} className="w-full resize-none rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-sm px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }}/>
+
+                  {emojiOpen && selectedThreadId && (<div className="absolute bottom-14 left-0 w-full max-w-md rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-3 z-50">
+                      <div className="grid grid-cols-9 gap-1">
+                        {QUICK_EMOJIS.map((e) => (<button key={e} type="button" className="w-9 h-9 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-800/60" onClick={() => insertEmoji(e)}>
+                            {e}
+                          </button>))}
+                      </div>
+                    </div>)}
+                </div>
+
+                <button type="button" onClick={() => sendMessage()} disabled={!selectedThreadId} className="px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold flex items-center gap-2">
+                  <lucide_react_1.Send className="h-4 w-4"/>
+                  Send
+                </button>
+              </div>
+
+              <input ref={attachmentInputRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={async (e) => {
+            const files = e.target.files;
+            if (files)
+                await uploadFiles(files);
+            e.target.value = '';
+        }}/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Modal_1.Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="New chat" maxWidth="max-w-3xl">
+        <div className="space-y-5">
+          <div className="flex items-center gap-2 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 w-fit">
+            <button type="button" onClick={() => setCreateMode('DIRECT')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${createMode === 'DIRECT' ? 'bg-indigo-600 text-white' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/40'}`}>
+              Direct
+            </button>
+            {canAdmin && (<button type="button" onClick={() => setCreateMode('GROUP')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${createMode === 'GROUP' ? 'bg-indigo-600 text-white' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/40'}`}>
+                Group
+              </button>)}
+          </div>
+
+          {createMode === 'DIRECT' ? (<div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Employee</label>
+              <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-full rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white px-4 py-3 text-sm">
+                <option value="">Select employee…</option>
+                {employees.map((e) => (<option key={e.id} value={e.id}>
+                    {e.firstName} {e.lastName} — {e.email}
+                  </option>))}
+              </select>
+            </div>) : (<>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Group name</label>
+                  <input value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} className="w-full rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white px-4 py-3 text-sm" placeholder="e.g. Operations Team"/>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Group picture</label>
+                  <button type="button" onClick={() => {
+                var _a;
+                setGroupImageTarget('create');
+                (_a = groupImageInputRef.current) === null || _a === void 0 ? void 0 : _a.click();
+            }} className="w-full rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/40 flex items-center justify-center gap-2">
+                    <lucide_react_1.Image className="h-4 w-4"/>
+                    Upload
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200">Members</label>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{Object.values(selectedMembers).filter(Boolean).length} selected</div>
+                </div>
+                <div className="mt-3 max-h-72 overflow-y-auto rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                  {employees.length === 0 ? (<div className="p-4 text-sm text-gray-500 dark:text-gray-400">No employees found.</div>) : (<div className="divide-y divide-gray-200/60 dark:divide-slate-700/60">
+                      {employees.map((e) => {
+                    const checked = !!selectedMembers[e.id];
+                    return (<label key={e.id} className="flex items-center justify-between gap-3 p-3 hover:bg-gray-50 dark:hover:bg-slate-700/40 cursor-pointer">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                                {e.firstName} {e.lastName}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{e.email}</div>
+                            </div>
+                            <input type="checkbox" checked={checked} onChange={(ev) => setSelectedMembers((p) => ({ ...p, [e.id]: ev.target.checked }))} className="h-4 w-4"/>
+                          </label>);
+                })}
+                    </div>)}
+                </div>
+              </div>
+            </>)}
+
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={() => setCreateOpen(false)} className="px-4 py-2 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 text-sm font-semibold">
+              Cancel
+            </button>
+            <button type="button" onClick={createThread} disabled={creating} className="px-4 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold">
+              {creating ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        </div>
+      </Modal_1.Modal>
+
+      <Modal_1.Modal isOpen={manageOpen} onClose={() => setManageOpen(false)} title="Manage group" maxWidth="max-w-4xl">
+        {!selectedThreadId || !selectedThread || selectedThread.type !== 'GROUP' ? (<div className="text-sm text-gray-500 dark:text-gray-400">Select a group first.</div>) : (<div className="space-y-6">
+            <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5">
+              <div className="text-sm font-semibold text-gray-900 dark:text-white">Group info</div>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Name</label>
+                  <input value={manageTitle} onChange={(e) => setManageTitle(e.target.value)} className="w-full rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white px-4 py-3 text-sm"/>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Picture</label>
+                  <button type="button" onClick={() => {
+                var _a;
+                setGroupImageTarget('manage');
+                (_a = groupImageInputRef.current) === null || _a === void 0 ? void 0 : _a.click();
+            }} className="w-full rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/40 flex items-center justify-center gap-2">
+                    <lucide_react_1.Image className="h-4 w-4"/>
+                    Upload
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center justify-end">
+                <button type="button" onClick={updateGroup} disabled={managing} className="px-4 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold">
+                  Save
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5">
+              <div className="text-sm font-semibold text-gray-900 dark:text-white">Add member</div>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <select value={manageAddEmployeeId} onChange={(e) => setManageAddEmployeeId(e.target.value)} className="md:col-span-2 w-full rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white px-4 py-3 text-sm">
+                  <option value="">Select employee…</option>
+                  {employees
+                .filter((e) => (e.status || 'ACTIVE') === 'ACTIVE')
+                .filter((e) => !selectedMemberIds.has(e.id))
+                .map((e) => (<option key={e.id} value={e.id}>
+                        {e.firstName} {e.lastName} — {e.email}
+                      </option>))}
+                </select>
+                <button type="button" onClick={addMember} disabled={managing || !manageAddEmployeeId} className="px-4 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold">
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white">Members</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{selectedThread.participants.length} total</div>
+              </div>
+              <div className="mt-4 max-h-96 overflow-y-auto divide-y divide-gray-200/60 dark:divide-slate-700/60">
+                {selectedThread.participants.map((p) => (<div key={p.employeeId} className="py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                        {p.employee.firstName} {p.employee.lastName}
+                        {p.role === 'ADMIN' && <span className="ml-2 text-xs font-bold text-indigo-600 dark:text-indigo-400">Admin</span>}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{p.employee.email}</div>
+                    </div>
+                    <button type="button" onClick={() => removeMember(p.employeeId)} disabled={managing} className="px-3 py-2 rounded-2xl bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 text-sm font-semibold">
+                      Remove
+                    </button>
+                  </div>))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button type="button" onClick={() => setManageOpen(false)} className="px-4 py-2 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 text-sm font-semibold">
+                Close
+              </button>
+            </div>
+          </div>)}
+      </Modal_1.Modal>
+
+      <input ref={groupImageInputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => {
+            var _a, _b, _c;
+            const file = (_a = e.target.files) === null || _a === void 0 ? void 0 : _a[0];
+            if (!file)
+                return;
+            try {
+                const url = await uploadGroupImage(file);
+                if (groupImageTarget === 'create')
+                    setCreateImageUrl(url);
+                else
+                    setManageImageUrl(url);
+                sonner_1.toast.success('Image uploaded');
+            }
+            catch (err) {
+                sonner_1.toast.error(((_c = (_b = err === null || err === void 0 ? void 0 : err.response) === null || _b === void 0 ? void 0 : _b.data) === null || _c === void 0 ? void 0 : _c.message) || 'Image upload failed');
+            }
+            finally {
+                e.target.value = '';
+            }
+        }}/>
+
+      <Modal_1.Modal isOpen={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Delete message" maxWidth="max-w-md">
+        <div className="space-y-4">
+          <div className="text-sm text-gray-600 dark:text-gray-300">Delete this message for everyone in the chat?</div>
+          <div className="flex items-center justify-end gap-3">
+            <button type="button" onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 text-sm font-semibold">
+              Cancel
+            </button>
+            <button type="button" onClick={() => {
+            const socket = socketRef.current;
+            if (socket && (confirmDelete === null || confirmDelete === void 0 ? void 0 : confirmDelete.id)) {
+                socket.emit('message:delete', { messageId: confirmDelete.id });
+            }
+            setConfirmDelete(null);
+        }} className="px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">
+              Delete
+            </button>
+          </div>
+        </div>
+      </Modal_1.Modal>
+    </div>);
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@unitedlinkgroup/database",
+  "version": "0.0.0",
+  "private": true,
+  "main": "./prisma/client/index.js",
+  "types": "./prisma/client/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./prisma/client/index.d.ts",
+      "import": "./prisma/client/index.js",
+      "require": "./prisma/client/index.js"
+    }
+  },
+  "scripts": {
+    "build": "prisma generate",
+    "generate": "prisma generate",
+    "db:push": "prisma db push"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.10.0"
+  }
+}

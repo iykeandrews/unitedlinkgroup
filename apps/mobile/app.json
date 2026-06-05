@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "unitedlinkgroup-mobile",
+    "slug": "unitedlinkgroup-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.unitedlinkgroup-mobile"
+    },
+    "android": {
+      "adaptiveIcon": {},
+      "package": "com.anonymous.unitedlinkgroupmobile"
+    },
+    "web": {
+      "favicon": ""
+    },
+    "plugins": [
+      "@react-native-community/datetimepicker",
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2d644c77-e5dd-4266-8c5b-b25fda480435"
+      }
+    },
+    "owner": "iykeandrews"
+  }
+}

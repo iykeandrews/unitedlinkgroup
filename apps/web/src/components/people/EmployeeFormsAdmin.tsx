@@ -1,0 +1,890 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { format, isBefore, addDays } from 'date-fns';
+import { CheckCircle2, FileSignature, Plus, Search, Trash2, UserPlus } from 'lucide-react';
+import { toast } from 'sonner';
+import api from '../../lib/api';
+import { useBusiness } from '../../context/business-context';
+import { Modal, ModalActionButton } from '../Modal';
+import { ConfirmModal } from '../ConfirmModal';
+import dynamic from 'next/dynamic';
+import 'react-quill-new/dist/quill.snow.css';
+
+const ReactQuill = dynamic(
+  async () => {
+    const { default: RQ } = await import('react-quill-new');
+    const ForwardedReactQuill = ({ forwardedRef, ...props }: any) => <RQ ref={forwardedRef} {...props} />;
+    ForwardedReactQuill.displayName = 'ForwardedReactQuill';
+    return ForwardedReactQuill;
+  },
+  { ssr: false }
+);
+
+type TemplateType = 'EMPLOYMENT_FORM' | 'SOP';
+type TemplateStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+
+type FieldType = 'text' | 'textarea' | 'date' | 'checkbox';
+type FieldDef = { id: string; label: string; type: FieldType; required: boolean };
+
+interface Employee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  status: string;
+  role: string;
+}
+
+interface Template {
+  id: string;
+  businessId: string;
+  type: TemplateType;
+  title: string;
+  description?: string | null;
+  status: TemplateStatus;
+  version?: string | null;
+  body?: string | null;
+  fields?: string | null;
+  fileUrl?: string | null;
+  acknowledgementRequired: boolean;
+  requiresSignature: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Assignment {
+  id: string;
+  status: 'PENDING' | 'SUBMITTED' | 'VOID';
+  assignedAt: string;
+  dueAt?: string | null;
+  submittedAt?: string | null;
+  signatureName?: string | null;
+  employee: { id: string; firstName: string; lastName: string };
+}
+
+function safeParseFields(value: string | null | undefined): FieldDef[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((f: any) => ({
+        id: String(f?.id || crypto.randomUUID()),
+        label: String(f?.label || ''),
+        type: (String(f?.type || 'text') as FieldType),
+        required: !!f?.required,
+      }))
+      .filter((f: FieldDef) => !!f.label);
+  } catch {
+    return [];
+  }
+}
+
+export function EmployeeFormsAdmin({ type }: { type: TemplateType }) {
+  const { selectedBusiness } = useBusiness();
+
+  const [profileRole, setProfileRole] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState<TemplateStatus | 'ALL'>('ALL');
+
+  const [editor, setEditor] = useState<{
+    open: boolean;
+    saving: boolean;
+    id?: string;
+    title: string;
+    description: string;
+    status: TemplateStatus;
+    version: string;
+    body: string;
+    fileUrl: string;
+    acknowledgementRequired: boolean;
+    requiresSignature: boolean;
+    fields: FieldDef[];
+  }>({
+    open: false,
+    saving: false,
+    title: '',
+    description: '',
+    status: 'ACTIVE',
+    version: '',
+    body: '',
+    fileUrl: '',
+    acknowledgementRequired: type === 'SOP',
+    requiresSignature: true,
+    fields: [],
+  });
+
+  const [assignModal, setAssignModal] = useState<{ open: boolean; templateId?: string; assignAll: boolean; employeeId: string; dueAt: string; saving: boolean }>({
+    open: false,
+    templateId: undefined,
+    assignAll: true,
+    employeeId: 'unassigned',
+    dueAt: '',
+    saving: false,
+  });
+
+  const [submissionsModal, setSubmissionsModal] = useState<{ open: boolean; templateId?: string; loading: boolean; rows: Assignment[] }>({
+    open: false,
+    templateId: undefined,
+    loading: false,
+    rows: [],
+  });
+
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; id?: string; isLoading: boolean }>({
+    isOpen: false,
+    id: undefined,
+    isLoading: false,
+  });
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const res = await api.get('/auth/profile');
+        setProfileRole(res.data.role);
+      } catch {
+        setProfileRole(null);
+      }
+    };
+    loadProfile();
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    if (!profileRole) return;
+    if (profileRole === 'SUPER_ADMIN' && !selectedBusiness) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const params: any = { type };
+      if (q.trim()) params.q = q.trim();
+      if (status !== 'ALL') params.status = status;
+      const [tRes, eRes] = await Promise.allSettled([
+        api.get('/employee-forms/templates', { params }),
+        api.get('/employees', { params: { status: 'ACTIVE' } }),
+      ]);
+      if (tRes.status === 'fulfilled') setTemplates(tRes.value.data || []);
+      else throw tRes.reason;
+      if (eRes.status === 'fulfilled') setEmployees(eRes.value.data || []);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || 'Failed to load templates';
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [profileRole, q, selectedBusiness, status, type]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const canManage = profileRole === 'SUPER_ADMIN' || profileRole === 'BUSINESS_ADMIN' || profileRole === 'MANAGER';
+
+  const quillModules = useMemo(() => ({
+    toolbar: [
+      [{ header: [1, 2, 3, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ color: [] }, { background: [] }],
+      [{ align: [] }],
+      [{ list: 'ordered' }, { list: 'bullet' }, { indent: '-1' }, { indent: '+1' }],
+      ['blockquote', 'code-block'],
+      ['link'],
+      ['clean'],
+    ],
+  }), []);
+
+  const quillFormats = useMemo(
+    () => [
+      'header',
+      'bold',
+      'italic',
+      'underline',
+      'strike',
+      'color',
+      'background',
+      'align',
+      'list',
+      'indent',
+      'blockquote',
+      'code-block',
+      'link',
+    ],
+    []
+  );
+
+  const stats = useMemo(() => {
+    const total = templates.length;
+    const active = templates.filter(t => t.status === 'ACTIVE').length;
+    const draft = templates.filter(t => t.status === 'DRAFT').length;
+    const archived = templates.filter(t => t.status === 'ARCHIVED').length;
+    return { total, active, draft, archived };
+  }, [templates]);
+
+  const openCreate = () => {
+    setEditor({
+      open: true,
+      saving: false,
+      title: '',
+      description: '',
+      status: 'ACTIVE',
+      version: '',
+      body: '',
+      fileUrl: '',
+      acknowledgementRequired: type === 'SOP',
+      requiresSignature: true,
+      fields: [],
+    });
+  };
+
+  const openEdit = (t: Template) => {
+    setEditor({
+      open: true,
+      saving: false,
+      id: t.id,
+      title: t.title,
+      description: t.description || '',
+      status: t.status,
+      version: t.version || '',
+      body: t.body || '',
+      fileUrl: t.fileUrl || '',
+      acknowledgementRequired: !!t.acknowledgementRequired,
+      requiresSignature: !!t.requiresSignature,
+      fields: safeParseFields(t.fields),
+    });
+  };
+
+  const save = async () => {
+    if (!editor.title.trim()) {
+      toast.error('Title is required');
+      return;
+    }
+    setEditor(prev => ({ ...prev, saving: true }));
+    try {
+      const isSop = type === 'SOP';
+      const normalizedBody = (editor.body || '').replace(/\s/g, '');
+      const body =
+        !normalizedBody || normalizedBody === '<p><br></p>'
+          ? null
+          : editor.body;
+      const payload: any = {
+        type,
+        title: editor.title.trim(),
+        description: editor.description.trim() ? editor.description.trim() : null,
+        status: editor.status,
+        version: editor.version.trim() ? editor.version.trim() : null,
+        body,
+        fields: isSop ? JSON.stringify([]) : JSON.stringify(editor.fields || []),
+        fileUrl: editor.fileUrl.trim() ? editor.fileUrl.trim() : null,
+        acknowledgementRequired: isSop ? true : !!editor.acknowledgementRequired,
+        requiresSignature: true,
+      };
+      if (editor.id) {
+        await api.patch(`/employee-forms/templates/${editor.id}`, payload);
+        toast.success('Template updated');
+      } else {
+        await api.post('/employee-forms/templates', payload);
+        toast.success('Template created');
+      }
+      setEditor(prev => ({ ...prev, open: false }));
+      fetchData();
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || 'Failed to save template';
+      toast.error(msg);
+      setEditor(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  const openAssign = (templateId: string) => {
+    setAssignModal({
+      open: true,
+      templateId,
+      assignAll: true,
+      employeeId: 'unassigned',
+      dueAt: '',
+      saving: false,
+    });
+  };
+
+  const assign = async () => {
+    if (!assignModal.templateId) return;
+    setAssignModal(prev => ({ ...prev, saving: true }));
+    try {
+      const payload: any = {};
+      if (assignModal.assignAll) {
+        payload.assignAll = 'true';
+      } else {
+        if (!assignModal.employeeId || assignModal.employeeId === 'unassigned') {
+          toast.error('Select an employee or choose assign all');
+          setAssignModal(prev => ({ ...prev, saving: false }));
+          return;
+        }
+        payload.employeeIds = [assignModal.employeeId];
+      }
+      if (assignModal.dueAt) payload.dueAt = new Date(assignModal.dueAt).toISOString();
+      const res = await api.post(`/employee-forms/templates/${assignModal.templateId}/assign`, payload);
+      const assigned = res?.data?.assigned ?? 0;
+      const failed = res?.data?.failed ?? 0;
+      toast.success(`Assigned ${assigned}${failed ? `, ${failed} failed` : ''}`);
+      setAssignModal(prev => ({ ...prev, open: false }));
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || 'Failed to assign';
+      toast.error(msg);
+      setAssignModal(prev => ({ ...prev, saving: false }));
+    }
+  };
+
+  const openSubmissions = async (templateId: string) => {
+    setSubmissionsModal({ open: true, templateId, loading: true, rows: [] });
+    try {
+      const res = await api.get('/employee-forms/assignments', { params: { templateId } });
+      setSubmissionsModal({ open: true, templateId, loading: false, rows: res.data || [] });
+    } catch {
+      setSubmissionsModal({ open: true, templateId, loading: false, rows: [] });
+    }
+  };
+
+  const confirmArchive = (id: string) => setDeleteConfirm({ isOpen: true, id, isLoading: false });
+
+  const archive = async () => {
+    if (!deleteConfirm.id) return;
+    setDeleteConfirm(prev => ({ ...prev, isLoading: true }));
+    try {
+      await api.delete(`/employee-forms/templates/${deleteConfirm.id}`);
+      toast.success('Template archived');
+      setDeleteConfirm({ isOpen: false, id: undefined, isLoading: false });
+      fetchData();
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || 'Failed to archive';
+      toast.error(msg);
+      setDeleteConfirm(prev => ({ ...prev, isLoading: false }));
+    }
+  };
+
+  if (profileRole === 'SUPER_ADMIN' && !selectedBusiness) {
+    return (
+      <div className="py-8">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+          <div className="text-lg font-semibold text-slate-900 dark:text-white">Select a business</div>
+          <div className="text-slate-500 dark:text-slate-400 mt-1">This feature requires a business context.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-8">
+      <div className="flex flex-col gap-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+              {type === 'SOP' ? 'SOP Files' : 'Employment Forms'}
+            </h1>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">
+              {type === 'SOP' ? 'Publish SOPs and collect employee acknowledgements.' : 'Create, assign, and track employee forms and signatures.'}
+            </p>
+          </div>
+          {canManage && (
+            <button
+              onClick={openCreate}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+            >
+              <Plus size={18} />
+              New {type === 'SOP' ? 'SOP' : 'Form'}
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <StatCard label="Total" value={stats.total} />
+          <StatCard label="Active" value={stats.active} />
+          <StatCard label="Draft" value={stats.draft} />
+          <StatCard label="Archived" value={stats.archived} />
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col gap-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div className="relative w-full md:max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search templates…"
+                  className="w-full pl-10 pr-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as any)}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm"
+                >
+                  <option value="ALL">All statuses</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="DRAFT">Draft</option>
+                  <option value="ARCHIVED">Archived</option>
+                </select>
+                <button
+                  onClick={() => fetchData()}
+                  className="px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Template</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Version</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Signature</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Updated</th>
+                  <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-slate-500">Loading…</td>
+                  </tr>
+                ) : templates.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-slate-500">No templates found.</td>
+                  </tr>
+                ) : (
+                  templates.map(t => (
+                    <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-medium text-slate-900 dark:text-white">{t.title}</div>
+                        <div className="text-xs text-slate-500 line-clamp-1">{t.description || '—'}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          t.status === 'ACTIVE'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                            : t.status === 'DRAFT'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                              : 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+                        }`}>
+                          {t.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-200">{t.version || '—'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-200">
+                        {t.requiresSignature ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <FileSignature className="w-4 h-4 text-purple-600 dark:text-purple-300" />
+                            Required
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-200">
+                        {format(new Date(t.updatedAt), 'd MMM yyyy')}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {canManage && (
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => openSubmissions(t.id)}
+                              className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                            >
+                              View
+                            </button>
+                            <button
+                              onClick={() => openAssign(t.id)}
+                              className="px-2.5 py-1.5 text-xs font-semibold rounded-md bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-2"
+                            >
+                              <UserPlus className="w-4 h-4" />
+                              Assign
+                            </button>
+                            <button
+                              onClick={() => openEdit(t)}
+                              className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => confirmArchive(t.id)}
+                              className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-600"
+                              title="Archive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <Modal
+        isOpen={editor.open}
+        onClose={() => setEditor(prev => ({ ...prev, open: false }))}
+        title={editor.id ? (type === 'SOP' ? 'Edit SOP' : 'Edit form') : (type === 'SOP' ? 'New SOP' : 'New form')}
+        maxWidth="max-w-4xl"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Title</label>
+            <input
+              value={editor.title}
+              onChange={(e) => setEditor(prev => ({ ...prev, title: e.target.value }))}
+              className="mt-1 w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Description</label>
+            <textarea
+              value={editor.description}
+              onChange={(e) => setEditor(prev => ({ ...prev, description: e.target.value }))}
+              rows={3}
+              className="mt-1 w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Status</label>
+            <select
+              value={editor.status}
+              onChange={(e) => setEditor(prev => ({ ...prev, status: e.target.value as any }))}
+              className="mt-1 w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
+            >
+              <option value="ACTIVE">Active</option>
+              <option value="DRAFT">Draft</option>
+              <option value="ARCHIVED">Archived</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Version</label>
+            <input
+              value={editor.version}
+              onChange={(e) => setEditor(prev => ({ ...prev, version: e.target.value }))}
+              className="mt-1 w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
+              placeholder="e.g. 1.0"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+              {type === 'SOP' ? 'SOP file URL (optional)' : 'File URL (optional)'}
+            </label>
+            <input
+              value={editor.fileUrl}
+              onChange={(e) => setEditor(prev => ({ ...prev, fileUrl: e.target.value }))}
+              className="mt-1 w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
+              placeholder="https://…"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Body</label>
+            <div className="mt-2 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900">
+              <div className="bg-slate-50 dark:bg-slate-800 px-4 py-2 border-b border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
+                {type === 'SOP' ? 'SOP Document Editor' : 'Form Body Editor'}
+              </div>
+              <div className="p-3">
+                <ReactQuill
+                  theme="snow"
+                  value={editor.body}
+                  onChange={(value: string) => setEditor(prev => ({ ...prev, body: value }))}
+                  modules={quillModules}
+                  formats={quillFormats}
+                />
+              </div>
+            </div>
+          </div>
+
+          {type === 'EMPLOYMENT_FORM' && (
+            <div className="md:col-span-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">Form fields</div>
+                <button
+                  type="button"
+                  onClick={() => setEditor(prev => ({ ...prev, fields: [...prev.fields, { id: crypto.randomUUID(), label: 'New field', type: 'text', required: true }] }))}
+                  className="px-3 py-2 text-sm font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200"
+                >
+                  Add field
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {editor.fields.length === 0 ? (
+                  <div className="text-sm text-slate-500">No fields yet.</div>
+                ) : (
+                  editor.fields.map((f, idx) => (
+                    <div key={f.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/40">
+                      <div className="md:col-span-6">
+                        <input
+                          value={f.label}
+                          onChange={(e) => setEditor(prev => {
+                            const copy = [...prev.fields];
+                            copy[idx] = { ...copy[idx], label: e.target.value };
+                            return { ...prev, fields: copy };
+                          })}
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
+                          placeholder="Label"
+                        />
+                      </div>
+                      <div className="md:col-span-3">
+                        <select
+                          value={f.type}
+                          onChange={(e) => setEditor(prev => {
+                            const copy = [...prev.fields];
+                            copy[idx] = { ...copy[idx], type: e.target.value as FieldType };
+                            return { ...prev, fields: copy };
+                          })}
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
+                        >
+                          <option value="text">Text</option>
+                          <option value="textarea">Textarea</option>
+                          <option value="date">Date</option>
+                          <option value="checkbox">Checkbox</option>
+                        </select>
+                      </div>
+                      <div className="md:col-span-2 flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={f.required}
+                          onChange={(e) => setEditor(prev => {
+                            const copy = [...prev.fields];
+                            copy[idx] = { ...copy[idx], required: e.target.checked };
+                            return { ...prev, fields: copy };
+                          })}
+                          className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        <div className="text-sm text-slate-700 dark:text-slate-200">Required</div>
+                      </div>
+                      <div className="md:col-span-1 flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setEditor(prev => ({ ...prev, fields: prev.fields.filter(x => x.id !== f.id) }))}
+                          className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-600"
+                          title="Remove"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="md:col-span-2 flex flex-wrap items-center gap-6">
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={true}
+                onChange={(e) => setEditor(prev => ({ ...prev, requiresSignature: e.target.checked }))}
+                disabled={true}
+                className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 disabled:opacity-60"
+              />
+              Require signature
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+              <input
+                type="checkbox"
+                checked={type === 'SOP' ? true : editor.acknowledgementRequired}
+                onChange={(e) => setEditor(prev => ({ ...prev, acknowledgementRequired: e.target.checked }))}
+                disabled={type === 'SOP'}
+                className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500 disabled:opacity-60"
+              />
+              Acknowledgement required
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-6 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setEditor(prev => ({ ...prev, open: false }))}
+            className="text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white"
+          >
+            Cancel
+          </button>
+          <ModalActionButton kind="submit" onClick={() => save()} disabled={editor.saving}>
+            {editor.saving ? 'Saving…' : editor.id ? 'Save changes' : 'Create'}
+          </ModalActionButton>
+        </div>
+      </Modal>
+
+      <Modal isOpen={assignModal.open} onClose={() => setAssignModal(prev => ({ ...prev, open: false }))} title="Assign to employees" maxWidth="max-w-xl">
+        <div className="space-y-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={assignModal.assignAll}
+              onChange={(e) => setAssignModal(prev => ({ ...prev, assignAll: e.target.checked }))}
+              className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+            />
+            Assign to all active employees
+          </label>
+
+          {!assignModal.assignAll && (
+            <div>
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">Employee</div>
+              <select
+                value={assignModal.employeeId}
+                onChange={(e) => setAssignModal(prev => ({ ...prev, employeeId: e.target.value }))}
+                className="mt-1 w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
+              >
+                <option value="unassigned">Select employee</option>
+                {employees
+                  .filter(e => e.status === 'ACTIVE')
+                  .sort((a, b) => (a.lastName || '').localeCompare(b.lastName || '') || (a.firstName || '').localeCompare(b.firstName || ''))
+                  .map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.firstName} {e.lastName}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">Due date (optional)</div>
+            <input
+              type="date"
+              value={assignModal.dueAt}
+              onChange={(e) => setAssignModal(prev => ({ ...prev, dueAt: e.target.value }))}
+              className="mt-1 w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
+            />
+          </div>
+        </div>
+        <div className="mt-6 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setAssignModal(prev => ({ ...prev, open: false }))}
+            className="text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white"
+          >
+            Cancel
+          </button>
+          <ModalActionButton kind="submit" onClick={() => assign()} disabled={assignModal.saving}>
+            {assignModal.saving ? 'Assigning…' : 'Assign'}
+          </ModalActionButton>
+        </div>
+      </Modal>
+
+      <Modal isOpen={submissionsModal.open} onClose={() => setSubmissionsModal(prev => ({ ...prev, open: false }))} title="Assignments" maxWidth="max-w-4xl">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Employee</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Due</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Signature</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {submissionsModal.loading ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">Loading…</td>
+                </tr>
+              ) : submissionsModal.rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-500">No assignments found.</td>
+                </tr>
+              ) : (
+                submissionsModal.rows.map(r => {
+                  const due = r.dueAt ? new Date(r.dueAt) : null;
+                  const overdue = r.status !== 'SUBMITTED' && due && isBefore(due, new Date());
+                  return (
+                    <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                        {r.employee.firstName} {r.employee.lastName}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          r.status === 'SUBMITTED'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                        }`}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {due ? (
+                          <span className={`${overdue ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-slate-700 dark:text-slate-200'}`}>
+                            {format(due, 'd MMM yyyy')}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                        {r.submittedAt ? format(new Date(r.submittedAt), 'd MMM yyyy') : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                        {r.signatureName || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {r.status === 'SUBMITTED' && (
+                          <a
+                            href={`/dashboard/forms/${r.id}/print`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-2"
+                          >
+                            <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-300" />
+                            View PDF
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        onClose={() => setDeleteConfirm({ isOpen: false, id: undefined, isLoading: false })}
+        onConfirm={archive}
+        title="Archive template"
+        message="Archive this template? Existing employee assignments remain accessible."
+        confirmText="Archive"
+        cancelText="Cancel"
+        variant="danger"
+        isLoading={deleteConfirm.isLoading}
+      />
+    </div>
+  );
+}
+
+function StatCard({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
+  return (
+    <div className={`rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 flex items-center justify-between ${
+      danger ? 'ring-1 ring-red-200 dark:ring-red-900/40' : ''
+    }`}>
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</div>
+        <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{value}</div>
+      </div>
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+        danger ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-900/40 dark:text-slate-200'
+      }`}>
+        <CheckCircle2 className="w-4 h-4" />
+      </div>
+    </div>
+  );
+}

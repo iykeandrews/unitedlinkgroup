@@ -1,0 +1,190 @@
+"use strict";
+var __esDecorate = (this && this.__esDecorate) || function (ctor, descriptorIn, decorators, contextIn, initializers, extraInitializers) {
+    function accept(f) { if (f !== void 0 && typeof f !== "function") throw new TypeError("Function expected"); return f; }
+    var kind = contextIn.kind, key = kind === "getter" ? "get" : kind === "setter" ? "set" : "value";
+    var target = !descriptorIn && ctor ? contextIn["static"] ? ctor : ctor.prototype : null;
+    var descriptor = descriptorIn || (target ? Object.getOwnPropertyDescriptor(target, contextIn.name) : {});
+    var _, done = false;
+    for (var i = decorators.length - 1; i >= 0; i--) {
+        var context = {};
+        for (var p in contextIn) context[p] = p === "access" ? {} : contextIn[p];
+        for (var p in contextIn.access) context.access[p] = contextIn.access[p];
+        context.addInitializer = function (f) { if (done) throw new TypeError("Cannot add initializers after decoration has completed"); extraInitializers.push(accept(f || null)); };
+        var result = (0, decorators[i])(kind === "accessor" ? { get: descriptor.get, set: descriptor.set } : descriptor[key], context);
+        if (kind === "accessor") {
+            if (result === void 0) continue;
+            if (result === null || typeof result !== "object") throw new TypeError("Object expected");
+            if (_ = accept(result.get)) descriptor.get = _;
+            if (_ = accept(result.set)) descriptor.set = _;
+            if (_ = accept(result.init)) initializers.unshift(_);
+        }
+        else if (_ = accept(result)) {
+            if (kind === "field") initializers.unshift(_);
+            else descriptor[key] = _;
+        }
+    }
+    if (target) Object.defineProperty(target, contextIn.name, descriptor);
+    done = true;
+};
+var __runInitializers = (this && this.__runInitializers) || function (thisArg, initializers, value) {
+    var useValue = arguments.length > 2;
+    for (var i = 0; i < initializers.length; i++) {
+        value = useValue ? initializers[i].call(thisArg, value) : initializers[i].call(thisArg);
+    }
+    return useValue ? value : void 0;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CreateAssetDto = void 0;
+const class_validator_1 = require("class-validator");
+let CreateAssetDto = (() => {
+    var _a;
+    let _name_decorators;
+    let _name_initializers = [];
+    let _name_extraInitializers = [];
+    let _description_decorators;
+    let _description_initializers = [];
+    let _description_extraInitializers = [];
+    let _serialNumber_decorators;
+    let _serialNumber_initializers = [];
+    let _serialNumber_extraInitializers = [];
+    let _category_decorators;
+    let _category_initializers = [];
+    let _category_extraInitializers = [];
+    let _type_decorators;
+    let _type_initializers = [];
+    let _type_extraInitializers = [];
+    let _brand_decorators;
+    let _brand_initializers = [];
+    let _brand_extraInitializers = [];
+    let _model_decorators;
+    let _model_initializers = [];
+    let _model_extraInitializers = [];
+    let _size_decorators;
+    let _size_initializers = [];
+    let _size_extraInitializers = [];
+    let _color_decorators;
+    let _color_initializers = [];
+    let _color_extraInitializers = [];
+    let _condition_decorators;
+    let _condition_initializers = [];
+    let _condition_extraInitializers = [];
+    let _vendor_decorators;
+    let _vendor_initializers = [];
+    let _vendor_extraInitializers = [];
+    let _quantity_decorators;
+    let _quantity_initializers = [];
+    let _quantity_extraInitializers = [];
+    let _licenseNumber_decorators;
+    let _licenseNumber_initializers = [];
+    let _licenseNumber_extraInitializers = [];
+    let _complianceChecked_decorators;
+    let _complianceChecked_initializers = [];
+    let _complianceChecked_extraInitializers = [];
+    let _status_decorators;
+    let _status_initializers = [];
+    let _status_extraInitializers = [];
+    let _purchaseDate_decorators;
+    let _purchaseDate_initializers = [];
+    let _purchaseDate_extraInitializers = [];
+    let _purchaseCost_decorators;
+    let _purchaseCost_initializers = [];
+    let _purchaseCost_extraInitializers = [];
+    let _warrantyExpiration_decorators;
+    let _warrantyExpiration_initializers = [];
+    let _warrantyExpiration_extraInitializers = [];
+    let _locationId_decorators;
+    let _locationId_initializers = [];
+    let _locationId_extraInitializers = [];
+    let _assignedToId_decorators;
+    let _assignedToId_initializers = [];
+    let _assignedToId_extraInitializers = [];
+    let _assignedDate_decorators;
+    let _assignedDate_initializers = [];
+    let _assignedDate_extraInitializers = [];
+    let _expectedReturnDate_decorators;
+    let _expectedReturnDate_initializers = [];
+    let _expectedReturnDate_extraInitializers = [];
+    let _notes_decorators;
+    let _notes_initializers = [];
+    let _notes_extraInitializers = [];
+    return _a = class CreateAssetDto {
+            constructor() {
+                this.name = __runInitializers(this, _name_initializers, void 0);
+                this.description = (__runInitializers(this, _name_extraInitializers), __runInitializers(this, _description_initializers, void 0));
+                this.serialNumber = (__runInitializers(this, _description_extraInitializers), __runInitializers(this, _serialNumber_initializers, void 0));
+                this.category = (__runInitializers(this, _serialNumber_extraInitializers), __runInitializers(this, _category_initializers, void 0));
+                this.type = (__runInitializers(this, _category_extraInitializers), __runInitializers(this, _type_initializers, void 0));
+                this.brand = (__runInitializers(this, _type_extraInitializers), __runInitializers(this, _brand_initializers, void 0));
+                this.model = (__runInitializers(this, _brand_extraInitializers), __runInitializers(this, _model_initializers, void 0));
+                this.size = (__runInitializers(this, _model_extraInitializers), __runInitializers(this, _size_initializers, void 0));
+                this.color = (__runInitializers(this, _size_extraInitializers), __runInitializers(this, _color_initializers, void 0));
+                this.condition = (__runInitializers(this, _color_extraInitializers), __runInitializers(this, _condition_initializers, void 0));
+                this.vendor = (__runInitializers(this, _condition_extraInitializers), __runInitializers(this, _vendor_initializers, void 0));
+                this.quantity = (__runInitializers(this, _vendor_extraInitializers), __runInitializers(this, _quantity_initializers, void 0));
+                this.licenseNumber = (__runInitializers(this, _quantity_extraInitializers), __runInitializers(this, _licenseNumber_initializers, void 0));
+                this.complianceChecked = (__runInitializers(this, _licenseNumber_extraInitializers), __runInitializers(this, _complianceChecked_initializers, void 0));
+                this.status = (__runInitializers(this, _complianceChecked_extraInitializers), __runInitializers(this, _status_initializers, void 0));
+                this.purchaseDate = (__runInitializers(this, _status_extraInitializers), __runInitializers(this, _purchaseDate_initializers, void 0));
+                this.purchaseCost = (__runInitializers(this, _purchaseDate_extraInitializers), __runInitializers(this, _purchaseCost_initializers, void 0));
+                this.warrantyExpiration = (__runInitializers(this, _purchaseCost_extraInitializers), __runInitializers(this, _warrantyExpiration_initializers, void 0));
+                this.locationId = (__runInitializers(this, _warrantyExpiration_extraInitializers), __runInitializers(this, _locationId_initializers, void 0));
+                this.assignedToId = (__runInitializers(this, _locationId_extraInitializers), __runInitializers(this, _assignedToId_initializers, void 0));
+                this.assignedDate = (__runInitializers(this, _assignedToId_extraInitializers), __runInitializers(this, _assignedDate_initializers, void 0));
+                this.expectedReturnDate = (__runInitializers(this, _assignedDate_extraInitializers), __runInitializers(this, _expectedReturnDate_initializers, void 0));
+                this.notes = (__runInitializers(this, _expectedReturnDate_extraInitializers), __runInitializers(this, _notes_initializers, void 0));
+                __runInitializers(this, _notes_extraInitializers);
+            }
+        },
+        (() => {
+            const _metadata = typeof Symbol === "function" && Symbol.metadata ? Object.create(null) : void 0;
+            _name_decorators = [(0, class_validator_1.IsString)()];
+            _description_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _serialNumber_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _category_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _type_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _brand_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _model_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _size_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _color_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _condition_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _vendor_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _quantity_decorators = [(0, class_validator_1.IsNumber)(), (0, class_validator_1.IsOptional)()];
+            _licenseNumber_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _complianceChecked_decorators = [(0, class_validator_1.IsBoolean)(), (0, class_validator_1.IsOptional)()];
+            _status_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _purchaseDate_decorators = [(0, class_validator_1.IsDateString)(), (0, class_validator_1.IsOptional)()];
+            _purchaseCost_decorators = [(0, class_validator_1.IsNumber)(), (0, class_validator_1.IsOptional)()];
+            _warrantyExpiration_decorators = [(0, class_validator_1.IsDateString)(), (0, class_validator_1.IsOptional)()];
+            _locationId_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _assignedToId_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            _assignedDate_decorators = [(0, class_validator_1.IsDateString)(), (0, class_validator_1.IsOptional)()];
+            _expectedReturnDate_decorators = [(0, class_validator_1.IsDateString)(), (0, class_validator_1.IsOptional)()];
+            _notes_decorators = [(0, class_validator_1.IsString)(), (0, class_validator_1.IsOptional)()];
+            __esDecorate(null, null, _name_decorators, { kind: "field", name: "name", static: false, private: false, access: { has: obj => "name" in obj, get: obj => obj.name, set: (obj, value) => { obj.name = value; } }, metadata: _metadata }, _name_initializers, _name_extraInitializers);
+            __esDecorate(null, null, _description_decorators, { kind: "field", name: "description", static: false, private: false, access: { has: obj => "description" in obj, get: obj => obj.description, set: (obj, value) => { obj.description = value; } }, metadata: _metadata }, _description_initializers, _description_extraInitializers);
+            __esDecorate(null, null, _serialNumber_decorators, { kind: "field", name: "serialNumber", static: false, private: false, access: { has: obj => "serialNumber" in obj, get: obj => obj.serialNumber, set: (obj, value) => { obj.serialNumber = value; } }, metadata: _metadata }, _serialNumber_initializers, _serialNumber_extraInitializers);
+            __esDecorate(null, null, _category_decorators, { kind: "field", name: "category", static: false, private: false, access: { has: obj => "category" in obj, get: obj => obj.category, set: (obj, value) => { obj.category = value; } }, metadata: _metadata }, _category_initializers, _category_extraInitializers);
+            __esDecorate(null, null, _type_decorators, { kind: "field", name: "type", static: false, private: false, access: { has: obj => "type" in obj, get: obj => obj.type, set: (obj, value) => { obj.type = value; } }, metadata: _metadata }, _type_initializers, _type_extraInitializers);
+            __esDecorate(null, null, _brand_decorators, { kind: "field", name: "brand", static: false, private: false, access: { has: obj => "brand" in obj, get: obj => obj.brand, set: (obj, value) => { obj.brand = value; } }, metadata: _metadata }, _brand_initializers, _brand_extraInitializers);
+            __esDecorate(null, null, _model_decorators, { kind: "field", name: "model", static: false, private: false, access: { has: obj => "model" in obj, get: obj => obj.model, set: (obj, value) => { obj.model = value; } }, metadata: _metadata }, _model_initializers, _model_extraInitializers);
+            __esDecorate(null, null, _size_decorators, { kind: "field", name: "size", static: false, private: false, access: { has: obj => "size" in obj, get: obj => obj.size, set: (obj, value) => { obj.size = value; } }, metadata: _metadata }, _size_initializers, _size_extraInitializers);
+            __esDecorate(null, null, _color_decorators, { kind: "field", name: "color", static: false, private: false, access: { has: obj => "color" in obj, get: obj => obj.color, set: (obj, value) => { obj.color = value; } }, metadata: _metadata }, _color_initializers, _color_extraInitializers);
+            __esDecorate(null, null, _condition_decorators, { kind: "field", name: "condition", static: false, private: false, access: { has: obj => "condition" in obj, get: obj => obj.condition, set: (obj, value) => { obj.condition = value; } }, metadata: _metadata }, _condition_initializers, _condition_extraInitializers);
+            __esDecorate(null, null, _vendor_decorators, { kind: "field", name: "vendor", static: false, private: false, access: { has: obj => "vendor" in obj, get: obj => obj.vendor, set: (obj, value) => { obj.vendor = value; } }, metadata: _metadata }, _vendor_initializers, _vendor_extraInitializers);
+            __esDecorate(null, null, _quantity_decorators, { kind: "field", name: "quantity", static: false, private: false, access: { has: obj => "quantity" in obj, get: obj => obj.quantity, set: (obj, value) => { obj.quantity = value; } }, metadata: _metadata }, _quantity_initializers, _quantity_extraInitializers);
+            __esDecorate(null, null, _licenseNumber_decorators, { kind: "field", name: "licenseNumber", static: false, private: false, access: { has: obj => "licenseNumber" in obj, get: obj => obj.licenseNumber, set: (obj, value) => { obj.licenseNumber = value; } }, metadata: _metadata }, _licenseNumber_initializers, _licenseNumber_extraInitializers);
+            __esDecorate(null, null, _complianceChecked_decorators, { kind: "field", name: "complianceChecked", static: false, private: false, access: { has: obj => "complianceChecked" in obj, get: obj => obj.complianceChecked, set: (obj, value) => { obj.complianceChecked = value; } }, metadata: _metadata }, _complianceChecked_initializers, _complianceChecked_extraInitializers);
+            __esDecorate(null, null, _status_decorators, { kind: "field", name: "status", static: false, private: false, access: { has: obj => "status" in obj, get: obj => obj.status, set: (obj, value) => { obj.status = value; } }, metadata: _metadata }, _status_initializers, _status_extraInitializers);
+            __esDecorate(null, null, _purchaseDate_decorators, { kind: "field", name: "purchaseDate", static: false, private: false, access: { has: obj => "purchaseDate" in obj, get: obj => obj.purchaseDate, set: (obj, value) => { obj.purchaseDate = value; } }, metadata: _metadata }, _purchaseDate_initializers, _purchaseDate_extraInitializers);
+            __esDecorate(null, null, _purchaseCost_decorators, { kind: "field", name: "purchaseCost", static: false, private: false, access: { has: obj => "purchaseCost" in obj, get: obj => obj.purchaseCost, set: (obj, value) => { obj.purchaseCost = value; } }, metadata: _metadata }, _purchaseCost_initializers, _purchaseCost_extraInitializers);
+            __esDecorate(null, null, _warrantyExpiration_decorators, { kind: "field", name: "warrantyExpiration", static: false, private: false, access: { has: obj => "warrantyExpiration" in obj, get: obj => obj.warrantyExpiration, set: (obj, value) => { obj.warrantyExpiration = value; } }, metadata: _metadata }, _warrantyExpiration_initializers, _warrantyExpiration_extraInitializers);
+            __esDecorate(null, null, _locationId_decorators, { kind: "field", name: "locationId", static: false, private: false, access: { has: obj => "locationId" in obj, get: obj => obj.locationId, set: (obj, value) => { obj.locationId = value; } }, metadata: _metadata }, _locationId_initializers, _locationId_extraInitializers);
+            __esDecorate(null, null, _assignedToId_decorators, { kind: "field", name: "assignedToId", static: false, private: false, access: { has: obj => "assignedToId" in obj, get: obj => obj.assignedToId, set: (obj, value) => { obj.assignedToId = value; } }, metadata: _metadata }, _assignedToId_initializers, _assignedToId_extraInitializers);
+            __esDecorate(null, null, _assignedDate_decorators, { kind: "field", name: "assignedDate", static: false, private: false, access: { has: obj => "assignedDate" in obj, get: obj => obj.assignedDate, set: (obj, value) => { obj.assignedDate = value; } }, metadata: _metadata }, _assignedDate_initializers, _assignedDate_extraInitializers);
+            __esDecorate(null, null, _expectedReturnDate_decorators, { kind: "field", name: "expectedReturnDate", static: false, private: false, access: { has: obj => "expectedReturnDate" in obj, get: obj => obj.expectedReturnDate, set: (obj, value) => { obj.expectedReturnDate = value; } }, metadata: _metadata }, _expectedReturnDate_initializers, _expectedReturnDate_extraInitializers);
+            __esDecorate(null, null, _notes_decorators, { kind: "field", name: "notes", static: false, private: false, access: { has: obj => "notes" in obj, get: obj => obj.notes, set: (obj, value) => { obj.notes = value; } }, metadata: _metadata }, _notes_initializers, _notes_extraInitializers);
+            if (_metadata) Object.defineProperty(_a, Symbol.metadata, { enumerable: true, configurable: true, writable: true, value: _metadata });
+        })(),
+        _a;
+})();
+exports.CreateAssetDto = CreateAssetDto;

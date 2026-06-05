@@ -1,0 +1,154 @@
+import { BusinessesService } from './businesses.service';
+import { CreateBusinessDto } from './dto/create-business.dto';
+import { UpdateBusinessDto } from './dto/update-business.dto';
+export declare class BusinessesController {
+    private readonly businessesService;
+    constructor(businessesService: BusinessesService);
+    create(createBusinessDto: CreateBusinessDto, req: any): Promise<{
+        id: string;
+        status: string;
+        address: string | null;
+        city: string | null;
+        state: string | null;
+        zip: string | null;
+        country: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        logoUrl: string | null;
+        ein: string | null;
+        mobile: string | null;
+        currencyCode: string | null;
+        governmentInfo: string | null;
+        businessType: string | null;
+        industry: string | null;
+        employeeCount: string | null;
+        modules: string | null;
+        settings: string | null;
+        ownerId: string;
+    }>;
+    findAll(): Promise<({
+        owner: {
+            id: string;
+            firstName: string | null;
+            lastName: string | null;
+            email: string;
+        };
+    } & {
+        id: string;
+        status: string;
+        address: string | null;
+        city: string | null;
+        state: string | null;
+        zip: string | null;
+        country: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        logoUrl: string | null;
+        ein: string | null;
+        mobile: string | null;
+        currencyCode: string | null;
+        governmentInfo: string | null;
+        businessType: string | null;
+        industry: string | null;
+        employeeCount: string | null;
+        modules: string | null;
+        settings: string | null;
+        ownerId: string;
+    })[]>;
+    findMine(req: any): Promise<{
+        id: string;
+        status: string;
+        address: string | null;
+        city: string | null;
+        state: string | null;
+        zip: string | null;
+        country: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        logoUrl: string | null;
+        ein: string | null;
+        mobile: string | null;
+        currencyCode: string | null;
+        governmentInfo: string | null;
+        businessType: string | null;
+        industry: string | null;
+        employeeCount: string | null;
+        modules: string | null;
+        settings: string | null;
+        ownerId: string;
+    } | null>;
+    findOne(id: string): Promise<({
+        owner: {
+            id: string;
+            firstName: string | null;
+            lastName: string | null;
+            email: string;
+        };
+    } & {
+        id: string;
+        status: string;
+        address: string | null;
+        city: string | null;
+        state: string | null;
+        zip: string | null;
+        country: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        logoUrl: string | null;
+        ein: string | null;
+        mobile: string | null;
+        currencyCode: string | null;
+        governmentInfo: string | null;
+        businessType: string | null;
+        industry: string | null;
+        employeeCount: string | null;
+        modules: string | null;
+        settings: string | null;
+        ownerId: string;
+    }) | null>;
+    update(req: any, id: string, updateBusinessDto: UpdateBusinessDto, businessId?: string): Promise<{
+        id: string;
+        status: string;
+        address: string | null;
+        city: string | null;
+        state: string | null;
+        zip: string | null;
+        country: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        name: string;
+        logoUrl: string | null;
+        ein: string | null;
+        mobile: string | null;
+        currencyCode: string | null;
+        governmentInfo: string | null;
+        businessType: string | null;
+        industry: string | null;
+        employeeCount: string | null;
+        modules: string | null;
+        settings: string | null;
+        ownerId: string;
+    }>;
+    deactivate(id: string): Promise<{
+        id: string;
+        status: string;
+        updatedAt: Date;
+        name: string;
+    }>;
+    activate(id: string): Promise<{
+        id: string;
+        status: string;
+        updatedAt: Date;
+        name: string;
+    }>;
+    remove(id: string): Promise<{
+        id: string;
+        status: string;
+        updatedAt: Date;
+        name: string;
+    }>;
+}

@@ -1,0 +1,7 @@
+npm error Lifecycle script `dev` failed with error:
+npm error workspace @unitedlinkgroup/database@0.0.0
+npm error location /Users/it/Documents/trae_projects/unitedlinkgroup/packages/database
+npm error Missing script: "dev"
+npm error
+npm error To see a list of scripts, run:
+npm error   npm run --workspace=@unitedlinkgroup/database@0.0.0

@@ -1,0 +1,13 @@
+0 verbose cli /Users/it/.nvm/versions/node/v22.20.0/bin/node /Users/it/.nvm/versions/node/v22.20.0/bin/npm
+1 info using npm@10.9.3
+2 info using node@v22.20.0
+3 silly config load:file:/Users/it/.nvm/versions/node/v22.20.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.npmrc
+5 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npmrc
+6 silly config load:file:/Users/it/.nvm/versions/node/v22.20.0/etc/npmrc
+7 verbose title npm run dev --filter=mobile
+8 verbose argv "run" "dev" "--" "--filter=mobile"
+9 verbose logfile logs-max:10 dir:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-06-03T19_24_30_531Z-
+10 verbose logfile /Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-06-03T19_24_30_531Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files

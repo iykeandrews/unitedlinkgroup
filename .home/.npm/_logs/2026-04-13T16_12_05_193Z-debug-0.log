@@ -1,0 +1,20 @@
+0 verbose cli /Users/it/.nvm/versions/node/v22.20.0/bin/node /Users/it/.nvm/versions/node/v22.20.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.3
+2 info using node@v22.20.0
+3 silly config load:file:/Users/it/.nvm/versions/node/v22.20.0/lib/node_modules/npm/npmrc
+4 info config found workspace root at /Users/it/Documents/trae_projects/unitedlinkgroup
+5 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.npmrc
+6 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npmrc
+7 silly config load:file:/Users/it/.nvm/versions/node/v22.20.0/etc/npmrc
+8 verbose title npm exec expo start --port 8082 --clear
+9 verbose argv "exec" "--" "expo" "start" "--port" "8082" "--clear"
+10 verbose logfile logs-max:10 dir:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-04-13T16_12_05_193Z-
+11 verbose logfile /Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-04-13T16_12_05_193Z-debug-0.log
+12 silly logfile start cleaning logs, removing 1 files
+13 silly logfile done cleaning log files
+14 verbose cwd /Users/it/Documents/trae_projects/unitedlinkgroup/apps/mobile
+15 verbose os Darwin 24.6.0
+16 verbose node v22.20.0
+17 verbose npm  v10.9.3
+18 verbose exit 0
+19 info ok

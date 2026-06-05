@@ -1,0 +1,25 @@
+0 verbose cli /Users/it/.nvm/versions/node/v22.20.0/bin/node /Users/it/.nvm/versions/node/v22.20.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.3
+2 info using node@v22.20.0
+3 silly config load:file:/Users/it/.nvm/versions/node/v22.20.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.npmrc
+5 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npmrc
+6 silly config load:file:/Users/it/.nvm/versions/node/v22.20.0/etc/npmrc
+7 verbose title npm exec turbo run dev --filter=mobile
+8 verbose argv "exec" "--" "turbo" "run" "dev" "--filter=mobile"
+9 verbose logfile logs-max:10 dir:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-06-02T11_52_39_238Z-
+10 verbose logfile /Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-06-02T11_52_39_238Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 http fetch GET 200 https://registry.npmjs.org/npm 1249ms
+14 verbose cwd /Users/it/Documents/trae_projects/unitedlinkgroup
+15 verbose os Darwin 24.6.0
+16 verbose node v22.20.0
+17 verbose npm  v10.9.3
+18 notice
+18 notice New [31mmajor[39m version of npm available! [31m10.9.3[39m -> [34m11.16.0[39m
+18 notice Changelog: [34mhttps://github.com/npm/cli/releases/tag/v11.16.0[39m
+18 notice To update run: [4mnpm install -g npm@11.16.0[24m
+18 notice  { force: true, [Symbol(proc-log.meta)]: true }
+19 verbose exit 1
+20 verbose code 1

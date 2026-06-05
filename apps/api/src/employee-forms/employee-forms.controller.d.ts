@@ -1,0 +1,162 @@
+import { EmployeeFormsService } from './employee-forms.service';
+import { CreateEmployeeFormTemplateDto } from './dto/create-employee-form-template.dto';
+import { UpdateEmployeeFormTemplateDto } from './dto/update-employee-form-template.dto';
+import { AssignEmployeeFormTemplateDto } from './dto/assign-employee-form-template.dto';
+import { SubmitEmployeeFormAssignmentDto } from './dto/submit-employee-form-assignment.dto';
+export declare class EmployeeFormsController {
+    private readonly employeeFormsService;
+    constructor(employeeFormsService: EmployeeFormsService);
+    listTemplates(req: any, businessId?: string, query?: any): Promise<{
+        id: string;
+        businessId: string;
+        status: string;
+        type: string;
+        createdAt: Date;
+        updatedAt: Date;
+        body: string | null;
+        title: string;
+        description: string | null;
+        fileUrl: string | null;
+        createdByUserId: string | null;
+        version: string | null;
+        acknowledgementRequired: boolean;
+        fields: string | null;
+        requiresSignature: boolean;
+    }[]>;
+    createTemplate(req: any, dto: CreateEmployeeFormTemplateDto, businessId?: string): Promise<{
+        id: string;
+        businessId: string;
+        status: string;
+        type: string;
+        createdAt: Date;
+        updatedAt: Date;
+        body: string | null;
+        title: string;
+        description: string | null;
+        fileUrl: string | null;
+        createdByUserId: string | null;
+        version: string | null;
+        acknowledgementRequired: boolean;
+        fields: string | null;
+        requiresSignature: boolean;
+    }>;
+    updateTemplate(req: any, id: string, dto: UpdateEmployeeFormTemplateDto): Promise<{
+        id: string;
+        businessId: string;
+        status: string;
+        type: string;
+        createdAt: Date;
+        updatedAt: Date;
+        body: string | null;
+        title: string;
+        description: string | null;
+        fileUrl: string | null;
+        createdByUserId: string | null;
+        version: string | null;
+        acknowledgementRequired: boolean;
+        fields: string | null;
+        requiresSignature: boolean;
+    }>;
+    archiveTemplate(req: any, id: string): Promise<{
+        id: string;
+        businessId: string;
+        status: string;
+        type: string;
+        createdAt: Date;
+        updatedAt: Date;
+        body: string | null;
+        title: string;
+        description: string | null;
+        fileUrl: string | null;
+        createdByUserId: string | null;
+        version: string | null;
+        acknowledgementRequired: boolean;
+        fields: string | null;
+        requiresSignature: boolean;
+    }>;
+    assignTemplate(req: any, id: string, dto: AssignEmployeeFormTemplateDto, businessId?: string): Promise<{
+        assigned: number;
+        failed: number;
+    }>;
+    listAssignments(req: any, businessId?: string, query?: any): Promise<({
+        [x: string]: never;
+        [x: number]: never;
+        [x: symbol]: never;
+    } & {
+        id: string;
+        businessId: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        employeeId: string;
+        values: string | null;
+        dueAt: Date | null;
+        templateId: string;
+        assignedAt: Date;
+        submittedAt: Date | null;
+        signatureName: string | null;
+        signatureData: string | null;
+        signedAt: Date | null;
+    })[]>;
+    adminGetAssignment(req: any, id: string): Promise<{
+        [x: string]: never;
+        [x: number]: never;
+        [x: symbol]: never;
+    } & {
+        id: string;
+        businessId: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        employeeId: string;
+        values: string | null;
+        dueAt: Date | null;
+        templateId: string;
+        assignedAt: Date;
+        submittedAt: Date | null;
+        signatureName: string | null;
+        signatureData: string | null;
+        signedAt: Date | null;
+    }>;
+    myAssignments(req: any, query?: any): Promise<({
+        [x: string]: never;
+        [x: number]: never;
+        [x: symbol]: never;
+    } & {
+        id: string;
+        businessId: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        employeeId: string;
+        values: string | null;
+        dueAt: Date | null;
+        templateId: string;
+        assignedAt: Date;
+        submittedAt: Date | null;
+        signatureName: string | null;
+        signatureData: string | null;
+        signedAt: Date | null;
+    })[]>;
+    myAssignment(req: any, id: string): Promise<{
+        [x: string]: never;
+        [x: number]: never;
+        [x: symbol]: never;
+    } & {
+        id: string;
+        businessId: string;
+        status: string;
+        createdAt: Date;
+        updatedAt: Date;
+        employeeId: string;
+        values: string | null;
+        dueAt: Date | null;
+        templateId: string;
+        assignedAt: Date;
+        submittedAt: Date | null;
+        signatureName: string | null;
+        signatureData: string | null;
+        signedAt: Date | null;
+    }>;
+    mySubmit(req: any, id: string, dto: SubmitEmployeeFormAssignmentDto): Promise<any>;
+}

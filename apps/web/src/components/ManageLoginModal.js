@@ -1,0 +1,101 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ManageLoginModal = ManageLoginModal;
+const react_1 = require("react");
+const Modal_1 = require("./Modal");
+const lucide_react_1 = require("lucide-react");
+const sonner_1 = require("sonner");
+const api_1 = __importDefault(require("../lib/api"));
+function ManageLoginModal({ isOpen, onClose, employeeId, employeeName }) {
+    const [password, setPassword] = (0, react_1.useState)('');
+    const [confirmPassword, setConfirmPassword] = (0, react_1.useState)('');
+    const [showPassword, setShowPassword] = (0, react_1.useState)(false);
+    const [loading, setLoading] = (0, react_1.useState)(false);
+    const [error, setError] = (0, react_1.useState)('');
+    const [success, setSuccess] = (0, react_1.useState)(false);
+    const handleSubmit = async (e) => {
+        var _a, _b;
+        e.preventDefault();
+        setError('');
+        setSuccess(false);
+        if (password.length < 6) {
+            setError('Password must be at least 6 characters long');
+            return;
+        }
+        if (password !== confirmPassword) {
+            setError('Passwords do not match');
+            sonner_1.toast.error('Passwords do not match');
+            return;
+        }
+        setLoading(true);
+        try {
+            await api_1.default.patch(`/employees/${employeeId}/password`, { password });
+            sonner_1.toast.success('Password updated successfully');
+            onClose();
+            setPassword('');
+            setConfirmPassword('');
+        }
+        catch (err) {
+            const msg = ((_b = (_a = err.response) === null || _a === void 0 ? void 0 : _a.data) === null || _b === void 0 ? void 0 : _b.message) || 'Failed to update password';
+            setError(msg);
+            sonner_1.toast.error(msg);
+        }
+        finally {
+            setLoading(false);
+        }
+    };
+    return (<Modal_1.Modal isOpen={isOpen} onClose={onClose} title="Manage Login Access" maxWidth="max-w-md">
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-full">
+            <lucide_react_1.Lock className="w-6 h-6 text-indigo-600 dark:text-indigo-400"/>
+          </div>
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">Update Password</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Set a new password for {employeeName}</p>
+          </div>
+        </div>
+
+        {success ? (<div className="bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 p-4 rounded-lg text-center mb-6">
+            Password updated successfully!
+          </div>) : (<form onSubmit={handleSubmit} className="space-y-4">
+            {error && (<div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm">
+                {error}
+              </div>)}
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                New Password
+              </label>
+              <div className="relative">
+                <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-3 py-2 border pr-10" placeholder="Enter new password"/>
+                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                  {showPassword ? <lucide_react_1.EyeOff size={16}/> : <lucide_react_1.Eye size={16}/>}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Confirm Password
+              </label>
+              <div className="relative">
+                <input type={showPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-3 py-2 border pr-10" placeholder="Confirm new password"/>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4">
+              <button type="button" onClick={onClose} className="px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors" disabled={loading}>
+                Cancel
+              </button>
+              <button type="submit" disabled={loading} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2">
+                {loading ? 'Updating...' : 'Update Password'}
+              </button>
+            </div>
+          </form>)}
+      </div>
+    </Modal_1.Modal>);
+}

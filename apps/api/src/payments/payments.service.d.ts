@@ -1,0 +1,60 @@
+import { PrismaService } from '../prisma.service';
+import { CreatePaymentDto } from './dto/create-payment.dto';
+export declare class PaymentsService {
+    private prisma;
+    constructor(prisma: PrismaService);
+    private getUserId;
+    private validateBusinessAccess;
+    private resolveBusinessId;
+    create(createPaymentDto: CreatePaymentDto, user: any, businessIdHeader?: string): Promise<{
+        id: string;
+        businessId: string;
+        status: string;
+        type: string;
+        createdAt: Date;
+        updatedAt: Date;
+        amount: number;
+        method: string | null;
+        description: string | null;
+        date: Date;
+        category: string | null;
+        notes: string | null;
+        payeeName: string | null;
+        reference: string | null;
+        dcWard: string | null;
+    }>;
+    findAll(user: any, businessIdHeader?: string): Promise<{
+        id: string;
+        businessId: string;
+        status: string;
+        type: string;
+        createdAt: Date;
+        updatedAt: Date;
+        amount: number;
+        method: string | null;
+        description: string | null;
+        date: Date;
+        category: string | null;
+        notes: string | null;
+        payeeName: string | null;
+        reference: string | null;
+        dcWard: string | null;
+    }[]>;
+    findOne(id: string, user: any, businessIdHeader?: string): Promise<{
+        id: string;
+        businessId: string;
+        status: string;
+        type: string;
+        createdAt: Date;
+        updatedAt: Date;
+        amount: number;
+        method: string | null;
+        description: string | null;
+        date: Date;
+        category: string | null;
+        notes: string | null;
+        payeeName: string | null;
+        reference: string | null;
+        dcWard: string | null;
+    }>;
+}
