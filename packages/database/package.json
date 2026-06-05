@@ -14,7 +14,9 @@
   "scripts": {
     "build": "prisma generate",
     "generate": "prisma generate",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "db:push:deploy": "prisma db push --accept-data-loss",
+    "migrate:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0"

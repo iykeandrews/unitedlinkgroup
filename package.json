@@ -11,8 +11,8 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "start": "npm --workspace api run start:prod",
-    "start:api": "npm --workspace api run start:prod",
+    "start": "sh -lc 'if [ -n \"$RENDER_SERVICE_ID\" ] || [ -n \"$RENDER_EXTERNAL_HOSTNAME\" ] || [ \"$RENDER\" = \"true\" ]; then if [ -z \"$DATABASE_URL\" ] || echo \"$DATABASE_URL\" | grep -q \"^file:\"; then export SQLITE_DB_PATH=\"${SQLITE_DB_PATH:-/tmp/unitedlinkgroup.db}\"; export DATABASE_URL=\"file:${SQLITE_DB_PATH}\"; fi; fi; npm --workspace @unitedlinkgroup/database run db:push:deploy && npm --workspace api run start:prod'",
+    "start:api": "npm start",
     "start:web": "npm --workspace web run start",
     "dev": "turbo run dev",
     "lint": "turbo run lint",

@@ -1119,7 +1119,7 @@ const config = {
     "db"
   ],
   "activeProvider": "sqlite",
-  "postinstall": false,
+  "ciName": "Render",
   "inlineDatasources": {
     "db": {
       "url": {
