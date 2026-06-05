@@ -1,0 +1,1531 @@
+generator client {
+  provider = "prisma-client-js"
+  output = "./client-sqlite"
+}
+
+datasource db {
+  provider = "sqlite"
+  url = env("SQLITE_DATABASE_URL")
+}
+
+// Global Users (Super Admins / Owners)
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed
+  firstName String?
+  lastName  String?
+  role      String   @default("BUSINESS_ADMIN") // UserRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businesses Business[] // Businesses owned/managed by this user
+  employeeProfiles Employee[] // Employment records for this user
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  patrolLogs    PatrolLog[]
+  webPushSubscriptions WebPushSubscription[]
+  expoPushTokens       ExpoPushToken[]
+
+  authoredAnnouncements Announcement[]
+  sentEmailCampaigns    EmailCampaign[]
+  readAnnouncements     AnnouncementRead[]
+  reportedIncidents     IncidentReport[]
+  submittedIncidentReports IncidentReport[] @relation("IncidentSubmittedBy")
+  incidentEvidenceUploads IncidentEvidence[] @relation("IncidentEvidenceUploadedBy")
+  incidentTimelineEvents  IncidentTimelineEvent[] @relation("IncidentTimelineActor")
+
+  createdChatThreads ChatThread[]
+  reviewedShiftSwapRequests ShiftSwapRequest[]
+  companyCertificationsCreated CompanyCertification[]
+  createdContractDocuments ContractDocument[]
+  createdComplianceDocuments ComplianceDocument[]
+  submittedShiftCallouts ShiftCallout[] @relation("CalloutSubmittedBy")
+  resolvedShiftCallouts  ShiftCallout[] @relation("CalloutResolvedBy")
+  shiftCoveragesReassigned ShiftCoverage[]
+  createdOperationAssignments OperationAssignment[] @relation("AssignmentCreatedBy")
+  createdEmployeeFormTemplates EmployeeFormTemplate[]
+  vendorProfiles Vendor[]
+}
+
+// The Tenant
+model Business {
+  id          String   @id @default(uuid())
+  name        String
+  logoUrl     String?
+  ein         String?   // Employer Identification Number - Optional for trial/initial setup
+  mobile      String?
+  country     String?
+  currencyCode String?
+  governmentInfo String? // JSON string with country-specific labels and settings
+  businessType String?
+  industry    String?
+  employeeCount String?
+  address     String?
+  city        String?
+  state       String?  // Crucial for US tax rules
+  zip         String?
+  
+  modules     String?  // Comma-separated list of enabled modules (e.g. "Schedule,Time,People")
+  status      String   @default("ACTIVE") // ACTIVE, INACTIVE, DELETED
+  settings    String?  // JSON string for system preferences (timezone, date format, etc.)
+
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id])
+  
+  employees   Employee[]
+  departments Department[]
+  locations   Location[]
+  payrolls    Payroll[]
+  payments    Payment[]
+  shifts      Shift[]
+  operationAssignments OperationAssignment[]
+  leaveTypes  LeaveType[]
+  clients     Client[]
+  invoices    Invoice[]
+  auditLogs   AuditLog[]
+  announcements Announcement[]
+  emailCampaigns EmailCampaign[]
+  emailTemplates EmailTemplate[]
+  roles       Role[]
+  incidentReports IncidentReport[]
+  assets      Asset[]
+  chatThreads  ChatThread[]
+  shiftSwapRequests ShiftSwapRequest[]
+  companyCertifications CompanyCertification[]
+  contractDocuments ContractDocument[]
+  complianceDocuments ComplianceDocument[]
+  shiftCallouts ShiftCallout[]
+  shiftCoverages ShiftCoverage[]
+  employeeFormTemplates EmployeeFormTemplate[]
+  employeeFormAssignments EmployeeFormAssignment[]
+  vendors      Vendor[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Vendor {
+  id               String   @id @default(uuid())
+  businessId       String
+  business         Business @relation(fields: [businessId], references: [id])
+
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id])
+
+  companyName      String
+  contactFirstName String?
+  contactLastName  String?
+  email            String   @unique
+  phone            String?
+  website          String?
+  serviceCategory  String?
+  portalSlug       String   @unique
+  status           String   @default("ACTIVE") // ACTIVE, INACTIVE
+  notes            String?
+  accessReports    Boolean  @default(true)
+  accessContracts  Boolean  @default(true)
+  accessCompliance Boolean  @default(true)
+  accessAnnouncements Boolean @default(true)
+  accessIncidentReports Boolean @default(false)
+  accessTimeTracking Boolean @default(false)
+  agreementStartDate DateTime?
+  agreementEndDate DateTime?
+  lastLoginAt      DateTime?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([businessId, status])
+  @@index([portalSlug, status])
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  permissions String   // JSON array of permission strings: ["MANAGE_EMPLOYEES", "VIEW_PAYROLL"]
+  isSystem    Boolean  @default(false)
+
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  employees   Employee[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([businessId, name])
+}
+
+model Employee {
+  id          String   @id @default(uuid())
+  firstName   String
+  lastName    String
+  email       String
+  phone       String?
+  badgeNumber String?
+  profileImageUrl String?
+  
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+
+  role        String   @default("EMPLOYEE")
+  customRoleId String?
+  customRole   Role?   @relation(fields: [customRoleId], references: [id])
+  status      String   @default("ACTIVE") // ACTIVE, TERMINATED, ON_LEAVE
+  
+  // Personal Details
+  preferredName String?
+  pronouns      String?
+  middleName    String?
+  dateOfBirth   DateTime?
+  isAuthorizedToWork Boolean @default(true)
+
+  // Contact Details
+  address       String?
+  city          String?
+  state         String?
+  zip           String?
+  country       String?
+  officialEmail String?
+
+  shiftSwapRequests ShiftSwapRequest[] @relation("SwapRequester")
+  shiftCallouts     ShiftCallout[]
+  coveragesAsAbsent ShiftCoverage[] @relation("CoverageAbsentEmployee")
+  coveragesAsReplacement ShiftCoverage[] @relation("CoverageReplacementEmployee")
+
+  // Emergency Contact
+  emergencyContactName String?
+  emergencyContactPhone String?
+
+  // Employment Details
+  // DEPRECATED: These fields are moving to W2Profile and ContractorProfile
+  type        String // EmploymentType (FULL_TIME, PART_TIME, etc.)
+  workerType  String @default("W2") // W2, CONTRACTOR_1099
+  paySchedule String @default("BI_WEEKLY") // WEEKLY, BI_WEEKLY, SEMI_MONTHLY, MONTHLY
+  payType     String // PayType (HOURLY, SALARY)
+  hourlyRate  Float?
+  salary      Float?
+  hireDate    DateTime?
+  payrollId   String?
+  workPeriod  String?
+  hoursPerPeriod Float?
+  daysPerPeriod Int?
+  stressProfile String?
+  overtimeEligible Boolean @default(true)
+  
+  departmentId String?
+  department   Department? @relation("DepartmentMembers", fields: [departmentId], references: [id])
+  managedDepartments Department[] @relation("DepartmentManager")
+
+  defaultLocationId String?
+  defaultLocation   Location? @relation("EmployeeDefaultLocation", fields: [defaultLocationId], references: [id])
+
+  supervisorId String?
+  supervisor   Employee? @relation("EmployeeSupervisor", fields: [supervisorId], references: [id])
+  supervisees  Employee[] @relation("EmployeeSupervisor")
+
+  // New Dual Classification Relations
+  w2Profile   W2Profile?
+  contractorProfile ContractorProfile?
+
+  // Tax Info (W-2) - DEPRECATED (Moved to W2Profile)
+  ssn         String?
+  filingStatus String? // SINGLE, MARRIED_JOINT, MARRIED_SEPARATE, HEAD_OF_HOUSEHOLD
+  taxState    String   @default("DC")
+  federalAllowances Int @default(0) // Legacy W-4 (pre-2020)
+  multipleJobs Boolean @default(false) // 2020+ W-4
+  dependentsAmount Float @default(0) // 2020+ W-4 Step 3
+  otherIncome   Float @default(0) // 2020+ W-4 Step 4(a)
+  deductionsAmount Float @default(0) // 2020+ W-4 Step 4(b)
+  additionalWithholding Float @default(0) // Federal Extra (Step 4(c))
+
+  // State Tax Info - DEPRECATED (Moved to W2Profile)
+  stateFilingStatus String?
+  stateAllowances   Int @default(0)
+  stateAdditionalWithholding Float @default(0)
+
+  // Contractor Info (1099) - DEPRECATED (Moved to ContractorProfile)
+  contractorBusinessName String?
+  contractorType String? // INDIVIDUAL, LLC, CORPORATION
+  w9Confirmed Boolean @default(false)
+
+  // Banking
+  directDepositInfo String? // JSON: { routing, account, type }
+  
+  timesheets  Timesheet[]
+  payStubs    PayStub[]
+  shifts      Shift[]
+  assignedOperationAssignments OperationAssignment[] @relation("AssignmentAssignee")
+  leaveRequests LeaveRequest[]
+  leaveBalances LeaveBalance[]
+  loans       Loan[]
+  availabilities Availability[]
+  shiftApplications ShiftApplication[]
+  qualifications Qualification[]
+  assignedAssets Asset[]
+  assignmentHistory AssetAssignmentHistory[]
+
+  incidentReportsAsReportingOfficer IncidentReport[] @relation("IncidentReportingOfficer")
+  incidentReportsAsSupervisor       IncidentReport[] @relation("IncidentSupervisor")
+  incidentReportsAsInvestigator     IncidentReport[] @relation("IncidentInvestigator")
+
+  chatParticipants ChatParticipant[]
+  chatMessages     ChatMessage[]
+  chatReactions    ChatReaction[]
+  contractDocuments ContractDocument[]
+  ownedComplianceDocuments ComplianceDocument[]
+  employeeFormAssignments EmployeeFormAssignment[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  status      String   @default("ACTIVE") // ACTIVE, INACTIVE
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  managerId   String?
+  manager     Employee? @relation("DepartmentManager", fields: [managerId], references: [id])
+  
+  employees   Employee[] @relation("DepartmentMembers")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ChatThread {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  type        String   // DIRECT, GROUP
+  title       String?
+  imageUrl    String?
+
+  directKey   String?
+
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+
+  participants ChatParticipant[]
+  messages      ChatMessage[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId, updatedAt])
+  @@unique([businessId, directKey])
+}
+
+model ChatParticipant {
+  id          String   @id @default(uuid())
+  threadId    String
+  thread      ChatThread @relation(fields: [threadId], references: [id])
+
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  role        String   @default("MEMBER") // ADMIN, MEMBER
+  lastReadAt  DateTime?
+  muted       Boolean  @default(false)
+  joinedAt    DateTime @default(now())
+
+  @@unique([threadId, employeeId])
+  @@index([employeeId])
+}
+
+model ChatMessage {
+  id              String   @id @default(uuid())
+  threadId        String
+  thread          ChatThread @relation(fields: [threadId], references: [id])
+
+  senderEmployeeId String
+  senderEmployee   Employee @relation(fields: [senderEmployeeId], references: [id])
+
+  text            String?
+  replyToId       String?
+  replyTo         ChatMessage? @relation("ChatMessageReplyTo", fields: [replyToId], references: [id])
+  replies         ChatMessage[] @relation("ChatMessageReplyTo")
+
+  editedAt        DateTime?
+  deletedAt       DateTime?
+
+  attachments     ChatAttachment[]
+  reactions       ChatReaction[]
+
+  createdAt       DateTime @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([senderEmployeeId])
+}
+
+model ChatAttachment {
+  id            String @id @default(uuid())
+  messageId     String
+  message       ChatMessage @relation(fields: [messageId], references: [id])
+
+  type          String // IMAGE, VIDEO, FILE
+  url           String
+  filename      String?
+  originalName  String?
+  mimeType      String?
+  size          Int?
+
+  createdAt     DateTime @default(now())
+
+  @@index([messageId])
+}
+
+model ChatReaction {
+  id          String @id @default(uuid())
+  messageId   String
+  message     ChatMessage @relation(fields: [messageId], references: [id])
+
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  emoji       String
+
+  createdAt   DateTime @default(now())
+
+  @@unique([messageId, employeeId, emoji])
+  @@index([employeeId])
+}
+
+model Announcement {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  title       String
+  content     String
+  priority    String   @default("NORMAL") // NORMAL, HIGH, URGENT
+  
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  
+  targetType  String   // ALL, DEPARTMENT, ROLE
+  targetValue String?  // DepartmentID or Role Name
+  
+  scheduledAt DateTime?
+  status      String   @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
+  
+  reads       AnnouncementRead[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AnnouncementRead {
+  id             String       @id @default(uuid())
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id])
+  
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  
+  readAt         DateTime     @default(now())
+  
+  @@unique([announcementId, userId])
+}
+
+model EmailCampaign {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  subject     String
+  content     String
+  attachments EmailCampaignAttachment[]
+  
+  senderId    String
+  sender      User     @relation(fields: [senderId], references: [id])
+  
+  targetType  String   @default("ALL") // ALL, DEPARTMENT, ROLE
+  targetValue String?  // IDs
+  
+  status      String   @default("DRAFT") // DRAFT, SCHEDULED, SENT, FAILED
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  
+  recipientCount Int @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EmailCampaignAttachment {
+  id            String       @id @default(uuid())
+  emailCampaignId String
+  emailCampaign EmailCampaign @relation(fields: [emailCampaignId], references: [id], onDelete: Cascade)
+
+  filename      String
+  contentType   String
+  contentBase64 String
+  size          Int @default(0)
+
+  createdAt     DateTime @default(now())
+}
+
+model EmailTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  subject     String
+  content     String
+  
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  createdBy   String
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Client {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  name        String
+  type        String   @default("CORPORATE") // CORPORATE, GOVERNMENT, INDIVIDUAL
+  industry    String?
+  status      String   @default("ACTIVE") // ACTIVE, INACTIVE
+
+  // Office Address
+  address     String?
+  street      String?
+  city        String?
+  state       String?
+  zip         String?
+  country     String?
+
+  // Contact
+  contactPerson String?
+  email       String?
+  phone       String?
+  alternateContact String?
+
+  // Billing
+  billingAddressSameAsOffice Boolean @default(true)
+  billingAddress String?
+  billingContactEmail String?
+  billingContactEmail2 String?
+  billingContactEmail3 String?
+  paymentTerms String?
+  
+  locations   Location[]
+  invoices    Invoice[]
+  contractDocuments ContractDocument[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Location {
+  id          String   @id @default(uuid())
+  name        String
+  code        String?
+  address     String
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id])
+
+  geoLat      Float?
+  geoLng      Float?
+  radius      Int?     // Geofence radius in meters
+
+  workOrder   String?
+  startDate   DateTime?
+  endDate     DateTime?
+  
+  status      String   @default("ACTIVE") // ACTIVE, INACTIVE
+
+  taxOverrideInfo String? // JSON string: { taxSystem, rate, inclusive, note }
+  
+  invoices    Invoice[]
+  shifts      Shift[]
+  operationAssignments OperationAssignment[] @relation("AssignmentLocation")
+  incidentReports IncidentReport[]
+  assets      Asset[]
+  timesheets  Timesheet[]
+  servicePins ServicePin[]
+  defaultEmployees Employee[] @relation("EmployeeDefaultLocation")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ServicePin {
+  id          String   @id @default(uuid())
+  
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id])
+  
+  positionType String // Security Officer, Armed SPO, Unarmed SPO
+  count       Int     @default(1)
+  
+  shiftType   String  // DAY, NIGHT, 24_HOUR, CUSTOM
+  startTime   String? // HH:mm
+  endTime     String? // HH:mm
+  days        String? // JSON or comma separated: ["MON", "TUE"]
+  
+  payRate     Float?
+  specialInstructions String?
+  
+  // Geo Pin Behavior (Override)
+  geoLat      Float?
+  geoLng      Float?
+  
+  status      String  @default("ACTIVE")
+  
+  patrolLogs  PatrolLog[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PatrolLog {
+  id          String   @id @default(uuid())
+  
+  servicePinId String
+  servicePin   ServicePin @relation(fields: [servicePinId], references: [id])
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  message     String
+  type        String   @default("CHECK") // CHECK, INCIDENT, MAINTENANCE
+  
+  geoLat      Float?
+  geoLng      Float?
+  
+  imageUrl    String?
+
+  createdAt   DateTime @default(now())
+}
+
+model W2Profile {
+  id                String   @id @default(uuid())
+  employeeId        String   @unique
+  employee          Employee @relation(fields: [employeeId], references: [id])
+  
+  paySchedule       String   @default("BI_WEEKLY")
+  payType           String   // HOURLY, SALARY
+  rate              Float    // hourlyRate or salary
+  overtimeEligible  Boolean  @default(true)
+  
+  // Tax Info
+  filingStatus      String?
+  taxState          String   @default("DC")
+  federalAllowances Int      @default(0)
+  multipleJobs      Boolean  @default(false)
+  dependentsAmount  Float    @default(0)
+  otherIncome       Float    @default(0)
+  deductionsAmount  Float    @default(0)
+  additionalWithholding Float @default(0)
+  stateFilingStatus String?
+  stateAllowances   Int      @default(0)
+  stateAdditionalWithholding Float @default(0)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model ContractorProfile {
+  id              String   @id @default(uuid())
+  employeeId      String   @unique
+  employee        Employee @relation(fields: [employeeId], references: [id])
+  
+  businessName    String?
+  type            String?
+  w9Confirmed     Boolean  @default(false)
+  rate            Float
+  paymentMethod   String?
+}
+
+model LeaveType {
+  id          String   @id @default(uuid())
+  name        String
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  isPaid      Boolean  @default(true)
+  allowNegative Boolean @default(false)
+  requiresApproval Boolean @default(true)
+  color            String?
+  accrualFrequency String?
+  accrualRate      Float?
+  maxBalance       Float?
+  carryOverLimit   Float?
+  
+  leaveBalances LeaveBalance[]
+  leaveRequests LeaveRequest[]
+}
+
+model CompanyCertification {
+  id                 String   @id @default(uuid())
+  businessId         String
+  business           Business @relation(fields: [businessId], references: [id])
+
+  name               String
+  type               String   @default("CERTIFICATION") // CERTIFICATION, LICENSE, TRAINING, OTHER
+  issuingOrganization String?
+  credentialId       String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  fileUrl            String?
+  status             String   @default("ACTIVE") // ACTIVE, EXPIRED
+
+  createdByUserId    String?
+  createdBy          User?    @relation(fields: [createdByUserId], references: [id])
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([businessId, status, expiryDate])
+}
+
+model ContractDocument {
+  id            String   @id @default(uuid())
+  businessId    String
+  business      Business @relation(fields: [businessId], references: [id])
+
+  title         String
+  type          String   @default("EMPLOYMENT") // EMPLOYMENT, CLIENT, NDA, MSA, SOW, OTHER
+  status        String   @default("DRAFT") // DRAFT, ACTIVE, EXPIRED, TERMINATED
+
+  employeeId    String?
+  employee      Employee? @relation(fields: [employeeId], references: [id])
+
+  clientId      String?
+  client        Client?  @relation(fields: [clientId], references: [id])
+
+  counterpartyName String?
+
+  effectiveDate DateTime?
+  endDate       DateTime?
+  fileUrl       String?
+
+  createdByUserId String?
+  createdBy        User?    @relation(fields: [createdByUserId], references: [id])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([businessId, status, type, employeeId, clientId])
+}
+
+model ComplianceDocument {
+  id                 String   @id @default(uuid())
+  businessId         String
+  business           Business @relation(fields: [businessId], references: [id])
+
+  title              String
+  category           String   @default("POLICY") // POLICY, SOP, TRAINING, OSHA, HR, SECURITY, OTHER
+  status             String   @default("ACTIVE") // DRAFT, ACTIVE, ARCHIVED
+  version            String?
+
+  effectiveDate      DateTime?
+  reviewDate         DateTime?
+
+  ownerEmployeeId    String?
+  ownerEmployee      Employee? @relation(fields: [ownerEmployeeId], references: [id])
+
+  acknowledgementRequired Boolean @default(false)
+  tags               String?
+
+  fileUrl            String?
+
+  createdByUserId    String?
+  createdBy          User?    @relation(fields: [createdByUserId], references: [id])
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([businessId, status, category, reviewDate])
+}
+
+model EmployeeFormTemplate {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  type        String   @default("EMPLOYMENT_FORM") // EMPLOYMENT_FORM, SOP
+  title       String
+  description String?
+
+  status      String   @default("ACTIVE") // DRAFT, ACTIVE, ARCHIVED
+  version     String?
+
+  body        String?
+  fields      String? // JSON
+  fileUrl     String?
+
+  acknowledgementRequired Boolean @default(false)
+  requiresSignature Boolean @default(true)
+
+  createdByUserId String?
+  createdBy       User?    @relation(fields: [createdByUserId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignments EmployeeFormAssignment[]
+
+  @@index([businessId, type, status])
+}
+
+model EmployeeFormAssignment {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  templateId  String
+  template    EmployeeFormTemplate @relation(fields: [templateId], references: [id])
+
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+
+  status      String   @default("PENDING") // PENDING, SUBMITTED, VOID
+  assignedAt  DateTime @default(now())
+  dueAt       DateTime?
+  submittedAt DateTime?
+
+  values      String? // JSON
+  signatureName String?
+  signatureData String?
+  signedAt    DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([templateId, employeeId])
+  @@index([businessId, status, dueAt])
+  @@index([employeeId, status])
+}
+model LeaveBalance {
+  id          String   @id @default(uuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  
+  balanceHours Float
+  takenHours   Float
+
+  @@unique([employeeId, leaveTypeId])
+}
+
+model LeaveRequest {
+  id          String   @id @default(uuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  
+  startDate   DateTime
+  endDate     DateTime
+  isAllDay    Boolean  @default(true)
+  startTime   String?
+  endTime     String?
+  totalHours  Float
+  actualHours Float?
+  resumedAt   DateTime?
+  resumedReason String?
+  refundedHours Float?
+  cancelledAt DateTime?
+  cancelledReason String?
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  reason      String?
+  rejectionReason String?
+  managerId   String?
+  
+  attachments LeaveAttachment[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model LeaveAttachment {
+  id             String   @id @default(uuid())
+  leaveRequestId String
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id])
+  
+  url            String
+  fileName       String
+}
+
+model Shift {
+  id          String   @id @default(uuid())
+  groupId     String?
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  locationId  String?
+  location    Location? @relation(fields: [locationId], references: [id])
+  
+  employeeId  String?
+  employee    Employee? @relation(fields: [employeeId], references: [id])
+  
+  startTime   DateTime
+  endTime     DateTime
+  breakMinutes Int      @default(0)
+  
+  status      String   @default("DRAFT") // DRAFT, OPEN, PUBLISHED, COMPLETED, ARCHIVED, CANCELLED
+  
+  notes       String?
+ 
+  reminderSent1h   Boolean @default(false)
+  reminderSent30m  Boolean @default(false)
+  reminderSent10m  Boolean @default(false)
+  reminderEnd5mSent     Boolean @default(false)
+  reminderEndLate10mSent Boolean @default(false)
+  autoClockout1hDone    Boolean @default(false)
+  
+  applications ShiftApplication[]
+  callout      ShiftCallout?
+  coverages    ShiftCoverage[]
+  swapOfferedRequests ShiftSwapRequest[] @relation("SwapOfferedShift")
+  swapRequestedRequests ShiftSwapRequest[] @relation("SwapRequestedShift")
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId, startTime, endTime])
+  @@index([groupId])
+}
+
+model OperationAssignment {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  title       String
+  description String?
+
+  status      String   @default("OPEN") // OPEN, IN_PROGRESS, COMPLETED, CANCELLED
+  priority    String   @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+
+  locationId  String?
+  location    Location? @relation("AssignmentLocation", fields: [locationId], references: [id])
+
+  assigneeId  String?
+  assignee    Employee? @relation("AssignmentAssignee", fields: [assigneeId], references: [id])
+
+  startAt     DateTime?
+  dueAt       DateTime?
+  completedAt DateTime?
+
+  createdByUserId String?
+  createdBy       User? @relation("AssignmentCreatedBy", fields: [createdByUserId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId, status, priority])
+  @@index([businessId, dueAt])
+  @@index([locationId])
+  @@index([assigneeId])
+}
+
+model ShiftCallout {
+  id                 String   @id @default(uuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id])
+
+  shiftId             String   @unique
+  shift               Shift    @relation(fields: [shiftId], references: [id])
+
+  absentEmployeeId    String
+  absentEmployee      Employee @relation(fields: [absentEmployeeId], references: [id])
+
+  reasonCode          String
+  reasonNote          String?
+  type                String   // EXCUSED, UNEXCUSED, EMERGENCY
+  noticeAt            DateTime
+
+  documentationUrl    String?
+
+  submittedByUserId   String?
+  submittedBy         User?    @relation("CalloutSubmittedBy", fields: [submittedByUserId], references: [id])
+
+  status              String   @default("PENDING") // PENDING, APPROVED, REJECTED, COVERED
+  reviewedAt          DateTime?
+  reviewedByUserId    String?
+  rejectionReason     String?
+  openedAt            DateTime?
+  openedByUserId      String?
+
+  resolvedAt          DateTime?
+  resolvedByUserId    String?
+  resolvedBy          User?    @relation("CalloutResolvedBy", fields: [resolvedByUserId], references: [id])
+
+  coverages           ShiftCoverage[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([businessId, absentEmployeeId, createdAt])
+  @@index([businessId, type, createdAt])
+}
+
+model ShiftCoverage {
+  id                    String   @id @default(uuid())
+  businessId             String
+  business               Business @relation(fields: [businessId], references: [id])
+
+  shiftId                String
+  shift                  Shift    @relation(fields: [shiftId], references: [id])
+
+  calloutId              String?
+  callout                ShiftCallout? @relation(fields: [calloutId], references: [id])
+
+  absentEmployeeId       String?
+  absentEmployee         Employee? @relation("CoverageAbsentEmployee", fields: [absentEmployeeId], references: [id])
+
+  replacementEmployeeId  String
+  replacementEmployee    Employee  @relation("CoverageReplacementEmployee", fields: [replacementEmployeeId], references: [id])
+
+  method                 String   @default("DIRECT") // DIRECT, APPLICATION
+  reassignedAt           DateTime @default(now())
+
+  reassignedByUserId     String?
+  reassignedBy           User?    @relation(fields: [reassignedByUserId], references: [id])
+
+  acceptedAt             DateTime?
+  responseMinutes        Int?
+
+  @@index([businessId, replacementEmployeeId, reassignedAt])
+  @@index([businessId, shiftId])
+  @@index([calloutId])
+}
+
+model ShiftApplication {
+  id          String   @id @default(uuid())
+  shiftId     String
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  
+  createdAt   DateTime @default(now())
+}
+
+model ShiftSwapRequest {
+  id                 String   @id @default(uuid())
+
+  businessId         String
+  business           Business @relation(fields: [businessId], references: [id])
+
+  requesterEmployeeId String
+  requesterEmployee   Employee @relation("SwapRequester", fields: [requesterEmployeeId], references: [id])
+
+  offeredShiftId     String
+  offeredShift       Shift    @relation("SwapOfferedShift", fields: [offeredShiftId], references: [id])
+
+  requestedShiftId   String
+  requestedShift     Shift    @relation("SwapRequestedShift", fields: [requestedShiftId], references: [id])
+
+  offeredEmployeeId  String
+  requestedEmployeeId String
+
+  message            String?
+  status             String   @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+
+  reviewedByUserId   String?
+  reviewedBy         User?    @relation(fields: [reviewedByUserId], references: [id])
+
+  rejectionReason    String?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([businessId, status, createdAt])
+  @@index([requesterEmployeeId])
+  @@index([offeredShiftId])
+  @@index([requestedShiftId])
+}
+
+model Timesheet {
+  id          String   @id @default(uuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  
+  locationId  String?
+  location    Location? @relation(fields: [locationId], references: [id])
+  
+  workerType  String   @default("W2") // W2, CONTRACTOR_1099
+  
+  startTime   DateTime
+  endTime     DateTime?
+  
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  
+  clockInIp   String?
+  clockOutIp  String?
+  clockInLat  Float?
+  clockInLng  Float?
+  clockOutLat Float?
+  clockOutLng Float?
+  employeeNote String?
+
+  breaks      Break[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Break {
+  id          String   @id @default(uuid())
+  timesheetId String
+  timesheet   Timesheet @relation(fields: [timesheetId], references: [id])
+  
+  startTime   DateTime
+  endTime     DateTime?
+  
+  type        String   @default("UNPAID") // PAID, UNPAID
+}
+
+model Payroll {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  periodStart DateTime
+  periodEnd   DateTime
+  payDate     DateTime
+  
+  type        String   @default("REGULAR") // REGULAR, OFF_CYCLE, BONUS
+  status      String   @default("DRAFT") // DRAFT, PROCESSED, PAID, CANCELLED
+  
+  totalGross  Float    @default(0)
+  totalNet    Float    @default(0)
+  totalEmployeeTaxes Float @default(0)
+  totalEmployerTaxes Float @default(0)
+  totalDeductions Float @default(0)
+  
+  payStubs    PayStub[]
+  loanRepayments LoanRepayment[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PayStub {
+  id          String   @id @default(uuid())
+  payrollId   String
+  payroll     Payroll  @relation(fields: [payrollId], references: [id])
+  
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  
+  workerType  String   @default("W2") // W2, CONTRACTOR_1099
+  
+  regularHours Float   @default(0)
+  overtimeHours Float  @default(0)
+  
+  regularPay  Float    @default(0)
+  overtimePay Float    @default(0)
+  bonus       Float    @default(0)
+  commission  Float    @default(0)
+  reimbursement Float  @default(0)
+  
+  grossPay    Float
+  netPay      Float
+  
+  ytdGross    Float    @default(0)
+  ytdNet      Float    @default(0)
+  ytdTaxes    Float    @default(0)
+  
+  taxes       Float    @default(0)
+  employerTaxes Float  @default(0)
+  deductions  Float    @default(0)
+  
+  taxDetails  String?  // JSON
+  employerTaxDetails String? // JSON
+  deductionDetails String? // JSON (Detailed breakdown)
+  
+  createdAt   DateTime @default(now())
+}
+
+model Loan {
+  id          String   @id @default(uuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  
+  amount      Float    // Total loan amount
+  balance     Float    // Remaining balance
+  
+  termMonths  Int      // Repayment term in months (optional)
+  perPayPeriodDeduction Float // Amount to deduct per pay period
+  
+  reason      String?  // Reason for loan request
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED, PAID, DEFAULTED
+  
+  approvedBy  String?  // User ID of approver
+  rejectionReason String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  repayments  LoanRepayment[]
+}
+
+model LoanRepayment {
+  id          String   @id @default(uuid())
+  loanId      String
+  loan        Loan     @relation(fields: [loanId], references: [id])
+  
+  payrollId   String?  // Linked to a payroll run
+  payroll     Payroll? @relation(fields: [payrollId], references: [id])
+  
+  amount      Float
+  date        DateTime @default(now())
+}
+
+model Availability {
+  id           String   @id @default(uuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  
+  isAvailable  Boolean
+  startDate    DateTime
+  endDate      DateTime?
+  allDay       Boolean   @default(true)
+  
+  repeat       String    @default("DOES_NOT_REPEAT") // DOES_NOT_REPEAT, WEEKLY
+  repeatDays   String?   // comma-separated: mon,tue,...
+  endOption    String?   // NO_END, ENDS_ON
+  endOn        DateTime?
+  
+  comment      String?
+  
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Invoice {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id])
+  
+  locationId  String?
+  location    Location? @relation(fields: [locationId], references: [id])
+  
+  invoiceNumber String
+  issueDate   DateTime
+  dueDate     DateTime
+  
+  status      String   @default("DRAFT") // DRAFT, SENT, PAID, OVERDUE, VOID
+  notes       String?
+
+  subtotal    Float
+  taxRate     Float    @default(0)
+  taxAmount   Float
+  total       Float
+  
+  items       InvoiceItem[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  
+  description String
+  quantity    Float
+  rate        Float
+  amount      Float
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  title       String
+  message     String
+  type        String   @default("INFO")
+  read        Boolean  @default(false)
+  metadata    String?  // JSON string
+  
+  createdAt   DateTime @default(now())
+}
+
+model WebPushSubscription {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  endpoint    String   @unique
+  p256dh      String
+  auth        String
+  
+  lastUsedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+model ExpoPushToken {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  token       String   @unique
+  
+  lastUsedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  businessId  String?
+  business    Business? @relation(fields: [businessId], references: [id])
+  
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id])
+  
+  action      String
+  resource    String
+  resourceId  String?
+  
+  details     String?  // JSON string for before/after or request payload
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+}
+
+model Qualification {
+  id                  String    @id @default(uuid())
+  employeeId          String
+  employee            Employee  @relation(fields: [employeeId], references: [id])
+  
+  name                String
+  type                String    @default("CERTIFICATION") // CERTIFICATION, LICENSE, EDUCATION, OTHER
+  issuingOrganization String?
+  credentialId        String?
+  
+  issueDate           DateTime?
+  expiryDate          DateTime?
+  
+  fileUrl             String?   // URL to uploaded document
+  
+  status              String    @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model IncidentReport {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  reportNumber String? @unique
+
+  title       String
+  description String
+  type        String   @default("GENERAL") // GENERAL, THEFT, INJURY, SECURITY, DAMAGE
+  severity    String   @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
+  status      String   @default("OPEN") // OPEN, INVESTIGATING, RESOLVED, CLOSED
+
+  date        DateTime @default(now())
+  incidentAt  DateTime?
+  reportedAt  DateTime @default(now())
+  shift       String?
+  buildingArea String?
+
+  responseAction String?
+  witnessPresent Boolean @default(false)
+  lawEnforcementInvolved Boolean @default(false)
+  evidenceCollected String?
+
+  locationId  String?
+  location    Location? @relation(fields: [locationId], references: [id])
+
+  reporterId  String?
+  reporter    User?    @relation(fields: [reporterId], references: [id])
+
+  reportingOfficerEmployeeId String?
+  reportingOfficer Employee? @relation("IncidentReportingOfficer", fields: [reportingOfficerEmployeeId], references: [id])
+
+  submittedById String?
+  submittedBy   User?    @relation("IncidentSubmittedBy", fields: [submittedById], references: [id])
+
+  assignedSupervisorId String?
+  assignedSupervisor   Employee? @relation("IncidentSupervisor", fields: [assignedSupervisorId], references: [id])
+
+  assignedInvestigatorId String?
+  assignedInvestigator   Employee? @relation("IncidentInvestigator", fields: [assignedInvestigatorId], references: [id])
+
+  images      String?  // JSON array of image URLs
+  deviceInfo  String?
+  geoLat      Float?
+  geoLng      Float?
+
+  persons     IncidentPerson[]
+  evidence    IncidentEvidence[]
+  timeline    IncidentTimelineEvent[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model IncidentPerson {
+  id          String   @id @default(uuid())
+  incidentId  String
+  incident    IncidentReport @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  role        String
+  name        String
+  contactInfo String?
+
+  createdAt   DateTime @default(now())
+}
+
+model IncidentEvidence {
+  id           String   @id @default(uuid())
+  incidentId   String
+  incident     IncidentReport @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  kind         String
+  url          String
+  filename     String
+  originalName String
+  mimeType     String?
+  sizeBytes    Int?
+
+  uploadedById String
+  uploadedBy   User     @relation("IncidentEvidenceUploadedBy", fields: [uploadedById], references: [id])
+
+  createdAt    DateTime @default(now())
+}
+
+model IncidentTimelineEvent {
+  id          String   @id @default(uuid())
+  incidentId  String
+  incident    IncidentReport @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  eventType   String
+  actorUserId String?
+  actorUser   User?    @relation("IncidentTimelineActor", fields: [actorUserId], references: [id])
+
+  payload     String?
+
+  createdAt   DateTime @default(now())
+}
+
+model Asset {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  name        String
+  description String?
+  serialNumber String?
+  
+  // Categorization
+  category    String   @default("MISCELLANEOUS") // UNIFORMS, WEAPONS, PROTECTIVE_GEAR, COMM_DEVICES, SURVEILLANCE, TRANSPORTATION, MISC
+  type        String?  // Specific type (e.g., "Tactical Polo", "Glock 19")
+  
+  // Details
+  brand       String?
+  model       String?
+  size        String?
+  color       String?
+  condition   String?  // NEW, GOOD, FAIR, DAMAGED, RETIRED
+  vendor      String?
+  quantity    Int      @default(1)
+  
+  // Compliance & Weapons
+  licenseNumber String?
+  complianceChecked Boolean @default(false)
+  
+  // Financial & Dates
+  purchaseDate DateTime?
+  purchaseCost Float?
+  warrantyExpiration DateTime?
+
+  status      String   @default("ACTIVE") // ACTIVE, IN_STORAGE, ASSIGNED, MAINTENANCE, REPAIR, LOST, RETIRED, DAMAGED
+
+  locationId  String?
+  location    Location? @relation(fields: [locationId], references: [id])
+
+  // Assignment Tracking
+  assignedToId String?
+  assignedTo   Employee? @relation(fields: [assignedToId], references: [id])
+  assignedDate DateTime?
+  expectedReturnDate DateTime?
+  
+  notes       String?
+
+  parentId    String?
+  parent      Asset?   @relation("AssetToParent", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Asset[]  @relation("AssetToParent")
+
+  assignmentHistory AssetAssignmentHistory[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AssetAssignmentHistory {
+  id          String   @id @default(uuid())
+  assetId     String
+  asset       Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  
+  assignedDate DateTime
+  returnedDate DateTime?
+  
+  returnCondition String?
+  notes           String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  date        DateTime
+  amount      Float
+  type        String   @default("VENDOR") // VENDOR, PAYROLL, REIMBURSEMENT, TAX, OTHER
+  category    String?  // EQUIPMENT, UNIFORM, VEHICLE, LICENSING, INSURANCE, OFFICE, TRAINING, MARKETING, OTHER
+  method      String?  // BANK, CARD, CASH, CHECK, WIRE
+  status      String   @default("COMPLETED") // PENDING, COMPLETED, CANCELLED, FAILED
+
+  payeeName   String?
+  reference   String?  // Invoice #, Receipt #, Transaction ID
+  
+  dcWard      String?  // Specific for DC Security Agency requirement
+  
+  description String?
+  notes       String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

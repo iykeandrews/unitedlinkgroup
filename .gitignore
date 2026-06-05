@@ -10,6 +10,8 @@ coverage/
 .env.production
 .DS_Store
 prisma/client/
+prisma/client-sqlite/
+prisma/.schema.sqlite.prisma
 # Dependencies
 node_modules/
 
@@ -33,4 +35,3 @@ android/app/build/
 
 # macOS
 .DS_Store
-
