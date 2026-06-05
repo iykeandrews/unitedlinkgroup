@@ -2,12 +2,18 @@
   "name": "unitedlinkgroup",
   "private": true,
   "packageManager": "npm@10.9.3",
+  "engines": {
+    "node": "20.x"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
     "build": "turbo run build",
+    "start": "npm --workspace api run start:prod",
+    "start:api": "npm --workspace api run start:prod",
+    "start:web": "npm --workspace web run start",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
