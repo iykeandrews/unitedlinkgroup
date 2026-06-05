@@ -30,7 +30,9 @@ async function bootstrap() {
   }
   
   // Security Hardening: Strict CORS
-  const defaultFrontend = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const renderHostname = process.env.RENDER_EXTERNAL_HOSTNAME;
+  const renderOrigin = renderHostname ? `https://${renderHostname}` : undefined;
+  const defaultFrontend = process.env.FRONTEND_URL || renderOrigin || 'http://localhost:3000';
   app.enableCors({
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return cb(null, true);
@@ -51,7 +53,7 @@ async function bootstrap() {
     optionsSuccessStatus: 204,
   });
 
-  const port = Number(process.env.PORT || process.env.API_PORT || 3002);
+  const port = Number(process.env.API_PORT || process.env.PORT || 3002);
   await app.listen(port, '0.0.0.0');
   console.log(`Application is running on: http://0.0.0.0:${port}`);
 }

@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+const defaultBaseUrl =
+  typeof window === 'undefined'
+    ? process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:3002'
+    : '/api';
+
 const vendorApi = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002',
+  baseURL: defaultBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },

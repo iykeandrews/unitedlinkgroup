@@ -55,6 +55,15 @@ const nextConfig = {
   images: {
     remotePatterns,
   },
+  async rewrites() {
+    const internalApiPort = process.env.API_INTERNAL_PORT || '3001';
+    const internalApiBase = `http://127.0.0.1:${internalApiPort}`;
+    return [
+      { source: '/api/:path*', destination: `${internalApiBase}/:path*` },
+      { source: '/socket.io/:path*', destination: `${internalApiBase}/socket.io/:path*` },
+      { source: '/uploads/:path*', destination: `${internalApiBase}/uploads/:path*` },
+    ];
+  },
 };
 
 export default nextConfig;

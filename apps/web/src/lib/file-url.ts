@@ -1,8 +1,14 @@
 export function resolveApiUrl(url: string) {
   if (!url) return url;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
-  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+  const configuredBase = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || '';
+  if (configuredBase) {
+    return `${configuredBase}${url.startsWith('/') ? '' : '/'}${url}`;
+  }
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/api${url.startsWith('/') ? '' : '/'}${url}`;
+  }
+  return `http://localhost:3002${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 export function resolveFileUrl(url: string) {
