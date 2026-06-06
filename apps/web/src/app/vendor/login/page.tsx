@@ -4,12 +4,10 @@ import { FormEvent, Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import axios from 'axios';
 import { Building2, ExternalLink, Lock, Mail, Store } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { resolveFileUrl } from '@/lib/file-url';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+import vendorApi from '@/lib/vendor-api';
 
 export default function VendorLoginPage() {
   return (
@@ -41,8 +39,8 @@ function VendorLoginInner() {
       return;
     }
     let active = true;
-    axios
-      .get(`${API_URL}/vendors/public/${encodeURIComponent(slug)}`)
+    vendorApi
+      .get(`/vendors/public/${encodeURIComponent(slug)}`)
       .then((res) => {
         if (active) setPortalInfo(res.data);
       })
@@ -59,7 +57,7 @@ function VendorLoginInner() {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post(`${API_URL}/auth/vendor-login`, {
+      const response = await vendorApi.post(`/auth/vendor-login`, {
         email,
         password,
         portalSlug: portalSlug || undefined,
