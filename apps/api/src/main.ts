@@ -32,14 +32,28 @@ async function bootstrap() {
   // Security Hardening: Strict CORS
   const renderHostname = process.env.RENDER_EXTERNAL_HOSTNAME;
   const renderOrigin = renderHostname ? `https://${renderHostname}` : undefined;
+  const renderEnv =
+    process.env.RENDER === 'true' ||
+    Boolean(process.env.RENDER_SERVICE_ID) ||
+    Boolean(process.env.RENDER_EXTERNAL_HOSTNAME);
+  const configuredFrontendUrls = String(process.env.FRONTEND_URLS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
   const defaultFrontend = process.env.FRONTEND_URL || renderOrigin || 'http://localhost:3000';
+  const allowedOrigins = new Set<string>([defaultFrontend, 'http://localhost:3000', ...configuredFrontendUrls]);
+  if (renderOrigin) allowedOrigins.add(renderOrigin);
+
   app.enableCors({
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
       if (!origin) return cb(null, true);
-      if (origin === defaultFrontend || origin === 'http://localhost:3000') {
+      if (allowedOrigins.has(origin)) {
         return cb(null, true);
       }
       if (/^http:\/\/\d{1,3}(\.\d{1,3}){3}:3000$/.test(origin)) {
+        return cb(null, true);
+      }
+      if (renderEnv && /^https:\/\/[a-z0-9-]+\.onrender\.com$/i.test(origin)) {
         return cb(null, true);
       }
       if (process.env.NODE_ENV !== 'production') {
