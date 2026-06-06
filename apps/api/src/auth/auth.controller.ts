@@ -1,4 +1,4 @@
-import { Controller, Request, Post, UseGuards, Body, Get, UnauthorizedException, BadRequestException, Headers } from '@nestjs/common';
+import { Controller, Request, Post, UseGuards, Body, Get, UnauthorizedException, BadRequestException, Headers, HttpException, InternalServerErrorException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
 import { LoginDto } from './dto/login.dto';
@@ -15,23 +15,35 @@ export class AuthController {
 
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
-    const user = await this.authService.validateUser(loginDto.email, loginDto.password);
-    if (user) {
-      return this.authService.login(user);
-    }
+    try {
+      const user = await this.authService.validateUser(loginDto.email, loginDto.password);
+      if (user) {
+        return this.authService.login(user);
+      }
 
-    const count = await this.authService.getUserCount();
-    if (count === 0) {
-      throw new UnauthorizedException('No users exist. Bootstrap an admin account first.');
+      const count = await this.authService.getUserCount();
+      if (count === 0) {
+        throw new UnauthorizedException('No users exist. Bootstrap an admin account first.');
+      }
+      throw new UnauthorizedException('Invalid credentials');
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      console.error('auth/login failed', { name: error?.name, message: error?.message });
+      throw new InternalServerErrorException('Login failed');
     }
-    throw new UnauthorizedException('Invalid credentials');
   }
 
   @Post('vendor-login')
   async vendorLogin(@Body() body: LoginDto & { portalSlug?: string }) {
-    const user = await this.authService.validateVendorUser(body.email, body.password, body.portalSlug);
-    if (!user) throw new UnauthorizedException('Invalid vendor credentials');
-    return this.authService.login(user);
+    try {
+      const user = await this.authService.validateVendorUser(body.email, body.password, body.portalSlug);
+      if (!user) throw new UnauthorizedException('Invalid vendor credentials');
+      return this.authService.login(user);
+    } catch (error: any) {
+      if (error instanceof HttpException) throw error;
+      console.error('auth/vendor-login failed', { name: error?.name, message: error?.message });
+      throw new InternalServerErrorException('Login failed');
+    }
   }
   
   @UseGuards(AuthGuard('jwt'), RolesGuard)
