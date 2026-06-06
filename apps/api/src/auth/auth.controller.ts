@@ -1,4 +1,4 @@
-import { Controller, Request, Post, UseGuards, Body, Get, UnauthorizedException, BadRequestException, Headers, HttpException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Request, Post, UseGuards, Body, Get, UnauthorizedException, BadRequestException, Headers, HttpException, InternalServerErrorException, MethodNotAllowedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthGuard } from '@nestjs/passport';
 import { LoginDto } from './dto/login.dto';
@@ -12,6 +12,11 @@ const VENDOR_ROLE = 'VENDOR';
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
+
+  @Get('login')
+  async loginGet() {
+    throw new MethodNotAllowedException('Use POST /auth/login');
+  }
 
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
