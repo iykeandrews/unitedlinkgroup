@@ -50,6 +50,9 @@ async function bootstrap() {
       if (allowedOrigins.has(origin)) {
         return cb(null, true);
       }
+      if (/^https:\/\/(www\.)?unitedlinkgroup\.com$/i.test(origin)) {
+        return cb(null, true);
+      }
       if (/^http:\/\/\d{1,3}(\.\d{1,3}){3}:3000$/.test(origin)) {
         return cb(null, true);
       }
