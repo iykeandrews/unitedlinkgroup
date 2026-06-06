@@ -17,7 +17,7 @@ type UploadResult = {
 export class UploadsService {
   private s3: S3Client | null = null;
   private readonly bucket = process.env.AWS_S3_BUCKET || '';
-  private readonly region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '';
+  private readonly regionRaw = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '';
   private readonly provider = (process.env.UPLOADS_PROVIDER || '').toLowerCase();
 
   private resolveProvider(): 's3' | 'local' {
@@ -27,11 +27,19 @@ export class UploadsService {
     return 'local';
   }
 
+  private resolveAwsRegion() {
+    const raw = String(this.regionRaw || '').trim();
+    if (!raw) return '';
+    const match = raw.match(/([a-z]{2}(?:-[a-z0-9]+)+-\d+)/i);
+    return match ? match[1] : raw;
+  }
+
   private ensureS3() {
     if (this.s3) return this.s3;
     if (!this.bucket) throw new BadRequestException('AWS_S3_BUCKET is not configured');
-    if (!this.region) throw new BadRequestException('AWS_REGION is not configured');
-    this.s3 = new S3Client({ region: this.region });
+    const region = this.resolveAwsRegion();
+    if (!region) throw new BadRequestException('AWS_REGION is not configured');
+    this.s3 = new S3Client({ region });
     return this.s3;
   }
 
@@ -113,4 +121,3 @@ export class UploadsService {
     return path.join(this.uploadsDir(), safeKey);
   }
 }
-
