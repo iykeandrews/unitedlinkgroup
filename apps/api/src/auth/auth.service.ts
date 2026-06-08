@@ -18,7 +18,18 @@ export class AuthService {
 
   async validateUser(email: string, pass: string): Promise<any> {
     const normalizedEmail = String(email || '').trim().toLowerCase();
-    const user = await this.usersService.findOne(normalizedEmail);
+    if (!normalizedEmail || !pass) return null;
+
+    const employeeByOfficialEmail = await this.prisma.employee.findFirst({
+      where: {
+        officialEmail: { equals: normalizedEmail, mode: 'insensitive' },
+        status: 'ACTIVE',
+        userId: { not: null },
+      },
+      include: { user: true },
+    });
+
+    const user = employeeByOfficialEmail?.user || (await this.usersService.findOne(normalizedEmail));
     if (!user) return null;
     if (user.role === VENDOR_ROLE) return null;
 
@@ -32,7 +43,7 @@ export class AuthService {
       await this.prisma.user.update({ where: { id: user.id }, data: { password: hashedPassword } });
     }
 
-    const employee = await this.prisma.employee.findFirst({ where: { userId: user.id } });
+    const employee = employeeByOfficialEmail || (await this.prisma.employee.findFirst({ where: { userId: user.id } }));
     if (employee && (employee.role === 'EMPLOYEE' || employee.role === 'MANAGER')) {
       if (!employee.officialEmail || normalizedEmail !== employee.officialEmail.toLowerCase()) {
         return null;

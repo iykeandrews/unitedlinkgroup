@@ -12,3 +12,9 @@
 11 verbose logfile /Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-06-03T19_24_30_935Z-debug-0.log
 12 silly logfile start cleaning logs, removing 1 files
 13 silly logfile done cleaning log files
+14 verbose cwd /Users/it/Documents/trae_projects/unitedlinkgroup/apps/mobile
+15 verbose os Darwin 24.6.0
+16 verbose node v22.20.0
+17 verbose npm  v10.9.3
+18 verbose exit 0
+19 info ok
