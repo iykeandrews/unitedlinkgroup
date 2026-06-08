@@ -16,15 +16,24 @@ type UploadResult = {
 @Injectable()
 export class UploadsService {
   private s3: S3Client | null = null;
-  private readonly bucket = process.env.AWS_S3_BUCKET || '';
+  private readonly bucketRaw = process.env.AWS_S3_BUCKET || '';
   private readonly regionRaw = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || '';
   private readonly provider = (process.env.UPLOADS_PROVIDER || '').toLowerCase();
 
   private resolveProvider(): 's3' | 'local' {
     if (this.provider === 's3') return 's3';
     if (this.provider === 'local') return 'local';
-    if (this.bucket) return 's3';
+    if (this.resolveAwsBucket()) return 's3';
     return 'local';
+  }
+
+  private resolveAwsBucket() {
+    const raw = String(this.bucketRaw || '').trim();
+    if (!raw) return '';
+    const arnPrefix = 'arn:aws:s3:::';
+    if (raw.startsWith(arnPrefix)) return raw.slice(arnPrefix.length).trim();
+    if (raw.startsWith('s3://')) return raw.slice('s3://'.length).split('/')[0]?.trim() || '';
+    return raw;
   }
 
   private resolveAwsRegion() {
@@ -42,7 +51,8 @@ export class UploadsService {
 
   private ensureS3() {
     if (this.s3) return this.s3;
-    if (!this.bucket) throw new BadRequestException('AWS_S3_BUCKET is not configured');
+    const bucket = this.resolveAwsBucket();
+    if (!bucket) throw new BadRequestException('AWS_S3_BUCKET is not configured');
     const region = this.resolveAwsRegion();
     if (!region) throw new BadRequestException('AWS_REGION is not configured');
     this.s3 = new S3Client({ region });
@@ -82,10 +92,11 @@ export class UploadsService {
 
     if (provider === 's3') {
       const s3 = this.ensureS3();
+      const bucket = this.resolveAwsBucket();
       try {
         await s3.send(
           new PutObjectCommand({
-            Bucket: this.bucket,
+            Bucket: bucket,
             Key: key,
             Body: input.buffer,
             ContentType: input.mimeType || undefined,
@@ -120,11 +131,12 @@ export class UploadsService {
     const safeKey = path.basename(key);
     if (!safeKey) throw new BadRequestException('File not found');
     const s3 = this.ensureS3();
+    const bucket = this.resolveAwsBucket();
     try {
       return getSignedUrl(
         s3,
         new GetObjectCommand({
-          Bucket: this.bucket,
+          Bucket: bucket,
           Key: safeKey,
         }),
         { expiresIn: expiresSeconds }
