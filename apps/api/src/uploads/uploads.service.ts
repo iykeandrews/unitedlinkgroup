@@ -34,6 +34,12 @@ export class UploadsService {
     return match ? match[1] : raw;
   }
 
+  private formatAwsError(error: any) {
+    const name = String(error?.name || error?.Code || error?.code || '').trim();
+    const message = String(error?.message || '').trim();
+    return [name || 'AWS_ERROR', message || 'Request failed'].filter(Boolean).join(': ');
+  }
+
   private ensureS3() {
     if (this.s3) return this.s3;
     if (!this.bucket) throw new BadRequestException('AWS_S3_BUCKET is not configured');
@@ -76,17 +82,25 @@ export class UploadsService {
 
     if (provider === 's3') {
       const s3 = this.ensureS3();
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-          Body: input.buffer,
-          ContentType: input.mimeType || undefined,
-        })
-      );
+      try {
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+            Body: input.buffer,
+            ContentType: input.mimeType || undefined,
+          })
+        );
+      } catch (error: any) {
+        throw new BadRequestException(`Upload failed: ${this.formatAwsError(error)}`);
+      }
     } else {
       const dir = this.ensureUploadsDir();
-      fs.writeFileSync(path.join(dir, key), input.buffer);
+      try {
+        fs.writeFileSync(path.join(dir, key), input.buffer);
+      } catch {
+        throw new BadRequestException('Upload failed');
+      }
     }
 
     return {
@@ -106,14 +120,18 @@ export class UploadsService {
     const safeKey = path.basename(key);
     if (!safeKey) throw new BadRequestException('File not found');
     const s3 = this.ensureS3();
-    return getSignedUrl(
-      s3,
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: safeKey,
-      }),
-      { expiresIn: expiresSeconds }
-    );
+    try {
+      return getSignedUrl(
+        s3,
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: safeKey,
+        }),
+        { expiresIn: expiresSeconds }
+      );
+    } catch (error: any) {
+      throw new BadRequestException(`File not found: ${this.formatAwsError(error)}`);
+    }
   }
 
   getLocalFilePath(key: string) {
