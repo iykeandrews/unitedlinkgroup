@@ -1,12 +1,22 @@
-import { Controller, Post, UseInterceptors, UploadedFile, Get, Param, Res, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Post, UseInterceptors, UploadedFile, Get, Param, Res, BadRequestException, UseGuards, Injectable, ExecutionContext } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { JwtQueryAuthGuard } from '../auth/jwt-query-auth.guard';
 import { UploadsService } from './uploads.service';
+
+@Injectable()
+class UploadsReadGuard extends AuthGuard('jwt-query') {
+  canActivate(context: ExecutionContext) {
+    const req: any = context.switchToHttp().getRequest();
+    const filename = String(req?.params?.filename || '');
+    if (filename.startsWith('img-') || filename.startsWith('vid-')) return true;
+    return super.canActivate(context);
+  }
+}
 
 @Controller('uploads')
 export class UploadsController {
@@ -88,7 +98,7 @@ export class UploadsController {
   }
 
   @Get(':filename')
-  @UseGuards(JwtQueryAuthGuard)
+  @UseGuards(UploadsReadGuard)
   async serveFile(@Param('filename') filename: string, @Res() res: Response) {
     // Prevent directory traversal
     const safeFilename = path.basename(filename);
