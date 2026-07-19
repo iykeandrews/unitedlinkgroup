@@ -11,6 +11,17 @@ const BASE_URL =
   envUrl ||
   (Platform.OS === 'android' ? 'http://10.0.2.2:3002' : iosDevUrl);
 
+function toWebBaseUrl(apiBaseUrl: string) {
+  let webBaseUrl = String(apiBaseUrl || '').replace(/\/$/, '');
+  if (webBaseUrl.includes(':3002')) {
+    webBaseUrl = webBaseUrl.replace(':3002', ':3000');
+  }
+  return webBaseUrl.replace(/\/api$/i, '');
+}
+
+export const WEB_BASE_URL = toWebBaseUrl(BASE_URL);
+export const PRIVACY_POLICY_URL = `${WEB_BASE_URL || 'https://www.unitedlinkgroup.com'}/privacy-policy`;
+
 const api = axios.create({
   baseURL: BASE_URL,
   headers: {

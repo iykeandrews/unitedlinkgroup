@@ -1,0 +1,37 @@
+0 verbose cli /usr/local/bin/node /usr/local/bin/npm
+1 info using npm@11.6.2
+2 info using node@v24.8.0
+3 silly config load:file:/usr/local/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.npmrc
+5 silly config load:file:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm run dev --lan --clear --offline --go
+8 verbose argv "--workspace" "mobile" "run" "dev" "--" "--lan" "--clear" "--offline" "--go"
+9 verbose logfile logs-max:10 dir:/Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-07-17T09_23_25_866Z-
+10 verbose logfile /Users/it/Documents/trae_projects/unitedlinkgroup/.home/.npm/_logs/2026-07-17T09_23_25_866Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 verbose stack Error: command failed
+13 verbose stack     at promiseSpawn (/usr/local/lib/node_modules/npm/node_modules/@npmcli/promise-spawn/lib/index.js:22:22)
+13 verbose stack     at spawnWithShell (/usr/local/lib/node_modules/npm/node_modules/@npmcli/promise-spawn/lib/index.js:124:10)
+13 verbose stack     at promiseSpawn (/usr/local/lib/node_modules/npm/node_modules/@npmcli/promise-spawn/lib/index.js:12:12)
+13 verbose stack     at runScriptPkg (/usr/local/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/run-script-pkg.js:79:13)
+13 verbose stack     at runScript (/usr/local/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/run-script.js:9:12)
+13 verbose stack     at #run (/usr/local/lib/node_modules/npm/lib/commands/run.js:135:13)
+13 verbose stack     at RunScript.execWorkspaces (/usr/local/lib/node_modules/npm/lib/commands/run.js:67:24)
+13 verbose stack     at async Npm.exec (/usr/local/lib/node_modules/npm/lib/npm.js:208:9)
+13 verbose stack     at async module.exports (/usr/local/lib/node_modules/npm/lib/cli/entry.js:67:5)
+14 verbose pkgid mobile@1.0.0
+15 error Lifecycle script `dev` failed with error:
+16 error code 1
+17 error path /Users/it/Documents/trae_projects/unitedlinkgroup/apps/mobile
+18 error workspace mobile@1.0.0
+19 error location /Users/it/Documents/trae_projects/unitedlinkgroup/apps/mobile
+20 error command failed
+21 error command sh -c expo start --lan --clear --offline --go
+22 verbose cwd /Users/it/Documents/trae_projects/unitedlinkgroup
+23 verbose os Darwin 25.5.0
+24 verbose node v24.8.0
+25 verbose npm  v11.6.2
+26 verbose exit 1
+27 verbose code 1

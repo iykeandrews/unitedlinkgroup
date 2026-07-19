@@ -1,7 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
-// metro-config/private/defaults/exclusionList exports an object with 'default' property
-// because it's a transpiled module with __esModule: true
 const exclusionListModule = require('metro-config/private/defaults/exclusionList');
 const exclusionList = exclusionListModule.default || exclusionListModule;
 
@@ -21,6 +19,8 @@ config.resolver.extraNodeModules = {
   'react': path.resolve(__dirname, 'node_modules/react'),
   'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
   'react-native': path.resolve(__dirname, 'node_modules/react-native'),
+  'react-native-screens': path.resolve(__dirname, 'node_modules/react-native-screens'),
+  'react-native-web': path.resolve(__dirname, 'node_modules/react-native-web'),
 };
 
 // Ensure we search the local node_modules first
@@ -29,10 +29,12 @@ config.resolver.nodeModulesPaths = [
   rootNodeModules,
 ];
 
-// Block the root node_modules version of react and react-native
-config.resolver.blacklistRE = exclusionList([
+// Block root copies of core runtime packages so Metro stays on the mobile tree.
+config.resolver.blockList = exclusionList([
   new RegExp(`${rootNodeModules}/react/.*`),
+  new RegExp(`${rootNodeModules}/react-dom/.*`),
   new RegExp(`${rootNodeModules}/react-native/.*`),
+  new RegExp(`${rootNodeModules}/react-native-screens/.*`),
 ]);
 
 module.exports = config;

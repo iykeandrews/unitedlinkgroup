@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import api from '../../lib/api';
 import { UserRole } from '@unitedlinkgroup/types';
-import { Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, Store } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function LoginPage() {
@@ -149,19 +149,12 @@ export default function LoginPage() {
               animate={{ opacity: [0.35, 0.7, 0.35] }}
               transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
             />
-            <div className="flex items-start justify-between gap-4">
+            <div>
               <div>
                 <div className="text-sm font-semibold text-white/70">Welcome back</div>
                 <h1 className="mt-2 text-2xl font-black tracking-tight text-white">Sign in</h1>
                 <p className="mt-2 text-sm text-white/65">Use your admin or superadmin credentials to continue.</p>
               </div>
-              <Link
-                href="/vendor/login"
-                className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
-              >
-                <Store className="h-4 w-4" />
-                Vendor login
-              </Link>
             </div>
 
             {error ? (
@@ -241,6 +234,10 @@ export default function LoginPage() {
 
               <div className="pt-2 text-center text-xs text-white/55">
                 Protected system • Authorized access only
+                <span className="mx-2 text-white/30">|</span>
+                <Link href="/privacy-policy" className="font-semibold text-cyan-200 hover:text-white">
+                  Privacy Policy
+                </Link>
               </div>
             </form>
           </motion.div>

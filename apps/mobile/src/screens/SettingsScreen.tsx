@@ -8,7 +8,7 @@ import * as Location from 'expo-location';
 import * as IntentLauncher from 'expo-intent-launcher';
 import Constants from 'expo-constants';
 import { registerExpoPush } from '../services/push';
-import api from '../services/api';
+import api, { PRIVACY_POLICY_URL } from '../services/api';
 
 export default function SettingsScreen() {
   const { user, signOut, clearSavedSession, biometricAvailable, biometricEnabled, savedSessionAvailable, setBiometricPreference } = useAuth();
@@ -63,6 +63,14 @@ export default function SettingsScreen() {
       await openAppSettings();
     } catch {
       await openAppSettings();
+    }
+  };
+
+  const openPrivacyPolicy = async () => {
+    try {
+      await Linking.openURL(PRIVACY_POLICY_URL);
+    } catch {
+      Alert.alert('Privacy Policy', 'Unable to open the privacy policy right now.');
     }
   };
 
@@ -167,7 +175,7 @@ export default function SettingsScreen() {
 
   const lockNow = async () => {
     try {
-      await signOut();
+      signOut();
     } catch (e: any) {
       Alert.alert('Lock', String(e?.message || 'Unable to lock the app'));
     }
@@ -434,6 +442,16 @@ export default function SettingsScreen() {
             <Text style={[styles.aboutLabel, { color: palette.muted }]}>Environment</Text>
             <Text style={[styles.aboutValue, { color: palette.text }]}>{(Constants as any)?.appOwnership || 'standalone'}</Text>
           </View>
+          <TouchableOpacity
+            style={[styles.aboutRow, { borderColor: palette.border, backgroundColor: palette.panelStrong, marginTop: 10 }]}
+            onPress={openPrivacyPolicy}
+          >
+            <Text style={[styles.aboutLabel, { color: palette.muted }]}>Privacy Policy</Text>
+            <View style={styles.aboutLinkRow}>
+              <Text style={[styles.aboutValue, { color: palette.cyan }]}>Open</Text>
+              <Ionicons name="open-outline" size={16} color={palette.cyan as any} />
+            </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -735,6 +753,11 @@ const styles = StyleSheet.create({
   aboutValue: {
     fontSize: 12,
     fontWeight: '900',
+  },
+  aboutLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   modalOverlay: {
     flex: 1,

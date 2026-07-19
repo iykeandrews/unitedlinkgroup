@@ -545,11 +545,16 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       </Link>
 
       <footer className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-4 sm:px-6 lg:px-8 py-3 text-xs text-slate-500 dark:text-slate-400">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span>© {new Date().getFullYear()} {selectedBusiness ? selectedBusiness.name : appName}</span>
-          <a href="https://www.giovytech.com.ng" className="text-blue-600 dark:text-blue-400 hover:underline">
-            Powered by Giovy Tech
-          </a>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy-policy" className="text-slate-600 hover:underline dark:text-slate-300">
+              Privacy Policy
+            </Link>
+            <a href="https://www.giovytech.com.ng" className="text-blue-600 dark:text-blue-400 hover:underline">
+              Powered by Giovy Tech
+            </a>
+          </div>
         </div>
       </footer>
 

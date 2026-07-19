@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PRIVACY_POLICY_URL } from '../services/api';
 
 export default function LoginScreen() {
   const { signIn, biometricAvailable, biometricEnabled, biometricSessionAvailable, biometricSignIn } = useAuth();
@@ -61,6 +62,14 @@ export default function LoginScreen() {
       Alert.alert('Login Failed', message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function openPrivacyPolicy() {
+    try {
+      await Linking.openURL(PRIVACY_POLICY_URL);
+    } catch {
+      Alert.alert('Privacy Policy', 'Unable to open the privacy policy right now.');
     }
   }
 
@@ -196,6 +205,9 @@ export default function LoginScreen() {
             <Text style={[styles.footerText, { color: palette.faint }]}>
               By continuing, you agree to use this system for authorized business purposes only.
             </Text>
+            <TouchableOpacity onPress={openPrivacyPolicy} disabled={loading} style={styles.footerLinkWrap}>
+              <Text style={[styles.footerLink, { color: palette.cyan }]}>Privacy Policy</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.bottomPad} />
@@ -374,6 +386,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     lineHeight: 16,
+  },
+  footerLinkWrap: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+  },
+  footerLink: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   bottomPad: {
     height: 18,
