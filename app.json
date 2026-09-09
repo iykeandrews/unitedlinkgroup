@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "81101569-3cf8-4082-ba62-e32a105b53a3"
+      }
+    },
+    "android": {
+      "package": "com.unitedlinkgroup.mobile"
+    }
+  }
+}

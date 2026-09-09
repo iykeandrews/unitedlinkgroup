@@ -1,4 +1,4 @@
-package com.anonymous.unitedlinkgroupmobile
+package com.unitedlinkgroup.mobile
 
 import android.os.Build
 import android.os.Bundle

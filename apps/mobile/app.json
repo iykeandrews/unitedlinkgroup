@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "unitedlinkgroup-mobile",
-    "slug": "unitedlinkgroup-mobile",
+    "name": "United Link Group",
+    "slug": "unitedlinkgroup",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -10,11 +10,11 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.unitedlinkgroup-mobile"
+      "bundleIdentifier": "com.unitedlinkgroup.mobile"
     },
     "android": {
       "adaptiveIcon": {},
-      "package": "com.anonymous.unitedlinkgroupmobile"
+      "package": "com.unitedlinkgroup.mobile"
     },
     "web": {
       "favicon": ""
@@ -26,7 +26,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "2d644c77-e5dd-4266-8c5b-b25fda480435"
+        "projectId": "81101569-3cf8-4082-ba62-e32a105b53a3"
       }
     },
     "owner": "iykeandrews"
