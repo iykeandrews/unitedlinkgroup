@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ChevronLeft, Save, MapPin, Navigation, Clock, Shield, Plus, Trash2, Edit2, AlertTriangle, Building, FileText } from 'lucide-react';
+import { toast } from 'sonner';
 import api from '../../../../../lib/api';
 import PatrolLogList from '../../../../../components/patrol-logs/PatrolLogList';
 import CreatePatrolLogModal from '../../../../../components/patrol-logs/CreatePatrolLogModal';
@@ -70,6 +71,7 @@ export default function SiteDetailsPage() {
   }, [id]);
 
   const fetchSite = async () => {
+    setLoading(true);
     try {
       const res = await api.get(`/locations/${id}`);
       setSite(res.data);
@@ -81,8 +83,8 @@ export default function SiteDetailsPage() {
         endDate: res.data.endDate ? res.data.endDate.split('T')[0] : '',
         address: res.data.address || '',
         status: res.data.status || 'INACTIVE',
-        geoLat: res.data.geoLat || '',
-        geoLng: res.data.geoLng || '',
+        geoLat: res.data.geoLat ?? '',
+        geoLng: res.data.geoLng ?? '',
         radius: res.data.radius || 100,
         clientId: res.data.clientId || ''
       });
@@ -91,7 +93,8 @@ export default function SiteDetailsPage() {
         setPins(res.data.servicePins);
       }
     } catch (error) {
-      console.error('Failed to fetch site', error);
+      setSite(null);
+      toast.error('Unable to load site. Return to Sites and retry.');
     } finally {
       setLoading(false);
     }

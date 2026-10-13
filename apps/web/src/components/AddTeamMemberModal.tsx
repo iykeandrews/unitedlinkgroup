@@ -62,12 +62,13 @@ export function AddTeamMemberModal({ isOpen, onClose, onSuccess }: AddTeamMember
   };
 
   const handleSubmit = async () => {
+    if (loading) return;
     try {
       setLoading(true);
       setError('');
 
       // Validate required fields
-      if (!formData.firstName || !formData.lastName || !formData.email) {
+      if (!formData.firstName.trim() || !formData.lastName.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
         setError('Please fill in all required fields');
         setLoading(false);
         return;
@@ -80,9 +81,9 @@ export function AddTeamMemberModal({ isOpen, onClose, onSuccess }: AddTeamMember
       }
 
       await api.post('/employees', {
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email.trim().toLowerCase(),
         phone: formData.mobile,
         role: formData.role,
         workerType: formData.workerType,

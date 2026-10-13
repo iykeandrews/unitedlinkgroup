@@ -24,7 +24,7 @@ export class LocationsService {
     const userId = user.userId || user.sub || user.id;
     console.log(`Resolving businessId for user ${userId} (role: ${user.role})`);
 
-    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: userId } });
+    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: userId, ...(businessIdHeader ? {id:businessIdHeader} : {}) } });
     if (ownedBusiness) {
         if (businessIdHeader && businessIdHeader !== ownedBusiness.id) {
              throw new BadRequestException('Access denied: You cannot access another business data');
@@ -33,7 +33,7 @@ export class LocationsService {
         return ownedBusiness.id;
     }
     
-    const employee = await this.prisma.employee.findFirst({ where: { userId: userId } });
+    const employee = await this.prisma.employee.findFirst({ where: { userId: userId, ...(businessIdHeader ? {businessId:businessIdHeader} : {}) } });
     if (!employee) {
         console.error(`User ${userId} is not associated with any business`);
         throw new BadRequestException('User is not associated with a business');
@@ -47,9 +47,24 @@ export class LocationsService {
     return employee.businessId;
   }
 
+  private async validateLocation(data: any, businessId: string, existing?: any) {
+    const merged = { ...existing, ...data };
+    if (!merged.name?.trim() || !merged.address?.trim()) throw new BadRequestException('Site name and address are required');
+    if (!['ACTIVE','INACTIVE'].includes(merged.status || 'INACTIVE')) throw new BadRequestException('Invalid site status');
+    const start = merged.startDate ? new Date(merged.startDate) : null;
+    const end = merged.endDate ? new Date(merged.endDate) : null;
+    if ((start && !Number.isFinite(start.getTime())) || (end && !Number.isFinite(end.getTime())) || (start && end && end < start)) throw new BadRequestException('Invalid service date range');
+    for (const [field, min, max] of [['geoLat',-90,90],['geoLng',-180,180],['radius',1,100000]] as const) {
+      const value = merged[field];
+      if (value != null && (!Number.isFinite(value) || value < min || value > max)) throw new BadRequestException(`Invalid ${field}`);
+    }
+    if (merged.clientId && !await this.prisma.client.findFirst({where:{id:merged.clientId,businessId}})) throw new BadRequestException('Client must belong to this business');
+  }
+
   async create(user: any, data: any, businessIdHeader?: string) {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     
+    await this.validateLocation(data, businessId);
     if (data.status === 'ACTIVE') {
        throw new BadRequestException('Cannot create ACTIVE site without service pins. Please create as INACTIVE and add pins.');
     }
@@ -65,14 +80,14 @@ export class LocationsService {
 
     return this.prisma.location.create({
       data: {
-        name: data.name,
+        name: data.name.trim(),
         code: data.code,
         workOrder: data.workOrder,
         startDate: data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
-        address: data.address,
+        address: data.address.trim(),
         businessId,
-        clientId: data.clientId,
+        clientId: data.clientId || null,
         status: data.status || 'INACTIVE',
         geoLat,
         geoLng,
@@ -118,6 +133,7 @@ export class LocationsService {
     const loc = await this.prisma.location.findFirst({ where: { id, businessId } });
     if (!loc) throw new NotFoundException('Location not found');
 
+    await this.validateLocation(data, businessId, loc);
     if (data.status === 'ACTIVE') {
         const pinCount = await this.prisma.servicePin.count({ where: { locationId: id, status: 'ACTIVE' } });
         if (pinCount === 0) {
@@ -126,22 +142,20 @@ export class LocationsService {
     }
     
     if (data.status === 'INACTIVE' && loc.status === 'ACTIVE') {
-        await this.prisma.servicePin.updateMany({
-            where: { locationId: id },
-            data: { status: 'INACTIVE' }
-        });
+      const commitments = await this.prisma.shift.count({ where: { locationId:id, endTime:{gt:new Date()}, status:{in:['DRAFT','PUBLISHED','OPEN']} } });
+      const activeTime = await this.prisma.timesheet.count({where:{locationId:id,endTime:null}});
+      if (commitments || activeTime) throw new BadRequestException('Resolve upcoming shifts and active timesheets before deactivating this site');
     }
-
     return this.prisma.location.update({
       where: { id },
       data: {
         name: data.name ?? loc.name,
         workOrder: data.workOrder ?? loc.workOrder,
-        startDate: data.startDate ? new Date(data.startDate) : loc.startDate,
-        endDate: data.endDate ? new Date(data.endDate) : loc.endDate,
+        startDate: data.startDate === undefined ? loc.startDate : data.startDate ? new Date(data.startDate) : null,
+        endDate: data.endDate === undefined ? loc.endDate : data.endDate ? new Date(data.endDate) : null,
         code: data.code ?? loc.code,
         address: data.address ?? loc.address,
-        clientId: data.clientId ?? loc.clientId,
+        clientId: data.clientId === undefined ? loc.clientId : data.clientId || null,
         status: data.status ?? loc.status,
         geoLat: data.geoLat ?? loc.geoLat,
         geoLng: data.geoLng ?? loc.geoLng,

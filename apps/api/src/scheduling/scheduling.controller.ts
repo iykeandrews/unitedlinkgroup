@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Query, Put, Param, Delete, UseGuards, Request, Headers } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Put, Param, Delete, UseGuards, Request, Headers, BadRequestException } from '@nestjs/common';
 import { SchedulingService } from './scheduling.service';
 import { Prisma } from '@unitedlinkgroup/database';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -27,17 +27,15 @@ export class SchedulingController {
     @Query('employeeId') employeeId: string,
     @Request() req: any
   ) {
-    console.log('getShifts called', { queryBusinessId, headerBusinessId, start, end, employeeId, user: req.user });
     try {
       let targetBusinessId = queryBusinessId || headerBusinessId;
       if (!targetBusinessId) {
           // Only try to derive from user if they are not super admin, or if we want to support employee fallback
           if (req.user.role === UserRole.SUPER_ADMIN) {
-               throw new Error('Business context required for Super Admin');
+               throw new BadRequestException('Select a business before scheduling');
           }
           targetBusinessId = await this.schedulingService.getBusinessId(req.user.userId);
       }
-      console.log('targetBusinessId resolved:', targetBusinessId);
       return await this.schedulingService.getShifts(targetBusinessId, new Date(start), new Date(end), req.user, employeeId);
     } catch (error) {
       console.error('Error in getShifts:', error);
@@ -155,6 +153,12 @@ export class SchedulingController {
     return this.schedulingService.updateShift(id, data, req.user);
   }
 
+  @Post('shifts/:id/split')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  splitDraftShift(@Param('id') id: string, @Request() req: any) {
+    return this.schedulingService.splitDraftShift(id, req.user);
+  }
+
   @Delete('shifts/:id')
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
   deleteShift(@Param('id') id: string, @Request() req: any) {
@@ -173,7 +177,7 @@ export class SchedulingController {
     let targetBusinessId = queryBusinessId || headerBusinessId;
     if (!targetBusinessId) {
       if (req.user.role === UserRole.SUPER_ADMIN) {
-        throw new Error('Business context required for Super Admin');
+        throw new BadRequestException('Select a business before scheduling');
       }
       return this.schedulingService.getBusinessId(req.user.userId).then(businessId => {
         return this.schedulingService.publishShifts(businessId, new Date(start), new Date(end), req.user);
@@ -195,7 +199,7 @@ export class SchedulingController {
     let targetBusinessId = queryBusinessId || headerBusinessId;
     if (!targetBusinessId) {
       if (req.user.role === UserRole.SUPER_ADMIN) {
-        throw new Error('Business context required for Super Admin');
+        throw new BadRequestException('Select a business before scheduling');
       }
       return this.schedulingService.getBusinessId(req.user.userId).then(businessId => {
         return this.schedulingService.autoSchedule(businessId, new Date(start), new Date(end), req.user, { clientId });

@@ -7,6 +7,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PushService } from '../push/push.service';
 import { AuditService } from '../audit/audit.service';
 import crypto from 'crypto';
+import { fitsAvailability, overlapsLeave } from './availability.util';
 
 @Injectable()
 export class SchedulingService {
@@ -61,25 +62,38 @@ export class SchedulingService {
         employeeId: params.employeeId,
         status: { in: ['DRAFT', 'PUBLISHED', 'OPEN', 'COMPLETED'] } as any,
         ...(exclusions.length ? { NOT: exclusions } : {}),
-        OR: [
-          {
-            startTime: { lte: params.start },
-            endTime: { gte: params.start },
-          },
-          {
-            startTime: { lte: end },
-            endTime: { gte: end },
-          },
-          {
-            startTime: { gte: params.start },
-            endTime: { lte: end },
-          },
-        ],
+        startTime: { lt: end },
+        endTime: { gt: params.start },
       } as any,
       select: { id: true }
     });
     if (overlaps) {
       throw new BadRequestException('Shift overlaps with an existing shift');
+    }
+  }
+
+  private assertValidRange(start: Date, end: Date) {
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
+      throw new BadRequestException('Provide valid start and end times, with end after start');
+    }
+  }
+
+  private async validatePlacement(businessId: string, employeeId: string | null | undefined, locationId: string | null | undefined, start: Date, end: Date, breakMinutes = 0) {
+    this.assertValidRange(start, end);
+    if (!Number.isInteger(breakMinutes) || breakMinutes < 0 || breakMinutes >= (end.getTime() - start.getTime()) / 60000) {
+      throw new BadRequestException('Break minutes must be a non-negative whole number shorter than the shift');
+    }
+    if (employeeId) {
+      const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+      if (!employee || employee.businessId !== businessId || employee.status !== 'ACTIVE') {
+        throw new BadRequestException('Choose an active employee from this business');
+      }
+    }
+    if (locationId) {
+      const location = await this.prisma.location.findUnique({ where: { id: locationId } });
+      if (!location || location.businessId !== businessId || location.status !== 'ACTIVE') {
+        throw new BadRequestException('Choose an active location from this business');
+      }
     }
   }
 
@@ -167,6 +181,52 @@ export class SchedulingService {
     const map = new Map<string, { id: string; email: string | null }>();
     for (const u of users) map.set(u.id, u);
     return Array.from(map.values());
+  }
+
+  private async getScheduleRecipients(businessId: string, shifts: Array<{ employeeId?: string | null; locationId?: string | null }>) {
+    const employeeIds = [...new Set(shifts.map(shift => shift.employeeId).filter(Boolean))] as string[];
+    const locationIds = [...new Set(shifts.map(shift => shift.locationId).filter(Boolean))] as string[];
+    if (!employeeIds.length && !locationIds.length) return [];
+    const employees = await this.prisma.employee.findMany({
+      where: { businessId, status: 'ACTIVE', OR: [
+        { id: { in: employeeIds } },
+        { defaultLocationId: { in: locationIds } },
+      ] },
+      include: { user: true, customRole: true },
+    });
+    const recipients = new Map<string, { id: string; email: string | null }>();
+    const supervisorIds = new Set<string>();
+    for (const employee of employees) {
+      const isScheduled = employeeIds.includes(employee.id);
+      const isAtLocation = !!employee.defaultLocationId && locationIds.includes(employee.defaultLocationId);
+      const role = `${employee.role} ${employee.customRole?.name || ''}`.trim().toUpperCase();
+      const isLocationSupervisor = isAtLocation && (role.includes('SUPERVISOR') || role.split(/\s+/).includes('MANAGER'));
+      if ((isScheduled || isAtLocation) && employee.supervisorId) supervisorIds.add(employee.supervisorId);
+      if ((isScheduled || isLocationSupervisor) && employee.userId && employee.user) {
+        recipients.set(employee.userId, { id: employee.userId, email: employee.user.email });
+      }
+    }
+    if (supervisorIds.size) {
+      const supervisors = await this.prisma.employee.findMany({
+        where: { businessId, status: 'ACTIVE', id: { in: [...supervisorIds] } },
+        include: { user: true },
+      });
+      for (const supervisor of supervisors) {
+        if (supervisor.userId && supervisor.user) recipients.set(supervisor.userId, { id: supervisor.userId, email: supervisor.user.email });
+      }
+    }
+    return [...recipients.values()];
+  }
+
+  private async notifyScheduleRecipients(businessId: string, shifts: Array<{ employeeId?: string | null; locationId?: string | null }>, title: string, message: string, metadata: Record<string, any>) {
+    const recipients = await this.getScheduleRecipients(businessId, shifts);
+    for (const recipient of recipients) {
+      await this.notifications.createNotification(recipient.id, 'INFO', title, message, metadata);
+      await this.notifications.sendPush(recipient.id, { type: 'INFO', title, message, metadata, actionUrl: '/dashboard/scheduling' });
+      await this.push.send(recipient.id, { type: 'INFO', title, message, metadata, actionUrl: '/dashboard/scheduling' });
+      if (recipient.email) await this.notifications.sendEmail(recipient.email, title, message);
+    }
+    return recipients.length;
   }
 
   private async notifyOpenShiftCandidates(
@@ -288,7 +348,7 @@ export class SchedulingService {
   }
 
   async listPendingCallouts(user: any, businessIdHeader?: string) {
-    const where: any = { resolvedAt: null };
+    const where: any = { resolvedAt: null, status: 'PENDING' };
     if (String(user?.role || '').toUpperCase() !== 'SUPER_ADMIN') {
       if (!businessIdHeader) return [];
       await this.validateBusinessAccess(businessIdHeader, user);
@@ -317,7 +377,7 @@ export class SchedulingService {
     });
     if (!callout) throw new BadRequestException('Call-out not found');
     await this.validateBusinessAccess(callout.businessId, user);
-    if (callout.resolvedAt) {
+    if (callout.resolvedAt || callout.status !== 'PENDING') {
       throw new BadRequestException('Call-out has already been processed');
     }
 
@@ -331,9 +391,9 @@ export class SchedulingService {
       data: { status: 'APPROVED' },
     });
 
-    const notified = await this.notifyOpenShiftCandidates(callout.shift, {
-      excludeEmployeeIds: [callout.absentEmployeeId],
-    });
+    const notified = await this.notifyScheduleRecipients(callout.businessId, [{ employeeId: null, locationId: callout.shift.locationId }],
+      'Shift coverage required', `The shift on ${new Date(callout.shift.startTime).toLocaleString()} is now open.`,
+      { kind: 'SHIFT_OPENED', shiftId: callout.shiftId });
 
     if (callout.absentEmployee?.userId) {
       const title = 'Call-out approved';
@@ -353,7 +413,7 @@ export class SchedulingService {
     });
     if (!callout) throw new BadRequestException('Call-out not found');
     await this.validateBusinessAccess(callout.businessId, user);
-    if (callout.resolvedAt) {
+    if (callout.resolvedAt || callout.status !== 'PENDING') {
       throw new BadRequestException('Call-out has already been processed');
     }
 
@@ -438,6 +498,9 @@ export class SchedulingService {
     const ok = await this.validateAvailability(replacementEmployeeId, new Date(shift.startTime), new Date(shift.endTime));
     if (!ok.ok) throw new BadRequestException(ok.message);
 
+    if (!['PUBLISHED', 'OPEN'].includes(shift.status)) throw new BadRequestException('Only published or open shifts can be reassigned');
+    await this.assertNoShiftOverlap({ employeeId: replacementEmployeeId, start: shift.startTime, end: shift.endTime, excludeShiftId: shift.id, excludeGroupId: shift.groupId });
+
     const actorUserId = this.resolveActorUserId(user);
 
     const callout = await (this.prisma as any).shiftCallout.findUnique({ where: { shiftId } }).catch(() => null);
@@ -501,7 +564,8 @@ export class SchedulingService {
       await this.push.send(replacement.userId, { type: 'INFO', title, message, metadata: { shiftId, coverageId: coverage.id }, actionUrl: '/dashboard/scheduling' });
     }
 
-    const supervisors = await this.getAdminUsersForBusiness(shift.businessId);
+    const supervisors = (await this.getScheduleRecipients(shift.businessId, [{ employeeId: replacementEmployeeId, locationId: shift.locationId }]))
+      .filter(recipient => recipient.id !== replacement.userId);
     const title = 'Shift coverage filled';
     const message = `Coverage assigned to ${replacement.firstName} ${replacement.lastName} for ${new Date(shift.startTime).toLocaleString()}.`;
     for (const sup of supervisors) {
@@ -638,17 +702,13 @@ export class SchedulingService {
       throw new BadRequestException('End time must be after start time');
     }
 
-    const employeeConnectId = (data as any)?.employee?.connect?.id as string | undefined;
-    const locationConnectId = (data as any)?.location?.connect?.id as string | undefined;
-    const groupId = (data as any).groupId ? String((data as any).groupId) : crypto.randomUUID();
+    const employeeConnectId = ((data as any)?.employee?.connect?.id || (data as any).employeeId) as string | undefined;
+    const locationConnectId = ((data as any)?.location?.connect?.id || (data as any).locationId) as string | undefined;
+    const groupId = crypto.randomUUID();
     const notes = typeof (data as any).notes === 'string' ? (data as any).notes : ((data as any).notes ?? null);
     const breakMinutesRaw = (data as any).breakMinutes;
-    const breakMinutes =
-      typeof breakMinutesRaw === 'number'
-        ? Math.max(0, Math.trunc(breakMinutesRaw))
-        : typeof breakMinutesRaw === 'string'
-          ? Math.max(0, Math.trunc(parseInt(breakMinutesRaw, 10) || 0))
-          : 0;
+    const breakMinutes = breakMinutesRaw == null ? 0 : Number(breakMinutesRaw);
+    await this.validatePlacement(businessId!, employeeConnectId, locationConnectId, startTime, endTime, breakMinutes);
 
     // Check for overlaps for the same employee
     if (employeeConnectId) {
@@ -709,6 +769,7 @@ export class SchedulingService {
   }
 
   async getShifts(businessId: string, start: Date, end: Date, user: any, employeeId?: string): Promise<Shift[]> {
+    this.assertValidRange(start, end);
     await this.validateBusinessAccess(businessId, user);
     const rows = await this.prisma.shift.findMany({
       where: {
@@ -718,6 +779,7 @@ export class SchedulingService {
         endTime: { gte: start },
         status: { in: ['DRAFT', 'PUBLISHED', 'OPEN', 'CANCELLED'] } as any,
       },
+      orderBy: { createdAt: 'desc' },
       include: {
         employee: true,
         location: { include: { client: true } } as any,
@@ -755,7 +817,13 @@ export class SchedulingService {
         throw new BadRequestException('Access denied: Cannot apply for shift in another business');
     }
 
-    if (shift.status !== 'OPEN') throw new BadRequestException('Shift is not open for application');
+    if (shift.status !== 'OPEN' || shift.employeeId || shift.startTime <= new Date()) {
+      throw new BadRequestException('This shift is no longer available for application');
+    }
+    await this.validatePlacement(shift.businessId, employee.id, shift.locationId, shift.startTime, shift.endTime, shift.breakMinutes);
+    const availability = await this.validateAvailability(employee.id, shift.startTime, shift.endTime);
+    if (!availability.ok) throw new BadRequestException(availability.message);
+    await this.assertNoShiftOverlap({ employeeId: employee.id, start: shift.startTime, end: shift.endTime, excludeShiftId: shift.id });
 
     // Check if already applied
     const existing = await (this.prisma as any).shiftApplication.findUnique({
@@ -802,6 +870,8 @@ export class SchedulingService {
 
       await this.validateBusinessAccess(app.shift.businessId, user);
 
+      if (app.status !== 'PENDING') throw new BadRequestException('This application has already been processed');
+
       // Update application status
       await (this.prisma as any).shiftApplication.update({
           where: { id: applicationId },
@@ -835,6 +905,12 @@ export class SchedulingService {
       
       await this.validateBusinessAccess(app.shift.businessId, user);
 
+      if (app.status !== 'PENDING' || app.shift.status !== 'OPEN' || app.shift.employeeId || app.shift.startTime <= new Date()) {
+        throw new BadRequestException('This application or open shift has already been processed');
+      }
+      await this.validatePlacement(app.shift.businessId, app.employeeId, app.shift.locationId, app.shift.startTime, app.shift.endTime, app.shift.breakMinutes);
+      await this.assertNoShiftOverlap({ employeeId: app.employeeId, start: app.shift.startTime, end: app.shift.endTime, excludeShiftId: app.shiftId });
+
       const start = new Date(app.shift.startTime);
       const end = app.shift.endTime ? new Date(app.shift.endTime) : undefined;
       const ok = await this.validateAvailability(app.employeeId, start, end);
@@ -842,19 +918,19 @@ export class SchedulingService {
         throw new BadRequestException(ok.message);
       }
       
-      // Update application status
-      await (this.prisma as any).shiftApplication.update({
-          where: { id: applicationId },
-          data: { status: 'APPROVED' }
-      });
-
-      // Update Shift
-      const updatedShift = await this.prisma.shift.update({
-          where: { id: app.shiftId },
-          data: {
-              employeeId: app.employeeId,
-              status: 'PUBLISHED'
-          }
+      // Claim the open shift conditionally inside one transaction so concurrent approvals cannot overwrite it.
+      const updatedShift = await this.prisma.$transaction(async (tx) => {
+        const claimed = await tx.shift.updateMany({
+          where: { id: app.shiftId, status: 'OPEN', employeeId: null },
+          data: { employeeId: app.employeeId, status: 'PUBLISHED' },
+        });
+        if (claimed.count !== 1) throw new BadRequestException('This shift has already been assigned');
+        await tx.shiftApplication.update({ where: { id: applicationId }, data: { status: 'APPROVED' } });
+        await tx.shiftApplication.updateMany({
+          where: { shiftId: app.shiftId, id: { not: applicationId }, status: 'PENDING' },
+          data: { status: 'REJECTED' },
+        });
+        return tx.shift.findUniqueOrThrow({ where: { id: app.shiftId } });
       });
 
       const callout = await (this.prisma as any).shiftCallout.findUnique({ where: { shiftId: app.shiftId } }).catch(() => null);
@@ -892,32 +968,22 @@ export class SchedulingService {
           data: { status: 'REJECTED' }
       });
 
-      // Notify Employee
-      if (app.employee.user) {
-          const title = 'Shift Application Approved';
-          const message = `Your application for shift on ${new Date(app.shift.startTime).toLocaleDateString()} has been approved.`;
-          const userId = app.employee.user.id;
-          
-          await this.notifications.createNotification(userId, 'SUCCESS', title, message, { shiftId: app.shiftId });
-          await this.notifications.sendPush(userId, { type: 'SUCCESS', title, message, metadata: { shiftId: app.shiftId } });
-          await this.push.send(userId, { type: 'SUCCESS', title, message, metadata: { shiftId: app.shiftId }, actionUrl: '/dashboard/scheduling' });
-          
-          if (app.employee.user.email) {
-              await this.notifications.sendEmail(app.employee.user.email, title, message);
-          }
-      }
-      
+      await this.notifyScheduleRecipients(app.shift.businessId, [updatedShift], 'Shift assignment confirmed',
+        `The shift on ${new Date(updatedShift.startTime).toLocaleString()} has been assigned to ${app.employee.firstName} ${app.employee.lastName}.`,
+        { kind: 'SHIFT_ASSIGNED', shiftId: updatedShift.id });
+
       return updatedShift;
   }
 
   async getMyShifts(userId: string, start: Date, end: Date) {
+    this.assertValidRange(start, end);
     const employee = await this.prisma.employee.findFirst({ where: { userId } });
     if (!employee) throw new BadRequestException('User is not associated with a business');
     const shifts = await this.prisma.shift.findMany({
       where: {
         employeeId: employee.id,
-        startTime: { gte: start },
-        endTime: { lte: end },
+        startTime: { lt: end },
+        endTime: { gt: start },
         status: 'PUBLISHED',
       },
       include: { location: true, employee: true, callout: true as any },
@@ -988,13 +1054,14 @@ export class SchedulingService {
   }
   
   async getMyPeerShifts(userId: string, start: Date, end: Date): Promise<Shift[]> {
+    this.assertValidRange(start, end);
     const employee = await this.prisma.employee.findFirst({ where: { userId } });
     if (!employee) throw new BadRequestException('User is not associated with a business');
     const myShifts = await this.prisma.shift.findMany({
       where: {
         employeeId: employee.id,
-        startTime: { gte: start },
-        endTime: { lte: end },
+        startTime: { lt: end },
+        endTime: { gt: start },
         status: 'PUBLISHED',
       },
       select: { locationId: true },
@@ -1003,9 +1070,10 @@ export class SchedulingService {
     if (locationIds.length === 0) return [];
     return this.prisma.shift.findMany({
       where: {
+        businessId: employee.businessId,
         locationId: { in: locationIds },
-        startTime: { gte: start },
-        endTime: { lte: end },
+        startTime: { lt: end },
+        endTime: { gt: start },
         status: { in: ['PUBLISHED', 'OPEN'] },
         OR: [
           { employeeId: { not: employee.id } },
@@ -1038,12 +1106,7 @@ export class SchedulingService {
     const nextEnd = (data.endTime as any) ? new Date(data.endTime as any) : new Date(before.endTime);
     const nextNotes = typeof (data as any).notes !== 'undefined' ? (data as any).notes : (before as any).notes;
     const breakMinutesRaw = (data as any).breakMinutes;
-    const nextBreakMinutes =
-      typeof breakMinutesRaw === 'number'
-        ? Math.max(0, Math.trunc(breakMinutesRaw))
-        : typeof breakMinutesRaw === 'string'
-          ? Math.max(0, Math.trunc(parseInt(breakMinutesRaw, 10) || 0))
-          : ((before as any).breakMinutes ?? 0);
+    const nextBreakMinutes = breakMinutesRaw === undefined ? (before.breakMinutes ?? 0) : Number(breakMinutesRaw);
 
     let nextEmployeeId: string | null = before.employeeId || null;
     if ((data as any).employee?.connect?.id) nextEmployeeId = (data as any).employee.connect.id;
@@ -1052,6 +1115,11 @@ export class SchedulingService {
     let nextLocationId: string | null = before.locationId || null;
     if ((data as any).location?.connect?.id) nextLocationId = (data as any).location.connect.id;
     if ((data as any).location?.disconnect) nextLocationId = null;
+
+    await this.validatePlacement(before.businessId, nextEmployeeId, nextLocationId, nextStart, nextEnd, nextBreakMinutes);
+    if (nextStatus && !['DRAFT', 'CANCELLED'].includes(nextStatus)) {
+      throw new BadRequestException('Invalid shift status; use the scheduling actions to change status');
+    }
 
     const shouldEnforceAvailability =
       beforeStatus !== 'DRAFT' &&
@@ -1078,6 +1146,7 @@ export class SchedulingService {
     }
 
     if (beforeStatus === 'PUBLISHED' || beforeStatus === 'OPEN') {
+      if (!before.groupId) await this.prisma.shift.update({ where: { id }, data: { groupId } });
       const existingDraft = await this.prisma.shift.findFirst({
         where: { businessId: before.businessId, groupId, status: 'DRAFT' } as any,
       });
@@ -1123,8 +1192,8 @@ export class SchedulingService {
       });
     }
 
-    if (beforeStatus === 'ARCHIVED') {
-      throw new BadRequestException('Cannot edit an archived shift');
+    if (beforeStatus === 'ARCHIVED' || beforeStatus === 'COMPLETED') {
+      throw new BadRequestException('Cannot edit an archived or completed shift');
     }
 
     return this.prisma.shift.update({
@@ -1138,6 +1207,35 @@ export class SchedulingService {
         employeeId: nextEmployeeId,
         locationId: nextLocationId,
       } as any,
+    });
+  }
+
+  async splitDraftShift(id: string, user: any) {
+    const shift = await this.prisma.shift.findUnique({ where: { id } });
+    if (!shift) throw new BadRequestException('Shift not found');
+    await this.validateBusinessAccess(shift.businessId, user);
+    if (shift.status !== 'DRAFT') throw new BadRequestException('Only draft shifts can be split');
+    await this.assertShiftPlacementUnlocked(shift);
+    const midpoint = new Date(shift.startTime.getTime() + Math.floor((shift.endTime.getTime() - shift.startTime.getTime()) / 120000) * 60000);
+    const firstBreak = Math.floor(shift.breakMinutes / 2);
+    const secondBreak = shift.breakMinutes - firstBreak;
+    await this.validatePlacement(shift.businessId, shift.employeeId, shift.locationId, shift.startTime, midpoint, firstBreak);
+    await this.validatePlacement(shift.businessId, shift.employeeId, shift.locationId, midpoint, shift.endTime, secondBreak);
+    if (shift.employeeId) {
+      await this.assertNoShiftOverlap({ employeeId: shift.employeeId, start: shift.startTime, end: shift.endTime, excludeShiftId: shift.id, excludeGroupId: shift.groupId });
+    }
+    return this.prisma.$transaction(async tx => {
+      const changed = await tx.shift.updateMany({
+        where: { id, status: 'DRAFT', updatedAt: shift.updatedAt },
+        data: { endTime: midpoint, breakMinutes: firstBreak },
+      });
+      if (changed.count !== 1) throw new BadRequestException('The shift changed; refresh before splitting');
+      const second = await tx.shift.create({ data: {
+        businessId: shift.businessId, employeeId: shift.employeeId, locationId: shift.locationId,
+        startTime: midpoint, endTime: shift.endTime, breakMinutes: secondBreak,
+        notes: shift.notes, status: 'DRAFT', groupId: crypto.randomUUID(),
+      } });
+      return { first: await tx.shift.findUniqueOrThrow({ where: { id } }), second };
     });
   }
 
@@ -1158,7 +1256,7 @@ export class SchedulingService {
 
     if (status === 'PUBLISHED' || status === 'OPEN') {
       const active = await this.prisma.shift.findFirst({
-        where: { businessId: shift.businessId, groupId, status: { in: ['PUBLISHED', 'OPEN'] } as any } as any,
+        where: { businessId: shift.businessId, OR: [{ groupId }, { id: groupId }], status: { in: ['PUBLISHED', 'OPEN'] } as any } as any,
         orderBy: { createdAt: 'desc' }
       });
       const drafts = await this.prisma.shift.findMany({
@@ -1191,7 +1289,7 @@ export class SchedulingService {
     }
 
     const published = await this.prisma.shift.findFirst({
-      where: { businessId: shift.businessId, groupId, status: { in: ['PUBLISHED', 'OPEN'] } as any } as any,
+      where: { businessId: shift.businessId, OR: [{ groupId }, { id: groupId }], status: { in: ['PUBLISHED', 'OPEN'] } as any } as any,
       orderBy: { createdAt: 'desc' }
     });
     await this.prisma.shift.delete({ where: { id } });
@@ -1199,21 +1297,25 @@ export class SchedulingService {
   }
   
   async publishShifts(businessId: string, start: Date, end: Date, user: any): Promise<void> {
-      await this.validateBusinessAccess(businessId, user);
+      this.assertValidRange(start, end);
+    await this.validateBusinessAccess(businessId, user);
 
       const drafts = await this.prisma.shift.findMany({
         where: {
           businessId,
-          startTime: { gte: start },
-          endTime: { lte: end },
+          startTime: { lt: end },
+          endTime: { gt: start },
           status: { in: ['DRAFT', 'CANCELLED'] } as any
         },
         include: { employee: true }
       });
+      if (drafts.length === 0) return;
       const violations: string[] = [];
       for (const s of drafts) {
         if (String((s as any).status || '').toUpperCase() !== 'DRAFT') continue;
+        await this.validatePlacement(businessId, s.employeeId, s.locationId, s.startTime, s.endTime, s.breakMinutes);
         if (s.employeeId) {
+          await this.assertNoShiftOverlap({ employeeId: s.employeeId, start: s.startTime, end: s.endTime, excludeShiftId: s.id, excludeGroupId: s.groupId });
           const ok = await this.validateAvailability(s.employeeId, new Date(s.startTime), s.endTime ? new Date(s.endTime) : undefined);
           if (!ok.ok) {
             const name = s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : s.employeeId;
@@ -1237,63 +1339,35 @@ export class SchedulingService {
         }
       }
 
+      await this.prisma.$transaction(async tx => {
       for (const s of draftsByGroup.values()) {
         const gid = (s as any).groupId || s.id;
         const st = String((s as any).status || '').toUpperCase();
-        const active = await this.prisma.shift.findFirst({
+        const active = await tx.shift.findFirst({
           where: { businessId, groupId: gid, status: { in: ['PUBLISHED', 'OPEN'] } as any } as any,
           orderBy: { createdAt: 'desc' }
         });
 
         if (st === 'CANCELLED') {
           if (active) {
-            await this.prisma.shift.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } as any });
+            await tx.shift.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } as any });
           }
-          await this.prisma.shift.delete({ where: { id: s.id } });
+          await tx.shift.delete({ where: { id: s.id } });
           continue;
         }
 
         const nextStatus = s.employeeId ? 'PUBLISHED' : 'OPEN';
-        await this.prisma.shift.update({ where: { id: s.id }, data: { status: nextStatus } as any });
+        await tx.shift.update({ where: { id: s.id }, data: { status: nextStatus } as any });
         if (active) {
-          await this.prisma.shift.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } as any });
+          await tx.shift.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } as any });
         }
       }
 
-      const employeeUsers = await this.prisma.user.findMany({
-        where: { employeeProfiles: { some: { businessId, status: 'ACTIVE', userId: { not: null } } as any } } as any,
-        select: { id: true, email: true }
       });
-      const business = await this.prisma.business.findUnique({ where: { id: businessId } });
-      const superAdmins = await this.prisma.user.findMany({ where: { role: 'SUPER_ADMIN' } });
-      const adminUsers: Array<{ id: string; email: string | null }> = [];
-      if (business?.ownerId) {
-        const owner = await this.prisma.user.findUnique({ where: { id: business.ownerId } });
-        if (owner) adminUsers.push({ id: owner.id, email: owner.email || null });
-      }
-      for (const sa of superAdmins) {
-        adminUsers.push({ id: sa.id, email: sa.email || null });
-      }
-      const managers = await this.prisma.employee.findMany({
-        where: { businessId, role: 'MANAGER' },
-        include: { user: true }
-      });
-      const managerUsers = managers.map(m => m.user).filter(Boolean) as Array<{ id: string; email: string | null }>;
-      const allUsersMap = new Map<string, { id: string; email: string | null }>();
-      for (const u of [...employeeUsers, ...adminUsers, ...managerUsers]) {
-        allUsersMap.set(u.id, u);
-      }
-      const title = 'Weekly schedule published';
-      const msg = `Schedule for ${start.toDateString()} - ${end.toDateString()} is now published.`;
-      for (const u of allUsersMap.values()) {
-        const metadata = { kind: 'SCHEDULE_PUBLISHED', start, end };
-        await this.notifications.createNotification(u.id, 'SUCCESS', title, msg, metadata);
-        await this.notifications.sendPush(u.id, { type: 'SUCCESS', title, message: msg, metadata, actionUrl: '/dashboard/scheduling' });
-        await this.push.send(u.id, { type: 'SUCCESS', title, message: msg, metadata, actionUrl: '/dashboard/scheduling' });
-        if (u.email) {
-          await this.notifications.sendEmail(u.email, title, msg);
-        }
-      }
+
+      await this.notifyScheduleRecipients(businessId, [...draftsByGroup.values()], 'Schedule published',
+        `Schedule for ${start.toDateString()} - ${end.toDateString()} is now published.`,
+        { kind: 'SCHEDULE_PUBLISHED', start, end });
   }
 
   async autoSchedule(
@@ -1303,6 +1377,7 @@ export class SchedulingService {
     user: any,
     opts?: { clientId?: string }
   ): Promise<{ assigned: number; unfilled: number; total: number }> {
+    this.assertValidRange(start, end);
     await this.validateBusinessAccess(businessId, user);
 
     const clientId = opts?.clientId && opts.clientId !== 'all' ? String(opts.clientId) : null;
@@ -1312,8 +1387,8 @@ export class SchedulingService {
         businessId,
         status: 'DRAFT',
         employeeId: null,
-        startTime: { gte: start },
-        endTime: { lte: end },
+        startTime: { lt: end },
+        endTime: { gt: start },
         locationId: { not: null },
       } as any,
       include: { location: { include: { client: true } } as any } as any,
@@ -1476,130 +1551,18 @@ export class SchedulingService {
   }
 
   private async validateAvailability(employeeId: string, start: Date, end?: Date): Promise<{ ok: boolean; message?: string }> {
-    const records = await (this.prisma as any).availability.findMany({
-      where: { employeeId },
-      orderBy: { createdAt: 'desc' }
-    });
-    if (!records || records.length === 0) return { ok: true };
-    const dayKey = ['sun','mon','tue','wed','thu','fri','sat'][start.getDay()];
-    const applies = (rec: any, date: Date) => {
-      const rep = String(rec.repeat || '').toUpperCase();
-      if (rep === 'WEEKLY') {
-        const days = typeof rec.repeatDays === 'string' ? rec.repeatDays.split(',') : [];
-        if (!days.includes(dayKey)) return false;
-        if (String(rec.endOption || '').toUpperCase() === 'ENDS_ON' && rec.endOn) {
-          if (date > new Date(rec.endOn)) return false;
-        }
-        return true;
-      }
-      const sd = rec.startDate ? new Date(rec.startDate) : null;
-      const ed = rec.endDate ? new Date(rec.endDate) : null;
-      if (!sd) return false;
-      const d0 = new Date(sd);
-      d0.setHours(0,0,0,0);
-      const d1 = new Date(sd);
-      d1.setHours(23,59,59,999);
-      const sameDay = date.toDateString() === sd.toDateString();
-      if (ed) {
-        return date >= d0 && date <= ed;
-      }
-      return sameDay;
-    };
-    const withinTime = (rec: any, s: Date, e?: Date) => {
-      if (!!rec.allDay) return true;
-      const sd = new Date(rec.startDate);
-      const ed = rec.endDate ? new Date(rec.endDate) : null;
-      const startMinutes = sd.getHours()*60 + sd.getMinutes();
-      const endMinutes = ed ? (ed.getHours()*60 + ed.getMinutes()) : (23*60+59);
-      const sMin = s.getHours()*60 + s.getMinutes();
-      const eMin = e ? (e.getHours()*60 + e.getMinutes()) : sMin;
-      return sMin >= startMinutes && eMin <= endMinutes;
-    };
-    const overlapsTime = (rec: any, s: Date, e?: Date) => {
-      if (!!rec.allDay) return true;
-      const sd = new Date(rec.startDate);
-      const ed = rec.endDate ? new Date(rec.endDate) : null;
-      const startMinutes = sd.getHours()*60 + sd.getMinutes();
-      const endMinutes = ed ? (ed.getHours()*60 + ed.getMinutes()) : (23*60+59);
-      const sMin = s.getHours()*60 + s.getMinutes();
-      const eMin = e ? (e.getHours()*60 + e.getMinutes()) : sMin;
-      return sMin < endMinutes && eMin > startMinutes;
-    };
-    const availableWindows: Array<{ startMin: number; endMin: number }> = [];
-    let blocked = false;
-    for (const r of records) {
-      if (!applies(r, start)) continue;
-      if (r.isAvailable) {
-        if (!!r.allDay) {
-          availableWindows.push({ startMin: 0, endMin: 24*60-1 });
-        } else {
-          const sd = new Date(r.startDate);
-          const ed = r.endDate ? new Date(r.endDate) : null;
-          const startMin = sd.getHours()*60 + sd.getMinutes();
-          const endMin = ed ? (ed.getHours()*60 + ed.getMinutes()) : (24*60-1);
-          availableWindows.push({ startMin, endMin });
-        }
-      } else {
-        const overlaps = !!r.allDay || overlapsTime(r, start, end);
-        if (overlaps) blocked = true;
-      }
+    const finish = end ?? new Date(start.getTime() + 60000);
+    this.assertValidRange(start, finish);
+    const [records, leave] = await Promise.all([
+      this.prisma.availability.findMany({ where: { employeeId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.leaveRequest.findMany({ where: { employeeId, status: 'APPROVED' } }),
+    ]);
+    if (leave.some(record => overlapsLeave(record, start, finish))) {
+      return { ok: false, message: 'Employee has approved leave during this shift' };
     }
-    const sMin = start.getHours()*60 + start.getMinutes();
-    const eMin = end ? (end.getHours()*60 + end.getMinutes()) : sMin;
-    const fits = availableWindows.length === 0
-      ? !blocked
-      : availableWindows.some(w => sMin >= w.startMin && eMin <= w.endMin) && !blocked;
-    if (fits) return { ok: true };
-    const next = await this.nextAvailable(employeeId, start);
-    const msgBase = 'Employee is not available for that period';
-    const message = next ? `${msgBase}. Next available: ${next.label}` : msgBase;
-    return { ok: false, message };
-  }
-
-  private async nextAvailable(employeeId: string, from: Date): Promise<{ date: Date; label: string } | null> {
-    const records = await (this.prisma as any).availability.findMany({
-      where: { employeeId },
-      orderBy: { createdAt: 'desc' }
-    });
-    if (!records || records.length === 0) return null;
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(from);
-      d.setDate(from.getDate() + i);
-      const dayKey = ['sun','mon','tue','wed','thu','fri','sat'][d.getDay()];
-      const windows: Array<{ startMin: number; endMin: number }> = [];
-      for (const r of records) {
-        const rep = String(r.repeat || '').toUpperCase();
-        const appliesWeekly = rep === 'WEEKLY' && (typeof r.repeatDays === 'string' ? r.repeatDays.split(',').includes(dayKey) : false);
-        const appliesOnce = r.startDate && new Date(r.startDate).toDateString() === d.toDateString();
-        if (!(appliesWeekly || appliesOnce)) continue;
-        if (!r.isAvailable) continue;
-        if (!!r.allDay) {
-          windows.push({ startMin: 0, endMin: 24*60-1 });
-        } else {
-          const sd = new Date(r.startDate);
-          const ed = r.endDate ? new Date(r.endDate) : null;
-          const startMin = sd.getHours()*60 + sd.getMinutes();
-          const endMin = ed ? (ed.getHours()*60 + ed.getMinutes()) : (24*60-1);
-          windows.push({ startMin, endMin });
-        }
-      }
-      if (windows.length > 0) {
-        const w = windows.sort((a,b) => a.startMin - b.startMin)[0];
-        const startH = Math.floor(w.startMin/60);
-        const startM = w.startMin%60;
-        const endH = Math.floor(w.endMin/60);
-        const endM = w.endMin%60;
-        const fmt = (h: number, m: number) => {
-          const hh = ((h%12)||12);
-          const mm = m.toString().padStart(2,'0');
-          const ap = h >= 12 ? 'PM' : 'AM';
-          return `${hh}:${mm} ${ap}`;
-        };
-        const label = `${d.toDateString()} ${fmt(startH,startM)} - ${fmt(endH,endM)}`;
-        return { date: d, label };
-      }
-    }
-    return null;
+    return fitsAvailability(records, start, finish)
+      ? { ok: true }
+      : { ok: false, message: 'Employee is not available for the full shift' };
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
@@ -1921,7 +1884,7 @@ export class SchedulingService {
         // repeatDays might be comma separated, but for this simple UI we assume one record per day
         const dayKeys = (r.repeatDays || '').split(',');
         for (const key of dayKeys) {
-            const fullDay = dayMapShort[key];
+            const fullDay = dayMapShort[key.trim().slice(0, 1).toUpperCase() + key.trim().slice(1).toLowerCase()];
             if (!fullDay) continue;
 
             const item = uiData.find(d => d.day === fullDay);
@@ -1949,17 +1912,24 @@ export class SchedulingService {
     const employee = await this.prisma.employee.findFirst({ where: { userId } });
     if (!employee) throw new BadRequestException('Employee profile not found');
 
-    // Delete existing weekly availability
-    await (this.prisma as any).availability.deleteMany({
-      where: { employeeId: employee.id, repeat: 'WEEKLY' }
-    });
-
+    const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    if (!Array.isArray(availabilityData) || availabilityData.length !== 7 || new Set(availabilityData.map(item => item?.day)).size !== 7) {
+      throw new BadRequestException('Provide one availability entry for each day of the week');
+    }
+    for (const item of availabilityData) {
+      if (!item || !validDays.includes(item.day) || typeof item.available !== 'boolean') {
+        throw new BadRequestException('Invalid availability day');
+      }
+      if (item.available && (item.start || item.end) &&
+          (!/^([01]\d|2[0-3]):[0-5]\d$/.test(item.start || '') || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.end || '') || item.start === item.end)) {
+        throw new BadRequestException('Provide valid, different start and end times for availability');
+      }
+    }
+    const entries: any[] = [];
     const dayMap: any = { 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 0 };
     const shortDayMap: any = { 'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed', 'Thursday': 'Thu', 'Friday': 'Fri', 'Saturday': 'Sat', 'Sunday': 'Sun' };
 
     for (const item of availabilityData) {
-      if (!item.available) continue;
-
       const targetDay = dayMap[item.day];
       const shortDay = shortDayMap[item.day];
       
@@ -1976,31 +1946,34 @@ export class SchedulingService {
       let endDateTime = new Date(startBase);
       let allDay = false;
 
-      if (item.start && item.end) {
+      if (item.available && item.start && item.end) {
           const [sh, sm] = item.start.split(':');
           startDateTime.setHours(parseInt(sh), parseInt(sm), 0, 0);
 
           const [eh, em] = item.end.split(':');
           endDateTime.setHours(parseInt(eh), parseInt(em), 0, 0);
+          if (endDateTime <= startDateTime) endDateTime.setDate(endDateTime.getDate() + 1);
       } else {
           allDay = true;
           startDateTime.setHours(0, 0, 0, 0);
           endDateTime.setHours(23, 59, 59, 999);
       }
 
-      await (this.prisma as any).availability.create({
-        data: {
+      entries.push({
           employeeId: employee.id,
-          isAvailable: true,
+          isAvailable: item.available,
           startDate: startDateTime,
           endDate: endDateTime,
           allDay: allDay,
           repeat: 'WEEKLY',
-          repeatDays: shortDay,
+          repeatDays: shortDay.toLowerCase(),
           endOption: 'NO_END'
-        }
       });
     }
+    await this.prisma.$transaction(async tx => {
+      await tx.availability.deleteMany({ where: { employeeId: employee.id, repeat: 'WEEKLY' } });
+      await tx.availability.createMany({ data: entries });
+    });
     return { success: true };
   }
 

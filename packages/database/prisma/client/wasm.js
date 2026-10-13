@@ -252,6 +252,7 @@ exports.Prisma.EmployeeScalarFieldEnum = {
   contractorBusinessName: 'contractorBusinessName',
   contractorType: 'contractorType',
   w9Confirmed: 'w9Confirmed',
+  payrollTaxProfile: 'payrollTaxProfile',
   directDepositInfo: 'directDepositInfo',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -759,6 +760,8 @@ exports.Prisma.PayrollScalarFieldEnum = {
   periodStart: 'periodStart',
   periodEnd: 'periodEnd',
   payDate: 'payDate',
+  calendarTimeZone: 'calendarTimeZone',
+  paySchedule: 'paySchedule',
   type: 'type',
   status: 'status',
   totalGross: 'totalGross',
@@ -849,6 +852,7 @@ exports.Prisma.InvoiceScalarFieldEnum = {
   taxRate: 'taxRate',
   taxAmount: 'taxAmount',
   total: 'total',
+  taxInclusive: 'taxInclusive',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 };
@@ -1043,6 +1047,22 @@ exports.Prisma.PaymentScalarFieldEnum = {
   updatedAt: 'updatedAt'
 };
 
+exports.Prisma.InvoicePaymentScalarFieldEnum = {
+  id: 'id',
+  invoiceId: 'invoiceId',
+  amountCents: 'amountCents',
+  paidAt: 'paidAt',
+  method: 'method',
+  reference: 'reference',
+  notes: 'notes',
+  idempotencyKey: 'idempotencyKey',
+  recordedById: 'recordedById',
+  createdAt: 'createdAt',
+  voidedAt: 'voidedAt',
+  voidedById: 'voidedById',
+  voidReason: 'voidReason'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1117,7 +1137,8 @@ exports.Prisma.ModelName = {
   IncidentTimelineEvent: 'IncidentTimelineEvent',
   Asset: 'Asset',
   AssetAssignmentHistory: 'AssetAssignmentHistory',
-  Payment: 'Payment'
+  Payment: 'Payment',
+  InvoicePayment: 'InvoicePayment'
 };
 
 /**

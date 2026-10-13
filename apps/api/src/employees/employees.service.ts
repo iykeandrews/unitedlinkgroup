@@ -66,15 +66,12 @@ export class EmployeesService {
       }
       const employees = await this.prisma.employee.findMany({
         where,
-        include: { w2Profile: true, contractorProfile: true, customRole: true },
+        include: { w2Profile: true, contractorProfile: true, customRole: true, defaultLocation: { select: { id: true, name: true } }, department: { select: { id: true, name: true } } },
         orderBy: { lastName: 'asc' },
       });
       
-      // Decrypt sensitive data
-      return employees.map(e => ({
-          ...e,
-          ssn: e.ssn ? this.encryptionService.decrypt(e.ssn) : e.ssn
-      }));
+      // Tax identifiers belong in an individual profile, never in the team directory.
+      return employees.map(({ ssn, ...employee }) => employee);
     } catch (error) {
       console.error('Error in EmployeesService.findAll:', error);
       throw error;
@@ -134,7 +131,7 @@ export class EmployeesService {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     const employee = await this.prisma.employee.findFirst({
       where: { id, businessId },
-      include: { w2Profile: true, contractorProfile: true, customRole: true },
+      include: { w2Profile: true, contractorProfile: true, customRole: true, defaultLocation: { select: { id: true, name: true } }, department: { select: { id: true, name: true } } },
     });
     
     if (!employee) throw new NotFoundException('Employee not found');
@@ -471,6 +468,15 @@ export class EmployeesService {
   async create(user: any, data: any, businessIdHeader?: string) {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     
+    data = { ...data, firstName: String(data.firstName || '').trim(), lastName: String(data.lastName || '').trim(), email: String(data.email || '').trim().toLowerCase() };
+    if (!data.firstName || !data.lastName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+      throw new BadRequestException('First name, last name and a valid email are required');
+    }
+    for (const [field, model] of [['departmentId', 'department'], ['defaultLocationId', 'location']] as const) {
+      if (data[field] && !await (this.prisma[model] as any).findFirst({ where: { id: data[field], businessId, status: 'ACTIVE' } })) {
+        throw new BadRequestException(`Choose an active ${model} from this business`);
+      }
+    }
     // Check if email already exists in this business
     const existing = await this.prisma.employee.findFirst({
         where: { 
@@ -653,6 +659,37 @@ export class EmployeesService {
         where: { id, businessId },
       });
       if (!employee) throw new NotFoundException('Employee not found');
+    }
+
+    if (data?.status !== undefined) {
+      const status = String(data.status).toUpperCase();
+      if (!['ACTIVE', 'INACTIVE', 'TERMINATED', 'ON_LEAVE'].includes(status)) throw new BadRequestException('Invalid employee status');
+      if (user.role === UserRole.MANAGER && ['SUPER_ADMIN', 'BUSINESS_ADMIN', 'MANAGER'].includes(employee.role)) {
+        throw new ForbiddenException('Only administrators can change this team member’s status');
+      }
+      if (status !== 'ACTIVE' && status !== employee.status) {
+        const [scheduled, activeTimesheet] = await Promise.all([
+          this.prisma.shift.findFirst({ where: { employeeId: id, status: { in: ['DRAFT', 'PUBLISHED', 'OPEN'] }, endTime: { gt: new Date() } }, select: { id: true } }),
+          this.prisma.timesheet.findFirst({ where: { employeeId: id, endTime: null }, select: { id: true } }),
+        ]);
+        if (scheduled || activeTimesheet) throw new BadRequestException('Resolve upcoming shifts and open timesheets before archiving or deactivating this team member');
+      }
+      data.status = status;
+    }
+    for (const [field, model] of [['defaultLocationId', 'location'], ['departmentId', 'department'], ['supervisorId', 'employee'], ['customRoleId', 'role']] as const) {
+      if (data?.[field]) {
+        const related = await (this.prisma[model] as any).findFirst({ where: { id: data[field], businessId } });
+        if (!related) throw new BadRequestException(`Choose a ${model} from this business`);
+        if (field === 'supervisorId' && data[field] === id) throw new BadRequestException('A team member cannot supervise themselves');
+        if (related.status && related.status !== 'ACTIVE') throw new BadRequestException(`Choose an active ${model}`);
+      }
+    }
+    if (data?.email !== undefined) {
+      const email = String(data.email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BadRequestException('Enter a valid email address');
+      const existing = await this.prisma.employee.findFirst({ where: { businessId, email, id: { not: id } } });
+      if (existing) throw new BadRequestException('This email is already used by another team member');
+      data.email = email;
     }
 
     if (data?.type !== undefined) {

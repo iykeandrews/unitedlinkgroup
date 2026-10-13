@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { invoiceTracking } from '../invoices/invoice-accounting';
 
 @Injectable()
 export class ReportsService {
@@ -105,7 +106,7 @@ export class ReportsService {
     const [invoiceAgg, paymentAgg, recentInvoices, recentPayments, invoicesInRange, paymentsInRange] = await Promise.all([
       this.prisma.invoice.findMany({
         where: { businessId },
-        select: { status: true, total: true, updatedAt: true, dueDate: true },
+        select: { status: true, total: true, updatedAt: true, dueDate: true, payments: { select: { amountCents: true, paidAt: true, voidedAt: true } } },
       }),
       this.prisma.payment.findMany({
         where: { businessId },
@@ -118,6 +119,7 @@ export class ReportsService {
         select: {
           id: true,
           invoiceNumber: true,
+          payments: { select: { amountCents: true, paidAt: true, voidedAt: true } },
           status: true,
           total: true,
           dueDate: true,
@@ -143,7 +145,7 @@ export class ReportsService {
         },
       }),
       this.prisma.invoice.findMany({
-        where: { businessId, issueDate: { gte: from } },
+        where: { businessId, issueDate: { gte: from }, status: { notIn: ['DRAFT', 'VOID', 'CANCELLED'] } },
         select: { issueDate: true, total: true, status: true, updatedAt: true },
         orderBy: { issueDate: 'asc' },
       }),
@@ -160,15 +162,17 @@ export class ReportsService {
     let paidLastTotal = 0;
 
     for (const inv of invoiceAgg) {
-      const s = inv.status || 'UNKNOWN';
+      const tracked = invoiceTracking(inv);
+      const s = tracked.status;
       const cur = statusCounts.get(s) || { count: 0, total: 0 };
       cur.count += 1;
       cur.total += inv.total || 0;
       statusCounts.set(s, cur);
 
-      if (s === 'SENT' || s === 'OVERDUE') outstandingTotal += inv.total || 0;
-      if (s === 'OVERDUE') overdueTotal += inv.total || 0;
-      if (s === 'PAID' && inv.updatedAt >= from) paidLastTotal += inv.total || 0;
+      if (!['DRAFT', 'VOID'].includes(s)) outstandingTotal += tracked.balanceDue;
+      if (tracked.isOverdue) overdueTotal += tracked.balanceDue;
+      if (tracked.legacyPaid && inv.updatedAt >= from) paidLastTotal += inv.total || 0;
+      else for (const payment of inv.payments) if (!payment.voidedAt && payment.paidAt >= from && payment.paidAt <= now) paidLastTotal += payment.amountCents / 100;
     }
 
     let expensesLastTotal = 0;
@@ -215,7 +219,7 @@ export class ReportsService {
         invoicesByStatus,
       },
       recent: {
-        invoices: recentInvoices,
+        invoices: recentInvoices.map(invoice => invoiceTracking(invoice)),
         payments: recentPayments,
       },
     };
@@ -314,17 +318,17 @@ export class ReportsService {
     const start = startDate ? new Date(startDate) : undefined;
     const end = endDate ? new Date(endDate) : undefined;
 
+    if (!businessId || (start && !Number.isFinite(start.getTime())) || (end && !Number.isFinite(end.getTime())) || (start && end && end < start)) throw new BadRequestException('Choose a business and valid date range');
     const [timesheets, callouts] = await Promise.all([
       this.prisma.timesheet.findMany({
         where: {
           employee: { businessId },
-          startTime: {
-            gte: start,
-            lte: end,
-          },
+          startTime: { lte: end },
+          OR: [{ endTime: { gt: start } }, { endTime: null }],
+          status: { notIn: ['DISCARDED', 'REJECTED'] },
         },
         include: {
-          employee: true,
+          employee: { select: { id: true, firstName: true, lastName: true, email: true } },
           breaks: true,
           location: true,
         },

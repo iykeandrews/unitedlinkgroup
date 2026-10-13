@@ -38,7 +38,7 @@ const isShiftInDay = (shift: Shift, day: Date) => {
 
   return (
     (isBefore(shiftStart, dayEnd) || isSameDay(shiftStart, dayEnd)) &&
-    (isAfter(shiftEnd, dayStart) || isSameDay(shiftEnd, dayStart))
+    isAfter(shiftEnd, dayStart)
   );
 };
 

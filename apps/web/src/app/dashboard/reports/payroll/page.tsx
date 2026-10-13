@@ -57,6 +57,7 @@ interface Payroll {
   totalNet: number;
   totalEmployeeTaxes: number;
   totalEmployerTaxes: number;
+  totalDeductions: number;
   createdAt: string;
   items?: any[];
 }
@@ -120,13 +121,13 @@ export default function PayrollReportsPage() {
   // Calculate Summary Stats
   const stats = useMemo(() => {
     return filteredPayrolls.reduce((acc, p) => {
-      if (p.status !== 'PROCESSED' && p.status !== 'PAID') return acc;
+      if (p.status !== 'PAID') return acc;
 
       acc.totalGross += p.totalGross || 0;
       acc.totalNet += p.totalNet || 0;
       acc.totalEmployeeTaxes += p.totalEmployeeTaxes || 0;
       acc.totalEmployerTaxes += p.totalEmployerTaxes || 0;
-      acc.totalCost += (p.totalGross || 0) + (p.totalEmployerTaxes || 0);
+      acc.totalCost += (p.totalNet || 0) + (p.totalEmployeeTaxes || 0) + (p.totalEmployerTaxes || 0) + (p.totalDeductions || 0);
       acc.count += 1;
       return acc;
     }, {
@@ -142,14 +143,14 @@ export default function PayrollReportsPage() {
   // Chart Data
   const chartData = useMemo(() => {
     return filteredPayrolls
-      .filter(p => p.status === 'PROCESSED' || p.status === 'PAID')
+      .filter(p => p.status === 'PAID')
       .slice().reverse() // Show oldest to newest in chart
       .map(p => ({
         date: format(parseISO(p.payDate), 'MMM d'),
         gross: p.totalGross || 0,
         net: p.totalNet || 0,
         taxes: (p.totalEmployeeTaxes || 0) + (p.totalEmployerTaxes || 0),
-        cost: (p.totalGross || 0) + (p.totalEmployerTaxes || 0)
+        cost: (p.totalNet || 0) + (p.totalEmployeeTaxes || 0) + (p.totalEmployerTaxes || 0) + (p.totalDeductions || 0)
       }));
   }, [filteredPayrolls]);
 
@@ -639,8 +640,8 @@ function TaxFilingsTab() {
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Year-End Tax Forms</h2>
-          <p className="text-sm text-slate-500">Generate W-2 and 1099-NEC forms for your employees and contractors.</p>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Year-end payroll summaries</h2>
+          <p className="text-sm text-slate-500">Preparation summaries only; exports are not filed tax forms.</p>
         </div>
         <div className="flex items-center space-x-4">
            <select 
@@ -648,7 +649,7 @@ function TaxFilingsTab() {
              onChange={(e) => setYear(Number(e.target.value))}
              className="form-select rounded-lg border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
            >
-             {[2023, 2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}
+             {Array.from({length:3},(_,i)=>new Date().getFullYear()-i).map(y => <option key={y} value={y}>{y}</option>)}
            </select>
         </div>
       </div>

@@ -49,7 +49,7 @@ export class TimeTrackingService {
         const startStr = row['StartTime']; // HH:mm
         const endStr = row['EndTime']; // HH:mm
         
-        if (!email || !dateStr || !startStr) continue;
+        if (!email || !dateStr || !startStr || !endStr) { errors.push('Each row needs employee email, date, start and end time'); continue; }
 
         const employee = await this.prisma.employee.findFirst({
             where: {
@@ -67,14 +67,20 @@ export class TimeTrackingService {
         }
 
         const start = new Date(`${dateStr}T${startStr}`);
-        const end = endStr ? new Date(`${dateStr}T${endStr}`) : null;
+        const end = new Date(`${dateStr}T${endStr}`);
+        if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) throw new BadRequestException('Invalid date or time');
+        if (end < start) end.setDate(end.getDate()+1);
+        if (end <= start || end > new Date()) throw new BadRequestException('Imported timesheets must be completed with valid start and end times');
+        const duplicate = await this.prisma.timesheet.findFirst({where:{employeeId:employee.id,startTime:start}});
+        if (duplicate) throw new BadRequestException('Timesheet already exists for this employee and start time');
         
         await this.prisma.timesheet.create({
             data: {
                 employeeId: employee.id,
+                workerType: employee.workerType,
                 startTime: start,
                 endTime: end,
-                status: 'APPROVED',
+                status: 'PENDING',
                 clockInIp: 'Imported',
             }
         });
@@ -659,16 +665,13 @@ export class TimeTrackingService {
         if (employee) await this.validateBusinessAccess(employee.businessId, user);
       }
 
-      const where: any = {
-          employeeId,
-          startTime: { gte: start },
-          endTime: { lte: end }
-      };
+      this.validateRange(start, end);
+      const where: any = { employeeId, startTime: { lte: end }, OR: [{ endTime: { gt: start } }, { endTime: null }] };
       
       return this.prisma.timesheet.findMany({
           where,
           include: {
-            employee: true,
+            employee: { select: { id:true, firstName:true, lastName:true, email:true, hourlyRate:true, workerType:true, role:true } },
             breaks: true,
             location: true,
           } as any
@@ -683,46 +686,30 @@ export class TimeTrackingService {
         await this.validateBusinessAccess(timesheet.employee.businessId, user);
     }
 
-    const start = data.startTime ? new Date(data.startTime) : undefined;
-    const end = data.endTime ? new Date(data.endTime) : undefined;
-    if (start && end && end < start) {
-      throw new BadRequestException('End time cannot be before start time');
+    const start = data.startTime === undefined ? timesheet.startTime : new Date(data.startTime);
+    const end = data.endTime === undefined ? timesheet.endTime : data.endTime === null ? null : new Date(data.endTime);
+    if (!Number.isFinite(start.getTime()) || (end && !Number.isFinite(end.getTime())) || (end && end <= start)) {
+      throw new BadRequestException('Enter valid start and end times, with end after start');
     }
-
+    const status = data.status ?? timesheet.status;
+    if (!['PENDING', 'APPROVED', 'IN_PROGRESS', 'REJECTED', 'DISCARDED'].includes(status)) throw new BadRequestException('Invalid timesheet status');
+    if (status === 'APPROVED' && (!end || start > new Date() || end > new Date())) throw new BadRequestException('Only completed timesheets can be approved');
     if (data.locationId) {
-      const loc = await this.prisma.location.findUnique({ where: { id: data.locationId } });
-      if (!loc) {
-        throw new BadRequestException('Location not found');
-      }
+      const loc = await this.prisma.location.findFirst({ where: { id: data.locationId, businessId: timesheet.employee.businessId } });
+      if (!loc) throw new BadRequestException('Location must belong to this business');
     }
-
-    const updateData: any = {
-      startTime: start ?? undefined,
-      endTime: end ?? undefined,
-      status: data.status
-    };
-
-    if (data.locationId) {
-        updateData.location = { connect: { id: data.locationId } };
+    const updateData: any = { startTime: start, endTime: end, status };
+    if (data.locationId !== undefined) updateData.location = data.locationId ? { connect: { id: data.locationId } } : { disconnect: true };
+    const existingBreaks = await this.prisma.break.findMany({ where: { timesheetId: id } });
+    if (data.breaks !== undefined && !Array.isArray(data.breaks)) throw new BadRequestException('Invalid breaks');
+    const breaks: Array<{ startTime: string | Date; endTime?: string | Date | null; type?: string }> | undefined = data.breaks;
+    const validatedBreaks = (breaks ?? existingBreaks).map(b => ({ start: new Date(b.startTime), end: b.endTime ? new Date(b.endTime) : null }));
+    validatedBreaks.sort((a,b) => a.start.getTime()-b.start.getTime());
+    for (let i = 0; i < validatedBreaks.length; i++) {
+      const b = validatedBreaks[i];
+      if (!Number.isFinite(b.start.getTime()) || (b.end && !Number.isFinite(b.end.getTime())) || b.start < start || (b.end && b.end <= b.start) || (end && (!b.end || b.end > end || b.start >= end))) throw new BadRequestException('Breaks must be valid and within the timesheet');
+      if (i && (!validatedBreaks[i-1].end || b.start < validatedBreaks[i-1].end!)) throw new BadRequestException('Breaks cannot overlap');
     }
-    
-    // Validate breaks payload if provided
-    const breaks: Array<{ startTime: string; endTime?: string; type?: string }> = Array.isArray(data.breaks) ? data.breaks : [];
-    for (const b of breaks) {
-      const bs = new Date(b.startTime);
-      const be = b.endTime ? new Date(b.endTime) : undefined;
-      if (Number.isNaN(bs.getTime()) || (be && Number.isNaN(be.getTime()))) {
-        throw new BadRequestException('Invalid break time format');
-      }
-      if (be && bs > be) {
-        throw new BadRequestException('Break end time cannot be before start time');
-      }
-      if (start && end && be && (bs < start || be > end)) {
-        // Optional strict rule: enforce breaks within timesheet window when both provided
-        throw new BadRequestException('Break must be within timesheet start and end time');
-      }
-    }
-    
     if (data.employeeNote !== undefined) {
         updateData.employeeNote = data.employeeNote;
     }
@@ -743,7 +730,7 @@ export class TimeTrackingService {
         });
 
         // Replace breaks if provided
-        if (breaks) {
+        if (breaks !== undefined) {
           await tx.break.deleteMany({ where: { timesheetId: id } });
           if (breaks.length > 0) {
             await tx.break.createMany({
@@ -751,7 +738,7 @@ export class TimeTrackingService {
                 timesheetId: id,
                 startTime: new Date(b.startTime),
                 endTime: b.endTime ? new Date(b.endTime) : null,
-                type: b.type || 'MEAL'
+                type: b.type || 'UNPAID'
               }))
             });
           }
@@ -788,6 +775,8 @@ export class TimeTrackingService {
         throw new ForbiddenException('You can only delete your own timesheets');
     }
 
+    if (!timesheet.endTime) throw new BadRequestException('End the active timesheet before discarding it');
+    if (requestingEmployeeId && timesheet.status === 'APPROVED') throw new ForbiddenException('Approved timesheets require a manager to make changes');
     // Soft delete by setting status to DISCARDED
     return this.prisma.timesheet.update({
       where: { id },
@@ -807,6 +796,7 @@ export class TimeTrackingService {
         throw new ForbiddenException('You can only restore your own timesheets');
     }
 
+    if (!['DISCARDED','REJECTED'].includes(timesheet.status)) throw new BadRequestException('Only discarded timesheets can be restored');
     // Restore by setting status to PENDING
     return this.prisma.timesheet.update({
       where: { id },
@@ -815,6 +805,7 @@ export class TimeTrackingService {
   }
 
   async getBusinessTimesheets(businessId: string, start: Date, end: Date, user?: any): Promise<Timesheet[]> {
+    this.validateRange(start, end);
     if (user) await this.validateBusinessAccess(businessId, user);
     return this.prisma.timesheet.findMany({
         where: {
@@ -830,7 +821,7 @@ export class TimeTrackingService {
             ]
         },
         include: {
-          employee: true,
+          employee: { select: { id:true, firstName:true, lastName:true, email:true, hourlyRate:true, workerType:true, role:true } },
           breaks: true,
           location: true,
         } as any,
@@ -838,6 +829,10 @@ export class TimeTrackingService {
           startTime: 'desc'
         }
     });
+  }
+
+  private validateRange(start: Date, end: Date) {
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) throw new BadRequestException('Invalid date range');
   }
 
   async getBusinessId(userId: string): Promise<string> {

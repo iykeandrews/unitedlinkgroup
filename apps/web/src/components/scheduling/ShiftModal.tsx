@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Clock, MapPin, User, Utensils, MoreHorizontal, CheckCircle, AlertCircle, Megaphone } from 'lucide-react';
 import { Shift, Employee, Location } from './types';
 import { format, startOfWeek, endOfWeek } from 'date-fns';
@@ -11,7 +11,7 @@ import api from '../../lib/api';
 interface ShiftModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (shift: Partial<Shift>) => void;
+  onSave: (shift: Partial<Shift>) => Promise<boolean>;
   onDelete?: (shiftId: string) => void;
   shift?: Shift | null;
   employees: Employee[];
@@ -51,6 +51,8 @@ export function ShiftModal({
      notes: ''
    });
 
+   const [saving, setSaving] = useState(false);
+   const saveInFlight = useRef(false);
    const [isMenuOpen, setIsMenuOpen] = useState(false);
    const [showSpecificDays, setShowSpecificDays] = useState(false);
    const [selectedDays, setSelectedDays] = useState<number[]>([]);
@@ -137,7 +139,8 @@ export function ShiftModal({
     return new Date(d.getTime() - tzOffsetMs).toISOString().slice(0, 16);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    if (saveInFlight.current) { e.preventDefault(); return; }
     e.preventDefault();
     const startDateTime = new Date(`${formData.date}T${formData.startTime}`);
     const endDateTime = new Date(`${formData.date}T${formData.endTime}`);
@@ -147,7 +150,14 @@ export function ShiftModal({
       endDateTime.setDate(endDateTime.getDate() + 1);
     }
 
-    onSave({
+    if (!Number.isFinite(+startDateTime) || !Number.isFinite(+endDateTime) || endDateTime <= startDateTime || formData.breakMinutes < 0 || formData.breakMinutes >= (+endDateTime - +startDateTime) / 60000) {
+      toast.error('Check the shift times and break length');
+      return;
+    }
+    saveInFlight.current = true;
+    setSaving(true);
+    try {
+    await onSave({
       id: shift?.id,
       employeeId: formData.employeeId,
       locationId: formData.locationId,
@@ -156,6 +166,7 @@ export function ShiftModal({
       breakMinutes: formData.breakMinutes,
       notes: formData.notes
     });
+    } finally { saveInFlight.current = false; setSaving(false); }
   };
 
   const handleBreakClick = () => {
@@ -210,57 +221,60 @@ export function ShiftModal({
     };
   };
 
-  const repeatTomorrow = () => {
+  const repeatTomorrow = async () => {
     if (!formData.date) return;
-    const base = new Date(formData.date);
+    const base = new Date(`${formData.date}T00:00:00`);
     const next = new Date(base);
     next.setDate(base.getDate() + 1);
-    onSave(buildShiftForDate(next));
-    toast.success('Shift repeated for tomorrow');
+    await onSave(buildShiftForDate(next));
   };
 
-  const repeatRestOfWeek = () => {
+  const repeatRestOfWeek = async () => {
     if (!formData.date) return;
-    const base = new Date(formData.date);
+    const base = new Date(`${formData.date}T00:00:00`);
     const day = base.getDay();
-    for (let i = 1; i <= (6 - day); i++) {
+    for (let i = 1; i <= (day === 0 ? 0 : 7 - day); i++) {
       const d = new Date(base);
       d.setDate(base.getDate() + i);
-      onSave(buildShiftForDate(d));
+      await onSave(buildShiftForDate(d));
     }
-    toast.success('Shift repeated for the rest of the week');
+
   };
 
-  const applySpecificDays = () => {
+  const applySpecificDays = async () => {
     if (!formData.date || selectedDays.length === 0) return;
-    const base = new Date(formData.date);
+    const base = new Date(`${formData.date}T00:00:00`);
     const weekStart = startOfWeek(base, { weekStartsOn: 1 });
-    selectedDays.forEach(dow => {
+    for (const dow of selectedDays) {
       const offset = dow === 0 ? 6 : dow - 1;
       const d = new Date(weekStart);
       d.setDate(weekStart.getDate() + offset);
-      onSave(buildShiftForDate(d));
-    });
+      await onSave(buildShiftForDate(d));
+    }
     setShowSpecificDays(false);
     setIsMenuOpen(false);
-    toast.success('Shift repeated for specific days');
+
   };
 
-  const applyPattern = () => {
+  const applyPattern = async () => {
     if (!formData.date || !repeatUntil) {
       toast.error('Please select an end date');
       return;
     }
-    const start = new Date(formData.date);
-    const end = new Date(repeatUntil);
+    const start = new Date(`${formData.date}T00:00:00`);
+    const end = new Date(`${repeatUntil}T00:00:00`);
     if (end < start) {
       toast.error('End date must be after start date');
+      return;
+    }
+    if (!Number.isInteger(daysOn) || daysOn < 1 || !Number.isInteger(daysOff) || daysOff < 0 || (+end - +start) / 86400000 > 366) {
+      toast.error('Choose at least one work day, a valid rest period, and a pattern of at most one year');
       return;
     }
     let cursor = new Date(start);
     while (cursor <= end) {
       for (let i = 0; i < daysOn && cursor <= end; i++) {
-        onSave(buildShiftForDate(cursor));
+        await onSave(buildShiftForDate(cursor));
         cursor.setDate(cursor.getDate() + 1);
       }
       for (let j = 0; j < daysOff && cursor <= end; j++) {
@@ -269,40 +283,24 @@ export function ShiftModal({
     }
     setShowPattern(false);
     setIsMenuOpen(false);
-    toast.success('Pattern shifts created');
+
   };
 
-  const splitShift = () => {
-    if (!formData.date) return;
-    const start = new Date(`${formData.date}T${formData.startTime}`);
-    const end = new Date(`${formData.date}T${formData.endTime}`);
-    if (end < start) end.setDate(end.getDate() + 1);
-    const midMs = start.getTime() + Math.floor((end.getTime() - start.getTime()) / 2);
-    const mid = new Date(midMs);
-    const breakA = Math.floor((formData.breakMinutes || 0) / 2);
-    const breakB = (formData.breakMinutes || 0) - breakA;
-    const first: Partial<Shift> = {
-      employeeId: formData.employeeId,
-      locationId: formData.locationId,
-      startTime: start.toISOString(),
-      endTime: mid.toISOString(),
-      breakMinutes: breakA,
-      notes: formData.notes
-    };
-    const second: Partial<Shift> = {
-      employeeId: formData.employeeId,
-      locationId: formData.locationId,
-      startTime: mid.toISOString(),
-      endTime: end.toISOString(),
-      breakMinutes: breakB,
-      notes: formData.notes
-    };
-    onSave(first);
-    onSave(second);
-    if (shift && onDelete) {
-      onDelete(shift.id);
+  const splitShift = async () => {
+    if (!shift?.id || shift.status !== 'DRAFT' || saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSaving(true);
+    try {
+      await api.post(`/scheduling/shifts/${shift.id}/split`);
+      window.dispatchEvent(new CustomEvent('scheduling:updated'));
+      toast.success('Draft split into two shifts');
+      onClose();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || 'Could not split this shift');
+    } finally {
+      saveInFlight.current = false;
+      setSaving(false);
     }
-    toast.success('Shift split into two');
   };
 
   const findReplacement = () => {
@@ -790,8 +788,8 @@ export function ShiftModal({
               <ModalActionButton kind="cancel" onClick={onClose}>
                 Cancel
               </ModalActionButton>
-              <ModalActionButton kind="submit" type="submit" form="shift-form">
-                Save
+              <ModalActionButton kind="submit" type="submit" form="shift-form" disabled={saving}>
+                {saving ? 'Saving…' : 'Save draft'}
               </ModalActionButton>
             </div>
             
@@ -805,7 +803,7 @@ export function ShiftModal({
                   <button onClick={() => { setShowPattern(true); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Repeat for set pattern</button>
                   <div className="h-px bg-slate-200 dark:bg-slate-700 my-2" />
                   {!shiftPlacementLocked ? (
-                    <button onClick={() => { splitShift(); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Split shift</button>
+                    <button disabled={!shift?.id || shift.status !== 'DRAFT' || saving} title="Save a draft before splitting it" onClick={() => { splitShift(); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Split shift</button>
                   ) : null}
                   {!shiftPlacementLocked ? (
                     <button onClick={() => { findReplacement(); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Find replacement</button>
@@ -847,7 +845,7 @@ export function ShiftModal({
               <div className="px-5 pt-3 text-sm text-slate-600 dark:text-slate-400">
                 {(() => {
                   if (!formData.date) return '';
-                  const base = new Date(formData.date);
+                  const base = new Date(`${formData.date}T00:00:00`);
                   const start = startOfWeek(base, { weekStartsOn: 1 });
                   const end = endOfWeek(base, { weekStartsOn: 1 });
                   return `Select days to repeat shift between ${format(start, 'EEE d/MM/yy')} to ${format(end, 'EEE d/MM/yy')}`;

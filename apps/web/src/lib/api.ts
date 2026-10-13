@@ -21,7 +21,7 @@ api.interceptors.request.use((config) => {
     if (selectedBusiness) {
         try {
             const business = JSON.parse(selectedBusiness);
-            if (business?.id) {
+            if (business?.id && !config.headers['x-business-id']) {
                 config.headers['x-business-id'] = business.id;
             }
         } catch (e) {

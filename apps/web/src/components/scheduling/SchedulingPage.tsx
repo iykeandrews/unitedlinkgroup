@@ -23,6 +23,7 @@ import { ShiftModal } from './ShiftModal';
 import { ShiftCard } from './ShiftCard';
 import { LeaveConflictModal } from './LeaveConflictModal';
 import { ConfirmModal } from '../ConfirmModal';
+import { parseScheduleCsv } from './csv';
 
 export default function SchedulingPage() {
   const router = useRouter();
@@ -683,10 +684,10 @@ export default function SchedulingPage() {
     }
   };
 
-  const handleSaveShift = async (shiftData: Partial<Shift>) => {
+  const handleSaveShift = async (shiftData: Partial<Shift>): Promise<boolean> => {
       if (shiftData.id && shiftPlacementLocks[shiftData.id]) {
         toast.error('This shift cannot be modified because it is already locked (started or tracked)');
-        return;
+        return false;
       }
 
       // Helper to perform the actual save
@@ -701,6 +702,7 @@ export default function SchedulingPage() {
                 startTime: shiftData.startTime,
                 endTime: shiftData.endTime,
                 notes: shiftData.notes,
+                breakMinutes: shiftData.breakMinutes,
               };
               // Update relations using nested connect/disconnect to satisfy Prisma ShiftUpdateInput
               if (typeof shiftData.employeeId !== 'undefined') {
@@ -721,6 +723,7 @@ export default function SchedulingPage() {
                 startTime: shiftData.startTime,
                 endTime: shiftData.endTime,
                 notes: shiftData.notes,
+                breakMinutes: shiftData.breakMinutes,
                 status: 'DRAFT',
               };
               // Only connect relations when provided to allow open shifts
@@ -748,11 +751,13 @@ export default function SchedulingPage() {
               toast.success('Draft shift created');
             }
             setIsModalOpen(false);
-            fetchData();
+            await fetchData();
+            return true;
           } catch (error) {
             console.error('Failed to save shift', error);
             const msg = (error as any)?.response?.data?.message || 'Failed to save shift';
             toast.error(msg);
+            return false;
           }
       };
 
@@ -774,11 +779,11 @@ export default function SchedulingPage() {
                   date: format(start, 'EEE d MMM'),
                   pendingAction: executeSave
               });
-              return;
+              return false;
           }
       }
       
-      await executeSave();
+      return executeSave();
   };
 
   const handleDeleteShift = (shiftId: string) => {
@@ -820,7 +825,7 @@ export default function SchedulingPage() {
   const isWeekPublished = shifts.length > 0 && !hasUnpublishedChanges;
   const visibleShifts = React.useMemo(() => {
     const st = (s: Shift) => String(s.status || '').toUpperCase();
-    if (statusFilter === 'EMPTY') return shifts.filter(s => st(s) === 'EMPTY');
+    if (statusFilter === 'EMPTY') return shifts.filter(s => !s.employeeId);
     if (statusFilter === 'UNPUBLISHED') return shifts.filter(s => st(s) === 'DRAFT' || st(s) === 'CANCELLED');
     if (statusFilter === 'PUBLISHED') return shifts.filter(s => st(s) === 'PUBLISHED');
     if (statusFilter === 'OPEN') return shifts.filter(s => st(s) === 'OPEN');
@@ -906,7 +911,7 @@ export default function SchedulingPage() {
         <ShiftModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          onSave={() => {}}
+          onSave={async () => false}
           shift={selectedShift}
           employees={empEmployee}
           locations={empLocations}
@@ -1134,7 +1139,7 @@ export default function SchedulingPage() {
           if (location?.businessId) {
             payload.business = { connect: { id: location.businessId } };
           }
-          requests.push(api.post('/scheduling/shifts', payload).catch(() => null));
+          requests.push(api.post('/scheduling/shifts', payload));
         }
       }
       const results = await Promise.allSettled(requests);
@@ -1175,20 +1180,28 @@ export default function SchedulingPage() {
     });
   };
 
+  const runBulkAction = async (requests: Promise<any>[], action: string) => {
+    const results = await Promise.allSettled(requests);
+    const succeeded = results.filter(result => result.status === 'fulfilled').length;
+    const failed = results.length - succeeded;
+    if (succeeded) toast.success(`${action}: ${succeeded} shift${succeeded === 1 ? '' : 's'}`);
+    if (failed) {
+      const firstFailure = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
+      const reason = firstFailure?.reason?.response?.data?.message || 'Please retry the failed shifts';
+      toast.error(`${failed} shift${failed === 1 ? '' : 's'} failed. ${reason}`);
+    }
+    if (!results.length) toast.info('No shifts to update');
+    await fetchData();
+  };
+
   const markAllShiftsStatus = async (status: string) => {
-    const next = shifts.map(s => ({ ...s, status }));
-    setShifts(next);
-    await Promise.all(shifts.map(s => api.put(`/scheduling/shifts/${s.id}`, { status }).catch(() => null)));
-    toast.success(`Marked all shifts as ${status.toLowerCase()}`);
-    fetchData();
+    await runBulkAction(shifts.filter(s => !shiftPlacementLocks[s.id]).map(s => api.put(`/scheduling/shifts/${s.id}`, status === 'EMPTY' ? { employee: { disconnect: true }, status: 'DRAFT' } : { status })), 'Status updated');
   };
 
   const markEmptyAsOpen = async () => {
     // 1) Convert existing EMPTY shifts to DRAFT (unpublished coverage placeholders)
-    const targets = shifts.filter(s => s.status === 'EMPTY');
-    const next = shifts.map(s => s.status === 'EMPTY' ? { ...s, status: 'DRAFT' } : s);
-    setShifts(next);
-    await Promise.all(targets.map(s => api.put(`/scheduling/shifts/${s.id}`, { status: 'DRAFT' }).catch(() => null)));
+    const targets = shifts.filter(s => !s.employeeId && s.status === 'DRAFT');
+    await runBulkAction(targets.map(s => api.put(`/scheduling/shifts/${s.id}`, { status: 'DRAFT' })), 'Drafts prepared');
 
     // 2) Auto-add DRAFT shifts to empty location-day cells for the current week
     const days: Date[] = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
@@ -1212,25 +1225,16 @@ export default function SchedulingPage() {
           if (loc.businessId) {
             payload.business = { connect: { id: loc.businessId } };
           }
-          createRequests.push(api.post('/scheduling/shifts', payload).catch(() => null));
+          createRequests.push(api.post('/scheduling/shifts', payload));
         }
       }
     }
-    const results = await Promise.allSettled(createRequests);
-    const createdCount = results.filter(r => r.status === 'fulfilled').length;
-    if (createdCount > 0) {
-      toast.success(`Added ${createdCount} draft shifts to empty days`);
-      fetchData();
-    } else {
-      toast.info('No empty days required draft shifts');
-    }
+    await runBulkAction(createRequests, 'Draft shifts added');
   };
 
   const removeEmptyShifts = async () => {
-    const targets = shifts.filter(s => s.status === 'EMPTY');
-    setShifts(prev => prev.filter(s => s.status !== 'EMPTY'));
-    await Promise.all(targets.map(s => api.delete(`/scheduling/shifts/${s.id}`).catch(() => null)));
-    toast.success('Removed empty shifts');
+    const targets = shifts.filter(s => !s.employeeId && s.status === 'DRAFT');
+    await runBulkAction(targets.map(s => api.delete(`/scheduling/shifts/${s.id}`)), 'Empty shifts removed');
   };
 
   const deleteAllShifts = async () => {
@@ -1240,13 +1244,8 @@ export default function SchedulingPage() {
       toast.error('No shifts can be deleted because tracked shifts are locked in place');
       return;
     }
-    setShifts(prev => prev.filter(s => shiftPlacementLocks[s.id]));
-    await Promise.all(deletable.map(s => api.delete(`/scheduling/shifts/${s.id}`).catch(() => null)));
-    if (locked.length > 0) {
-      toast.success(`Deleted ${deletable.length} shifts. ${locked.length} tracked shift${locked.length === 1 ? '' : 's'} remained locked.`);
-    } else {
-      toast.success('Deleted all shifts for this week');
-    }
+    await runBulkAction(deletable.map(s => api.delete(`/scheduling/shifts/${s.id}`)), 'Shifts deleted');
+    if (locked.length) toast.info(`${locked.length} started or tracked shifts remain locked`);
   };
 
   const applyBulkUpdate = async () => {
@@ -1261,15 +1260,13 @@ export default function SchedulingPage() {
       toast.info('No shifts to update');
       return;
     }
-    const next = shifts.map(s => ({
-      ...s,
-      [field]: field === 'breakMinutes' ? parseInt(value || '0') || 0 : value
-    }));
-    setShifts(next);
-    await Promise.all(shifts.map(s => api.put(`/scheduling/shifts/${s.id}`, { [field]: field === 'breakMinutes' ? parseInt(value || '0') || 0 : value }).catch(() => null)));
+    const breakMinutes = Number(value || '0');
+    if (field === 'breakMinutes' && (!Number.isInteger(breakMinutes) || breakMinutes < 0)) {
+      toast.error('Break minutes must be a non-negative whole number');
+      return;
+    }
+    await runBulkAction(shifts.map(s => api.put(`/scheduling/shifts/${s.id}`, { [field]: field === 'breakMinutes' ? breakMinutes : value })), 'Shifts updated');
     setBulkModal({ open: false, field: 'notes', value: '' });
-    toast.success('Bulk update applied');
-    fetchData();
   };
 
   const publishWeek = async () => {
@@ -1315,8 +1312,9 @@ export default function SchedulingPage() {
     if (!importFile) return;
     try {
       const text = await importFile.text();
-      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-      const records = lines.map(l => l.split(',').map(x => x.trim()));
+      const records = parseScheduleCsv(text);
+      const requests: Promise<any>[] = [];
+      if (!records.length) { toast.info('The file contains no shifts'); return; }
       for (const rec of records) {
         const [employeeId, locationId, startTime, endTime, breakMinutes, notes] = rec;
         const payload: any = {
@@ -1324,17 +1322,18 @@ export default function SchedulingPage() {
           endTime,
           notes: notes || '',
           breakMinutes: parseInt(breakMinutes || '0') || 0,
-          employee: { connect: { id: employeeId } },
+          ...(employeeId ? { employee: { connect: { id: employeeId } } } : {}),
           location: { connect: { id: locationId } },
+          ...(selectedBusiness?.id ? { business: { connect: { id: selectedBusiness.id } } } : {}),
         };
-        await api.post('/scheduling/shifts', payload).catch(() => null);
+        requests.push(api.post('/scheduling/shifts', payload));
       }
-      toast.success('Shifts imported');
+      await runBulkAction(requests, 'Shifts imported');
       setImportModalOpen(false);
       setImportFile(null);
       fetchData();
-    } catch {
-      toast.error('Failed to import shifts');
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to import shifts');
     }
   };
 
@@ -1488,8 +1487,8 @@ export default function SchedulingPage() {
                     <div className="h-px bg-slate-200 dark:bg-slate-700 my-2" />
                     <div className="px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Options</div>
                     <button onClick={() => { setImportModalOpen(true); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Add shifts from file</button>
-                    <button onClick={() => { markAllShiftsStatus('EMPTY'); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Mark all shifts empty</button>
-                    <button onClick={() => { removeEmptyShifts(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Remove empty shifts</button>
+                    <button onClick={() => { markAllShiftsStatus('EMPTY'); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Unassign editable shifts</button>
+                    <button onClick={() => { removeEmptyShifts(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Remove unassigned drafts</button>
                     <button
                       onClick={() => {
                         setOptionsOpen(false);
@@ -1505,7 +1504,7 @@ export default function SchedulingPage() {
                     >
                       Delete all shifts
                     </button>
-                    <button onClick={() => { markEmptyAsOpen(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Mark empty shifts as open</button>
+                    <button onClick={() => { markEmptyAsOpen(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Add unassigned draft shifts</button>
                     <button onClick={() => { setBulkModal({ open: true, field: 'notes', value: '' }); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Bulk update</button>
                     <button onClick={() => { setAreasCollapsed(v => !v); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">{areasCollapsed ? 'Expand areas' : 'Collapse areas'}</button>
                   </div>
@@ -1677,15 +1676,12 @@ export default function SchedulingPage() {
       {/* Footer Legend */}
       <div className="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 overflow-x-auto">
           <div className="flex items-center gap-4 whitespace-nowrap px-4">
-              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-slate-300" /> 0 empty</div>
-              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-slate-300" /> 0 unpublished</div>
-              <div className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-green-500" /> 0 published</div>
-              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-green-500" /> 0 require confirmation</div>
-              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-purple-500" /> 0 open shifts</div>
-              <div className="flex items-center gap-1"><AlertCircle className="w-3 h-3 text-red-500" /> 0 warnings</div>
-              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-red-300" /> 1 leave approved</div>
-              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-red-300 border-dashed border-red-500" /> 0 leave pending</div>
-              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-slate-200 bg-slate-100" /> 0 unavailable</div>
+              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-slate-400" /> {shifts.filter(s => !s.employeeId).length} unassigned</div>
+              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-amber-500" /> {unpublishedCount} unpublished</div>
+              <div className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-green-500" /> {shifts.filter(s => s.status === 'PUBLISHED').length} published</div>
+              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-purple-500" /> {shifts.filter(s => s.status === 'OPEN').length} open shifts</div>
+              <div className="flex items-center gap-1"><AlertCircle className="w-3 h-3 text-red-500" /> {pendingCallouts.length} pending call-outs</div>
+              <div className="flex items-center gap-1"><Circle className="w-3 h-3 text-blue-500" /> {leaveRequests.filter(r => new Date(r.startDate) <= weekEnd && new Date(r.endDate) >= weekStart).length} approved leave</div>
           </div>
           
           <div className="flex items-center gap-2 pr-4">

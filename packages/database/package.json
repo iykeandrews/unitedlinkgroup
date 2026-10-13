@@ -16,8 +16,10 @@
     "generate": "prisma generate",
     "db:push": "prisma db push",
     "db:push:deploy": "prisma db push --skip-generate",
-    "migrate:deploy": "prisma migrate deploy",
-    "migrate:sqlite-to-postgres": "node prisma/migrate-sqlite-to-postgres.js"
+    "migrate:deploy": "node prisma/prepare-postgres.js && prisma migrate deploy --schema prisma/postgres/schema.prisma",
+    "migrate:sqlite-to-postgres": "node prisma/migrate-sqlite-to-postgres.js",
+    "migrate:dev": "node prisma/prepare-postgres.js && prisma migrate dev --schema prisma/postgres/schema.prisma",
+    "migrate:copy-sqlite": "node prisma/copy-sqlite-to-postgres.js"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0"

@@ -1,614 +1,817 @@
-'use client';
-
-import { useState, useEffect, useCallback, useRef } from 'react';
-import Image from 'next/image';
-import { X, Plus, Trash2, Download, Send, Printer, Edit2, Eye, Save } from 'lucide-react';
-import { formatCurrency, formatDate } from '../../lib/localization';
-import api from '../../lib/api';
-import { toast } from 'sonner';
-import { useBusiness } from '../../context/business-context';
-
-interface InvoiceItem {
-  description: string;
-  quantity: number;
-  rate: number;
-}
-
-interface Invoice {
-  id?: string;
-  invoiceNumber: string;
-  issueDate: string;
-  dueDate: string;
-  status: string;
-  notes?: string;
-  items: InvoiceItem[];
-  clientId: string;
-  client?: any;
-  locationId?: string;
-}
-
-interface InvoiceModalProps {
+"use client";
+import AmericanDateInput from "./AmericanDateInput";
+import { useEffect, useRef, useState } from "react";
+import {
+  X,
+  Plus,
+  Trash2,
+  Download,
+  Send,
+  Save,
+  ArrowLeft,
+  Copy,
+} from "lucide-react";
+import api from "@/lib/api";
+import { toast } from "sonner";
+import { useBusiness } from "@/context/business-context";
+import { formatCurrency } from "@/lib/localization";
+import InvoicePayments from "./InvoicePayments";
+import StatusBadge from "./StatusBadge";
+import { invoiceDate, invoiceError } from "./accounting";
+type Props = {
   isOpen: boolean;
   onClose: () => void;
-  clientId: string;
-  clientData?: any; // Pass client data to avoid refetching
-  invoice?: Invoice; // If provided, edit mode
+  clientId?: string;
+  clientData?: any;
+  invoice?: any;
   onSave: () => void;
-}
-
-export default function InvoiceModal({ isOpen, onClose, clientId, clientData, invoice, onSave }: InvoiceModalProps) {
+};
+const initial = (clientId = "") => ({
+  invoiceNumber: "",
+  clientId,
+  locationId: "",
+  issueDate: new Date().toISOString().slice(0, 10),
+  dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+  status: "DRAFT",
+  notes: "",
+  items: [{ description: "Security services", quantity: 1, rate: 0 }],
+});
+export default function InvoiceModal({
+  isOpen,
+  onClose,
+  clientId = "",
+  clientData,
+  invoice,
+  onSave,
+}: Props) {
   const { selectedBusiness } = useBusiness();
-  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
-  const [loading, setLoading] = useState(false);
-  const [client, setClient] = useState<any>(clientData || null);
-  const [locations, setLocations] = useState<any[]>([]);
-
-  const [formData, setFormData] = useState<Invoice>({
-    invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-    issueDate: new Date().toISOString().split('T')[0],
-    dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    status: 'DRAFT',
-    notes: '',
-    items: [{ description: 'Security Services', quantity: 1, rate: 0 }],
-    clientId: clientId,
-    locationId: ''
+  const [form, setForm] = useState<any>(initial(clientId)),
+    [saved, setSaved] = useState<any>(null),
+    [mode, setMode] = useState<"edit" | "preview">("edit"),
+    [busy, setBusy] = useState(false),
+    [loading, setLoading] = useState(false),
+    [clients, setClients] = useState<any[]>([]),
+    [locations, setLocations] = useState<any[]>([]),
+    [tax, setTax] = useState({ rate: 0, inclusive: false }),
+    [taxError, setTaxError] = useState(""),
+    [taxLoading, setTaxLoading] = useState(false);
+  const generation = useRef(0);
+  const busyRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  const [loadError, setLoadError] = useState("");
+  useEffect(() => {
+    busyRef.current = busy;
+    closeRef.current = onClose;
+  }, [busy, onClose]);
+  const input =
+    "mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100 dark:border-slate-600 dark:bg-slate-800 dark:text-white";
+  const money = (n: number) =>
+    formatCurrency(n, selectedBusiness?.currencyCode);
+  const fromInvoice = (i: any) => ({
+    invoiceNumber: i.invoiceNumber,
+    clientId: i.clientId,
+    locationId: i.locationId || "",
+    issueDate: i.issueDate.slice(0, 10),
+    dueDate: i.dueDate.slice(0, 10),
+    status:
+      i.documentStatus === "DRAFT"
+        ? "DRAFT"
+        : i.documentStatus === "VOID"
+          ? "VOID"
+          : "SENT",
+    notes: i.notes || "",
+    items: (i.items || []).map((it: any) => ({
+      description: it.description,
+      quantity: it.quantity,
+      rate: it.rate,
+    })),
   });
-
   useEffect(() => {
-    if (clientData) {
-      setClient(clientData);
-    }
-  }, [clientData]);
-
-  const fetchClient = useCallback(async () => {
-    try {
-      const res = await api.get(`/clients/${clientId}`);
-      setClient(res.data);
-    } catch (error) {
-      console.error('Failed to fetch client', error);
-      toast.error('Failed to load client details');
-    }
-  }, [clientId]);
-
-  const fetchLocations = useCallback(async () => {
-    try {
-      // If we have a client, filter locations by client
-      const url = clientId ? `/locations?clientId=${clientId}` : '/locations';
-      const res = await api.get(url);
-      setLocations(res.data);
-    } catch (error) {
-      console.error('Failed to fetch locations', error);
-    }
-  }, [clientId]);
-
-  useEffect(() => {
-    if (isOpen) {
-      if (invoice) {
-        setFormData({
-          ...invoice,
-          clientId: clientId // Ensure clientId is set
-        });
-        setMode('preview'); // Default to preview for existing invoices
-      } else {
-        // Reset for new invoice
-        setFormData({
-          invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-          issueDate: new Date().toISOString().split('T')[0],
-          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          status: 'DRAFT',
-          notes: '',
-          items: [{ description: 'Security Services', quantity: 1, rate: 0 }],
-          clientId: clientId
-        });
-        setMode('edit');
-      }
-      
-      if (!client && clientId) {
-        fetchClient();
-      }
-      fetchLocations();
-    }
-  }, [isOpen, invoice, clientId, client, fetchClient, fetchLocations]);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
-    const newItems = [...formData.items];
-    newItems[index] = { ...newItems[index], [field]: value };
-    setFormData(prev => ({ ...prev, items: newItems }));
-  };
-
-  const addItem = () => {
-    setFormData(prev => ({
-      ...prev,
-      items: [...prev.items, { description: '', quantity: 1, rate: 0 }]
-    }));
-  };
-
-  const removeItem = (index: number) => {
-    if (formData.items.length > 1) {
-      const newItems = [...formData.items];
-      newItems.splice(index, 1);
-      setFormData(prev => ({ ...prev, items: newItems }));
-    }
-  };
-
-  const calculateSubtotal = () => {
-    return formData.items.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
-  };
-
-  const calculateTax = () => {
-    // Assuming 0 tax for now or add a tax field
-    return 0;
-  };
-
-  const calculateTotal = () => {
-    return calculateSubtotal() + calculateTax();
-  };
-
-  const handleSave = async () => {
+    if (!isOpen) return;
+    ++generation.current;
+    let cancelled = false;
     setLoading(true);
+    setLoadError("");
+    setSaved(null);
+    setForm(initial(clientId));
+    setMode(invoice?.id ? "preview" : "edit");
+    setTaxError("");
+    setBusy(false);
+    const options = {
+      headers: { "x-business-id": selectedBusiness?.id || "" },
+    };
+    Promise.all([
+      api.get("/invoices/clients", options),
+      api.get("/locations", options),
+      invoice?.id
+        ? api.get(`/invoices/${invoice.id}`, options)
+        : Promise.resolve(null),
+    ])
+      .then(([c, l, i]) => {
+        if (cancelled) return;
+        setClients(c.data);
+        setLocations(l.data);
+        if (i) {
+          setSaved(i.data);
+          setForm(fromInvoice(i.data));
+          setTax({ rate: i.data.taxRate, inclusive: i.data.taxInclusive });
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          toast.error(invoiceError(e));
+          setLoadError("Unable to load invoice details. Close and try again.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busyRef.current) closeRef.current();
+      if (e.key === "Tab" && dialogRef.current) {
+        const elements = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]",
+          ),
+        ).filter((el) => el.getClientRects().length > 0);
+        const first = elements[0],
+          last = elements[elements.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    const previousFocus = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    document.addEventListener("keydown", escape);
+    const old = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      cancelled = true;
+      generation.current++;
+      document.removeEventListener("keydown", escape);
+      document.body.style.overflow = old;
+      previousFocus?.focus();
+    };
+    // Reset on a different record or business; changes within the editor remain local.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, invoice?.id, clientId, selectedBusiness?.id]);
+  useEffect(() => {
+    if (!isOpen || loading || !form.clientId) return;
+    let cancelled = false;
+    if (saved && (saved.locationId || "") === form.locationId) {
+      setTax({
+        rate: saved.taxRate,
+        inclusive:
+          saved.taxInclusive ||
+          (saved.taxAmount > 0 && saved.total === saved.subtotal),
+      });
+      setTaxError("");
+      setTaxLoading(false);
+      return;
+    }
+    setTaxLoading(true);
+    setTaxError("");
+    api
+      .get("/invoices/tax-context", {
+        params: {
+          clientId: form.clientId,
+          ...(form.locationId ? { locationId: form.locationId } : {}),
+        },
+        headers: { "x-business-id": selectedBusiness?.id || "" },
+      })
+      .then((r) => {
+        if (!cancelled) setTax(r.data);
+      })
+      .catch((e) => {
+        if (!cancelled) setTaxError(invoiceError(e));
+      })
+      .finally(() => {
+        if (!cancelled) setTaxLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOpen,
+    loading,
+    form.clientId,
+    form.locationId,
+    saved?.id,
+    saved?.taxRate,
+    selectedBusiness?.id,
+  ]);
+  const client =
+    clients.find((c) => c.id === form.clientId) || saved?.client || clientData;
+  const site = locations.find((l) => l.id === form.locationId);
+  const subtotal =
+    Math.round(
+      form.items.reduce(
+        (sum: number, item: any) =>
+          sum +
+          Math.round(Number(item.quantity || 0) * Number(item.rate || 0) * 100),
+        0,
+      ),
+    ) / 100;
+  const taxAmount =
+    Math.round(
+      (tax.inclusive
+        ? (subtotal * tax.rate) / (100 + tax.rate)
+        : (subtotal * tax.rate) / 100) * 100,
+    ) / 100;
+  const total =
+    Math.round((tax.inclusive ? subtotal : subtotal + taxAmount) * 100) / 100;
+  const dirty = saved
+    ? JSON.stringify(form) !== JSON.stringify(fromInvoice(saved))
+    : true;
+  const canEdit =
+    !saved ||
+    (!["PAID", "PARTIALLY_PAID", "VOID"].includes(saved.status) &&
+      !saved.payments?.some((p: any) => !p.voidedAt));
+  const change = (key: string, value: any) =>
+    setForm((prev: any) => ({ ...prev, [key]: value }));
+  const itemChange = (index: number, key: string, value: any) =>
+    setForm((prev: any) => ({
+      ...prev,
+      items: prev.items.map((item: any, i: number) =>
+        i === index ? { ...item, [key]: value } : item,
+      ),
+    }));
+  async function save() {
+    if (
+      !form.clientId ||
+      !form.issueDate ||
+      !form.dueDate ||
+      form.dueDate < form.issueDate
+    ) {
+      toast.error(
+        "Select a client and a service end date on or after the service start date.",
+      );
+      return;
+    }
+    if (
+      !form.items.length ||
+      form.items.some(
+        (i: any) =>
+          !i.description.trim() ||
+          !Number.isFinite(Number(i.quantity)) ||
+          Number(i.quantity) <= 0 ||
+          !Number.isFinite(Number(i.rate)) ||
+          Number(i.rate) < 0,
+      ) ||
+      !Number.isFinite(total) ||
+      total <= 0
+    ) {
+      toast.error("Enter valid items with a positive invoice total.");
+      return;
+    }
+    const current = generation.current;
+    setBusy(true);
     try {
       const payload = {
-        ...formData,
-        locationId: formData.locationId === '' ? undefined : formData.locationId
+        ...form,
+        ...(saved?.id ? { expectedUpdatedAt: saved.updatedAt } : {}),
+        invoiceNumber: form.invoiceNumber.trim() || undefined,
+        locationId: form.locationId || null,
+        items: form.items.map((i: any) => ({
+          ...i,
+          quantity: Number(i.quantity),
+          rate: Number(i.rate),
+        })),
       };
-      
-      console.log('Sending invoice payload:', payload);
-
-      if (invoice?.id) {
-        await api.patch(`/invoices/${invoice.id}`, payload);
-        toast.success('Invoice updated successfully');
-      } else {
-        await api.post('/invoices', payload);
-        toast.success('Invoice created successfully');
-      }
+      const r = saved?.id
+        ? await api.patch(`/invoices/${saved.id}`, payload)
+        : await api.post("/invoices", payload);
+      if (current !== generation.current) return;
+      setSaved(r.data);
+      setForm(fromInvoice(r.data));
+      setTax({ rate: r.data.taxRate, inclusive: r.data.taxInclusive });
+      setMode("preview");
       onSave();
-      onClose();
-    } catch (error: any) {
-      console.error('Failed to save invoice', error.response?.data || error);
-      const message = error.response?.data?.message;
-      if (Array.isArray(message)) {
-          toast.error(`Validation error: ${message.join(', ')}`);
-      } else {
-          toast.error(message || 'Failed to save invoice');
-      }
+      toast.success("Invoice saved.");
+    } catch (e) {
+      if (current === generation.current) toast.error(invoiceError(e));
     } finally {
-      setLoading(false);
+      if (current === generation.current) setBusy(false);
     }
-  };
-
-  const handleSendEmail = async () => {
-    if (!invoice?.id) {
-        toast.error('Please save the invoice before sending');
-        return;
+  }
+  async function send() {
+    if (!saved?.id || dirty) {
+      toast.error("Save the invoice before sending.");
+      return;
     }
+    setBusy(true);
+    const current = generation.current;
     try {
-        await api.post(`/invoices/${invoice.id}/send`);
-        toast.success('Invoice sent successfully!');
-        setFormData(prev => ({ ...prev, status: 'SENT' }));
-        onSave();
-    } catch (error: any) {
-        console.error('Failed to send invoice', error?.response?.data || error);
-        const raw = error?.response?.data?.message || 'Failed to send invoice';
-        const message =
-          typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join(', ') : (() => { try { return JSON.stringify(raw); } catch { return String(raw); } })();
-        toast.error(message);
+      const r = await api.post(`/invoices/${saved.id}/send`);
+      if (current !== generation.current) return;
+      setSaved(r.data);
+      setForm(fromInvoice(r.data));
+      onSave();
+      toast.success("Invoice email sent.");
+    } catch (e) {
+      if (current === generation.current) toast.error(invoiceError(e));
+    } finally {
+      if (current === generation.current) setBusy(false);
     }
-  };
-
-  const handleDownloadPDF = () => {
-    // For now, trigger print which allows saving as PDF
-    window.print();
-  };
-
+  }
+  async function download() {
+    if (!saved?.id || dirty) {
+      toast.error("Save the invoice before downloading.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await api.get(`/invoices/${saved.id}/pdf`, {
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(
+        new Blob([r.data], { type: "application/pdf" }),
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${saved.invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error("Unable to download the invoice PDF. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
   if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-5xl my-8 flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 rounded-t-lg sticky top-0 z-10">
-          <div className="flex items-center gap-4">
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white">
-              {mode === 'edit' ? (invoice ? 'Edit Invoice' : 'New Invoice') : `Invoice #${formData.invoiceNumber}`}
-            </h3>
-            <div className="flex bg-gray-200 dark:bg-slate-700 rounded-lg p-1">
-              <button
-                onClick={() => setMode('edit')}
-                className={`px-3 py-1 text-sm rounded-md transition-all ${mode === 'edit' ? 'bg-white dark:bg-slate-600 shadow text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => setMode('preview')}
-                className={`px-3 py-1 text-sm rounded-md transition-all ${mode === 'preview' ? 'bg-white dark:bg-slate-600 shadow text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}
-              >
-                Preview
-              </button>
-            </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-2 backdrop-blur-sm sm:p-5">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invoice-modal-title"
+        className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 dark:border-slate-700">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-teal-700 dark:text-teal-300">
+              Client billing
+            </p>
+            <h2
+              id="invoice-modal-title"
+              className="mt-1 text-xl font-semibold text-slate-900 dark:text-white"
+            >
+              {saved ? saved.invoiceNumber : "New invoice"}
+            </h2>
           </div>
-          <div className="flex items-center gap-2">
-            {mode === 'preview' && (
+          <div className="flex flex-wrap items-center gap-2">
+            {mode === "preview" && saved && (
               <>
-                <button onClick={handleSendEmail} className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors" title="Send Email">
-                  <Send size={20} />
+                <button
+                  aria-label="Duplicate invoice"
+                  title="Duplicate into a new draft"
+                  disabled={busy}
+                  onClick={() => {
+                    const copied = fromInvoice(saved);
+                    setSaved(null);
+                    setForm({
+                      ...copied,
+                      ...initial(copied.clientId),
+                      locationId: copied.locationId,
+                      items: copied.items,
+                      notes: copied.notes,
+                    });
+                    setMode("edit");
+                  }}
+                  className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                >
+                  <Copy size={19} />
                 </button>
-                <button onClick={handleDownloadPDF} className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors" title="Download PDF">
-                  <Download size={20} />
+                <button
+                  aria-label="Download invoice PDF"
+                  title="Download PDF"
+                  disabled={busy || dirty}
+                  onClick={download}
+                  className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                >
+                  <Download size={19} />
                 </button>
-                <button onClick={() => window.print()} className="p-2 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors" title="Print">
-                  <Printer size={20} />
+                <button
+                  aria-label="Send invoice email"
+                  title="Send invoice email"
+                  disabled={busy || dirty || saved.status === "VOID"}
+                  onClick={send}
+                  className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                >
+                  <Send size={19} />
                 </button>
               </>
             )}
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 transition-colors">
-              <X size={24} />
+            <button
+              disabled={busy}
+              aria-label="Close invoice"
+              onClick={onClose}
+              className="rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X size={20} />
             </button>
           </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gray-50 dark:bg-slate-900">
-          {mode === 'edit' ? (
-            <div className="space-y-6 bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
-              {/* Invoice Details Form */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Invoice Number</label>
-                  <input
-                    type="text"
-                    name="invoiceNumber"
-                    value={formData.invoiceNumber}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Issue Date</label>
-                  <input
-                    type="date"
-                    name="issueDate"
-                    value={formData.issueDate}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Due Date</label>
-                  <input
-                    type="date"
-                    name="dueDate"
-                    value={formData.dueDate}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
+        </header>
+        <main className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-950 sm:p-6">
+          {loading ? (
+            <p role="status" className="p-10 text-center text-slate-500">
+              Loading invoice…
+            </p>
+          ) : loadError ? (
+            <p
+              role="alert"
+              className="rounded-lg bg-rose-50 p-4 text-sm text-rose-700"
+            >
+              {loadError}
+            </p>
+          ) : mode === "edit" ? (
+            <div className="space-y-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-medium">
+                  Client
                   <select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border"
+                    aria-label="Invoice client"
+                    disabled={!!saved?.id || !!clientId}
+                    className={input}
+                    value={form.clientId}
+                    onChange={(e) => {
+                      change("clientId", e.target.value);
+                      change("locationId", "");
+                    }}
                   >
-                    <option value="DRAFT">Draft</option>
-                    <option value="SENT">Sent</option>
-                    <option value="PAID">Paid</option>
-                    <option value="OVERDUE">Overdue</option>
-                    <option value="CANCELLED">Cancelled</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Location / Site</label>
-                  <select
-                    name="locationId"
-                    value={formData.locationId || ''}
-                    onChange={handleInputChange}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border"
-                  >
-                    <option value="">-- None --</option>
-                    {locations.map(loc => (
-                      <option key={loc.id} value={loc.id}>{loc.name} {loc.address ? `- ${loc.address}` : ''}</option>
+                    <option value="">Select a client</option>
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
                     ))}
                   </select>
-                </div>
+                </label>
+                <label className="text-sm font-medium">
+                  Invoice number
+                  <input
+                    aria-label="Invoice number"
+                    className={input}
+                    placeholder="Generated when saved"
+                    maxLength={100}
+                    value={form.invoiceNumber}
+                    onChange={(e) => change("invoiceNumber", e.target.value)}
+                  />
+                </label>
+                <label className="text-sm font-medium">
+                  Service start date (MM/DD/YYYY)
+                  <AmericanDateInput
+                    aria-label="Service start date"
+                    className={input}
+                    value={form.issueDate}
+                    onChange={(value) => change("issueDate", value)}
+                  />
+                </label>
+                <label className="text-sm font-medium">
+                  Service end date (MM/DD/YYYY)
+                  <AmericanDateInput
+                    aria-label="Service end date"
+                    className={input}
+                    min={form.issueDate}
+                    value={form.dueDate}
+                    onChange={(value) => change("dueDate", value)}
+                  />
+                </label>
+                <label className="text-sm font-medium">
+                  Document status
+                  <select
+                    aria-label="Document status"
+                    className={input}
+                    value={form.status}
+                    onChange={(e) => change("status", e.target.value)}
+                  >
+                    <option value="DRAFT">Draft</option>
+                    <option value="SENT">Issued — unpaid</option>
+                    {saved && <option value="VOID">Void</option>}
+                  </select>
+                </label>
+                <label className="text-sm font-medium">
+                  Service site
+                  <select
+                    aria-label="Service site"
+                    className={input}
+                    value={form.locationId}
+                    onChange={(e) => change("locationId", e.target.value)}
+                  >
+                    <option value="">No site</option>
+                    {locations
+                      .filter((l) => l.clientId === form.clientId)
+                      .map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
               </div>
-
-              {/* Items */}
-              <div>
-                <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Line Items</h4>
+              <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <h3 className="mb-4 font-semibold">Line items</h3>
                 <div className="space-y-4">
-                  {formData.items.map((item, index) => (
-                    <div key={index} className="flex flex-col md:flex-row gap-4 items-start md:items-center bg-gray-50 dark:bg-slate-900/50 p-4 rounded-lg border border-gray-100 dark:border-slate-700">
-                      <div className="flex-1 w-full">
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
+                  {form.items.map((it: any, i: number) => (
+                    <div
+                      key={i}
+                      className="grid grid-cols-2 gap-3 border-b border-slate-100 pb-4 last:border-0 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_90px_115px_100px_32px]"
+                    >
+                      <label className="col-span-2 text-xs text-slate-500 sm:col-span-1">
+                        Description
                         <input
-                          type="text"
-                          value={item.description}
-                          onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border text-sm"
-                          placeholder="Item description"
+                          aria-label={`Item ${i + 1} description`}
+                          className={input}
+                          maxLength={2000}
+                          value={it.description}
+                          onChange={(e) =>
+                            itemChange(i, "description", e.target.value)
+                          }
                         />
-                      </div>
-                      <div className="w-full md:w-24">
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
+                      </label>
+                      <label className="text-xs text-slate-500">
+                        Quantity
                         <input
+                          aria-label={`Item ${i + 1} quantity`}
+                          className={input}
                           type="number"
-                          min="1"
-                          value={item.quantity}
-                          onChange={(e) => handleItemChange(index, 'quantity', parseFloat(e.target.value))}
-                          className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border text-sm"
+                          min="0.000001"
+                          step="any"
+                          value={it.quantity}
+                          onChange={(e) =>
+                            itemChange(i, "quantity", e.target.value)
+                          }
                         />
-                      </div>
-                      <div className="w-full md:w-32">
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Rate</label>
-                        <div className="relative">
-                          <span className="absolute left-3 top-2 text-gray-500">
-                            {formatCurrency(0, selectedBusiness?.currencyCode).replace(/[0-9.,\s]/g, '')}
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.rate}
-                            onChange={(e) => handleItemChange(index, 'rate', parseFloat(e.target.value))}
-                            className="w-full pl-8 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border text-sm"
-                          />
-                        </div>
-                      </div>
-                      <div className="w-full md:w-32">
-                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Amount</label>
-                        <div className="py-2 text-sm font-medium text-gray-900 dark:text-white">
-                          {formatCurrency(item.quantity * item.rate, selectedBusiness?.currencyCode)}
-                        </div>
+                      </label>
+                      <label className="text-xs text-slate-500">
+                        Rate
+                        <input
+                          aria-label={`Item ${i + 1} rate`}
+                          className={input}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={it.rate}
+                          onChange={(e) =>
+                            itemChange(i, "rate", e.target.value)
+                          }
+                        />
+                      </label>
+                      <div className="text-xs text-slate-500">
+                        Amount
+                        <p className="mt-4 text-sm font-semibold text-slate-900 dark:text-white">
+                          {money(
+                            Math.round(
+                              Number(it.quantity || 0) *
+                                Number(it.rate || 0) *
+                                100,
+                            ) / 100,
+                          )}
+                        </p>
                       </div>
                       <button
-                        onClick={() => removeItem(index)}
-                        className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors mt-6 md:mt-0"
-                        title="Remove Item"
+                        aria-label={`Remove item ${i + 1}`}
+                        disabled={form.items.length === 1}
+                        onClick={() =>
+                          change(
+                            "items",
+                            form.items.filter(
+                              (_: any, index: number) => index !== i,
+                            ),
+                          )
+                        }
+                        className="self-center justify-self-end rounded-lg p-2 text-rose-600 disabled:opacity-30"
                       >
-                        <Trash2 size={18} />
+                        <Trash2 size={17} />
                       </button>
                     </div>
                   ))}
-                  <button
-                    onClick={addItem}
-                    className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium"
-                  >
-                    <Plus size={16} />
-                    Add Item
-                  </button>
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notes / Terms</label>
+                <button
+                  disabled={form.items.length >= 500}
+                  onClick={() =>
+                    change("items", [
+                      ...form.items,
+                      { description: "", quantity: 1, rate: 0 },
+                    ])
+                  }
+                  className="mt-4 flex items-center gap-2 text-sm font-semibold text-teal-700 dark:text-teal-300"
+                >
+                  <Plus size={16} />
+                  Add item
+                </button>
+              </section>
+              <label className="block text-sm font-medium">
+                Notes and payment terms
                 <textarea
-                  name="notes"
-                  value={formData.notes}
-                  onChange={handleInputChange}
+                  aria-label="Notes and payment terms"
                   rows={3}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white p-2 border"
-                  placeholder="Payment terms, bank details, or thank you note..."
+                  maxLength={10000}
+                  className={input}
+                  value={form.notes}
+                  onChange={(e) => change("notes", e.target.value)}
                 />
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-slate-700">
-                <div className="text-right">
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Subtotal</p>
-                  <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(calculateSubtotal(), selectedBusiness?.currencyCode)}</p>
-                  {/* Tax could be added here */}
-                  <div className="my-2 border-t border-gray-100 dark:border-slate-700 w-full"></div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
-                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(calculateTotal(), selectedBusiness?.currencyCode)}</p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* Preview Mode - Professional Invoice Design */
-            <div id="invoice-preview" className="bg-white text-slate-900 p-8 md:p-12 rounded-xl shadow-lg border border-gray-200 max-w-4xl mx-auto print:shadow-none print:border-none print:w-full print:max-w-none">
-              {/* Header */}
-              <div className="flex justify-between items-start mb-12">
-                <div>
-                   {/* Logo */}
-                  {selectedBusiness?.logoUrl ? (
-                      <Image 
-                        src={selectedBusiness.logoUrl} 
-                        alt="Company Logo" 
-                        width={0}
-                        height={0}
-                        sizes="100vw"
-                        style={{ width: 'auto', height: '64px' }}
-                        className="object-contain mb-4" 
-                      />
-                  ) : (
-                    <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-2xl mb-4">
-                      {selectedBusiness?.name ? selectedBusiness.name.substring(0, 2).toUpperCase() : 'UL'}
-                    </div>
-                  )}
-                  <h1 className="text-3xl font-bold text-slate-900">INVOICE</h1>
-                  <p className="text-slate-500 mt-1">#{formData.invoiceNumber}</p>
-                </div>
-                <div className="text-right">
-                  <h2 className="text-xl font-bold text-slate-900">{selectedBusiness?.name || 'United Link Group'}</h2>
-                  <p className="text-slate-600 text-sm mt-1">{selectedBusiness?.businessType || 'Security Services'}</p>
-                  
-                  {selectedBusiness?.address && <p className="text-slate-600 text-sm">{selectedBusiness.address}</p>}
-                  {(selectedBusiness?.city || selectedBusiness?.state || selectedBusiness?.zip) && (
-                      <p className="text-slate-600 text-sm">
-                          {[selectedBusiness.city, selectedBusiness.state, selectedBusiness.zip].filter(Boolean).join(', ')}
-                      </p>
-                  )}
-                  {selectedBusiness?.country && <p className="text-slate-600 text-sm">{selectedBusiness.country}</p>}
-                  
-                  <p className="text-slate-600 text-sm mt-1">support@{selectedBusiness?.name?.toLowerCase().replace(/\s+/g, '') || 'unitedlinkgroup'}.com</p>
-                  <p className="text-slate-600 text-sm">{selectedBusiness?.mobile || '+1 (555) 123-4567'}</p>
-                </div>
-              </div>
-
-              {/* Bill To & Details */}
-              <div className="flex justify-between mb-12">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Bill To</h3>
-                  <div className="text-slate-800">
-                    <p className="font-bold text-lg">{client?.name || 'Client Name'}</p>
-                    {client?.address && <p className="text-sm">{client.address}</p>}
-                    {client?.city && <p className="text-sm">{client.city}, {client.state} {client.zip}</p>}
-                    {client?.country && <p className="text-sm">{client.country}</p>}
-                    {client?.billingContactEmail && <p className="text-sm mt-2 text-slate-600">{client.billingContactEmail}</p>}
-                    
-                    {formData.locationId && locations.find(l => l.id === formData.locationId) && (
-                      <div className="mt-4 pt-4 border-t border-slate-100">
-                          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Service Location</p>
-                          <p className="text-sm font-medium">{locations.find(l => l.id === formData.locationId)?.name}</p>
-                          <p className="text-sm">{locations.find(l => l.id === formData.locationId)?.address}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="mb-4">
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Issue Date</h3>
-                    <p className="text-slate-800 font-medium">{new Date(formData.issueDate).toLocaleDateString()}</p>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">Due Date</h3>
-                    <p className="text-slate-800 font-medium">{new Date(formData.dueDate).toLocaleDateString()}</p>
-                  </div>
-                  <div className="mt-4">
-                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold uppercase ${
-                        formData.status === 'PAID' ? 'bg-green-100 text-green-800' :
-                        formData.status === 'OVERDUE' ? 'bg-red-100 text-red-800' :
-                        'bg-slate-100 text-slate-800'
-                     }`}>
-                        {formData.status}
-                     </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Items Table */}
-              <table className="w-full mb-8">
-                <thead>
-                  <tr className="border-b-2 border-slate-200">
-                    <th className="text-left py-3 text-sm font-semibold text-slate-600 uppercase tracking-wider">Description</th>
-                    <th className="text-right py-3 text-sm font-semibold text-slate-600 uppercase tracking-wider">Qty</th>
-                    <th className="text-right py-3 text-sm font-semibold text-slate-600 uppercase tracking-wider">Rate</th>
-                    <th className="text-right py-3 text-sm font-semibold text-slate-600 uppercase tracking-wider">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {formData.items.map((item, index) => (
-                    <tr key={index}>
-                      <td className="py-4 text-slate-800">{item.description}</td>
-                      <td className="py-4 text-right text-slate-600">{item.quantity}</td>
-                      <td className="py-4 text-right text-slate-600">{formatCurrency(item.rate, selectedBusiness?.currencyCode)}</td>
-                      <td className="py-4 text-right text-slate-900 font-medium">{formatCurrency(item.quantity * item.rate, selectedBusiness?.currencyCode)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {/* Totals */}
-              <div className="flex justify-end border-t border-slate-200 pt-8">
-                <div className="w-64 space-y-3">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Subtotal</span>
-                    <span>{formatCurrency(calculateSubtotal(), selectedBusiness?.currencyCode)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>Tax (0%)</span>
-                    <span>{formatCurrency(0, selectedBusiness?.currencyCode)}</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-bold text-slate-900 border-t border-slate-200 pt-3">
-                    <span>Total</span>
-                    <span>{formatCurrency(calculateTotal(), selectedBusiness?.currencyCode)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Notes */}
-              {formData.notes && (
-                <div className="mt-12 pt-8 border-t border-slate-100">
-                  <h4 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Notes & Terms</h4>
-                  <p className="text-sm text-slate-600 whitespace-pre-line">{formData.notes}</p>
-                </div>
+              </label>
+              {taxError && (
+                <p
+                  role="alert"
+                  className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700"
+                >
+                  {taxError}
+                </p>
               )}
-              
-              {/* Footer */}
-              <div className="mt-12 text-center text-xs text-slate-400">
-                <p>Thank you for your business!</p>
+              <div className="ml-auto max-w-sm space-y-2 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                <div className="flex justify-between text-sm">
+                  <span>Subtotal</span>
+                  <span>{money(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span>
+                    {taxLoading
+                      ? "Loading tax…"
+                      : `Tax (${tax.rate}%)${tax.inclusive ? " included" : ""}`}
+                  </span>
+                  <span>{money(taxAmount)}</span>
+                </div>
+                <div className="flex justify-between border-t border-slate-200 pt-3 text-lg font-semibold dark:border-slate-700">
+                  <span>Total</span>
+                  <span>{money(total)}</span>
+                </div>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-b-lg flex justify-between items-center sticky bottom-0 z-10">
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            {mode === 'edit' ? 'All changes are local until saved.' : 'Preview mode'}
-          </div>
+          ) : saved ? (
+            <div className="space-y-5">
+              <article className="rounded-xl border border-slate-200 bg-white p-5 text-slate-900 sm:p-8">
+                <div className="flex flex-wrap justify-between gap-6 border-b border-slate-200 pb-6">
+                  <div>
+                    <p className="text-xs uppercase tracking-widest text-teal-700">
+                      Invoice
+                    </p>
+                    <h3 className="mt-2 break-words text-2xl font-semibold">
+                      {saved.invoiceNumber}
+                    </h3>
+                    <div className="mt-3">
+                      <StatusBadge status={saved.status} />
+                    </div>
+                  </div>
+                  <div className="text-sm sm:text-right">
+                    <p className="font-semibold">{selectedBusiness?.name}</p>
+                    {selectedBusiness?.address && (
+                      <p className="mt-1 text-slate-500">
+                        {selectedBusiness.address}
+                      </p>
+                    )}
+                    <p className="mt-3 text-slate-500">
+                      Service start {invoiceDate(saved.issueDate)}
+                    </p>
+                    <p className="mt-1 text-slate-500">
+                      Service end {invoiceDate(saved.dueDate)}
+                    </p>
+                  </div>
+                </div>
+                <div className="my-6">
+                  <p className="text-xs uppercase tracking-wider text-slate-500">
+                    Bill to
+                  </p>
+                  <p className="mt-2 font-semibold">{saved.client?.name}</p>
+                  {saved.client?.address && (
+                    <p className="text-sm text-slate-500">
+                      {saved.client.billingAddressSameAsOffice === false
+                        ? saved.client.billingAddress
+                        : saved.client.address}
+                    </p>
+                  )}
+                  {(saved.client?.billingContactEmail ||
+                    saved.client?.email) && (
+                    <p className="text-sm text-slate-500">
+                      {saved.client.billingContactEmail || saved.client.email}
+                    </p>
+                  )}
+                  {saved.location && (
+                    <p className="mt-2 text-sm text-slate-500">
+                      Site: {saved.location.name}
+                    </p>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[450px] text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
+                        <th className="py-3">Description</th>
+                        <th className="py-3 text-right">Qty</th>
+                        <th className="py-3 text-right">Rate</th>
+                        <th className="py-3 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {saved.items?.map((it: any) => (
+                        <tr key={it.id} className="border-b border-slate-100">
+                          <td className="max-w-sm whitespace-pre-wrap break-words py-3 pr-4">
+                            {it.description}
+                          </td>
+                          <td className="py-3 text-right">{it.quantity}</td>
+                          <td className="py-3 text-right">{money(it.rate)}</td>
+                          <td className="py-3 text-right font-medium">
+                            {money(it.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="ml-auto mt-5 max-w-xs space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span>Subtotal</span>
+                    <span>{money(saved.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>
+                      Tax ({saved.taxRate}%)
+                      {saved.taxInclusive ? " included" : ""}
+                    </span>
+                    <span>{money(saved.taxAmount)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-200 pt-3 text-lg font-semibold">
+                    <span>Total</span>
+                    <span>{money(saved.total)}</span>
+                  </div>
+                </div>
+                {saved.notes && (
+                  <div className="mt-6 border-t border-slate-200 pt-4">
+                    <p className="text-xs uppercase text-slate-500">
+                      Notes and terms
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm">
+                      {saved.notes}
+                    </p>
+                  </div>
+                )}
+              </article>
+              <InvoicePayments
+                invoice={saved}
+                currency={selectedBusiness?.currencyCode}
+                onChange={(i) => {
+                  setSaved(i);
+                  setForm(fromInvoice(i));
+                  onSave();
+                }}
+              />
+            </div>
+          ) : null}
+        </main>
+        <footer className="flex flex-wrap justify-between gap-3 border-t border-slate-200 p-4 dark:border-slate-700">
+          <p className="self-center text-xs text-slate-500">
+            {mode === "edit"
+              ? "Changes remain local until saved."
+              : "Payments determine the paid status automatically."}
+          </p>
           <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            {mode === 'edit' ? (
+            {mode === "preview" && canEdit && (
               <button
-                onClick={handleSave}
-                disabled={loading}
-                className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                disabled={busy}
+                onClick={() => setMode("edit")}
+                className="flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-slate-600"
               >
-                <Save size={18} />
-                {loading ? 'Saving...' : 'Save Invoice'}
+                <ArrowLeft size={15} />
+                Edit invoice
               </button>
-            ) : (
-               <button
-                onClick={() => setMode('edit')}
-                className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            )}
+            <button
+              disabled={busy}
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm"
+            >
+              Close
+            </button>
+            {mode === "edit" && (
+              <button
+                disabled={
+                  busy ||
+                  loading ||
+                  !!loadError ||
+                  taxLoading ||
+                  !!taxError ||
+                  !form.clientId ||
+                  !canEdit
+                }
+                onClick={save}
+                className="flex items-center gap-2 rounded-lg bg-teal-700 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                <Edit2 size={18} />
-                Back to Edit
+                <Save size={16} />
+                {busy ? "Saving…" : "Save invoice"}
               </button>
             )}
           </div>
-        </div>
+        </footer>
       </div>
-      
-      {/* Print Styles */}
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #invoice-preview, #invoice-preview * {
-            visibility: visible;
-          }
-          #invoice-preview {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            margin: 0;
-            padding: 20px;
-            box-shadow: none;
-            border: none;
-          }
-          .no-print {
-            display: none !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }

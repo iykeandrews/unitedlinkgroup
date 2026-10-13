@@ -1206,7 +1206,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                       {/* Personal Details View */}
                       <ContentCard title="Personal Details">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-8">
-                          <LabelValue label="Name" value={`${employee.firstName} ${employee.middleName} ${employee.lastName}`} />
+                          <LabelValue label="Name" value={[employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(' ')} />
                           <LabelValue label="Preferred name" value={employee.preferredName || employee.firstName} />
                           <LabelValue label="Pronouns" value={employee.pronouns || 'Not Specified'} />
                           <LabelValue 
@@ -1221,7 +1221,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                           />
                           <LabelValue 
                             label="Work Authorization" 
-                            value={employee.isAuthorizedToWork ? 'Authorized' : 'Not Authorized'} 
+                            value={employee.isAuthorizedToWork == null ? 'Not set' : employee.isAuthorizedToWork ? 'Authorized' : 'Not Authorized'}
                             className="text-green-600 dark:text-green-400"
                           />
                         </div>
@@ -1258,10 +1258,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                     {/* Other View */}
                     <ContentCard title="System & Security">
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                        <LabelValue label="Kiosk PIN" value="••••" subValue={<button className="text-indigo-600 hover:underline text-xs font-medium">Show</button>} />
-                        <LabelValue label="Login username" value={<span className="break-all">{employee.email.split('@')[0]}</span>} />
-                        <LabelValue label="Device" value="Not installed" className="text-gray-500" />
-                        <LabelValue label="2FA" value="Not set up" className="text-gray-500" />
+                        <LabelValue label="Login email" value={<span className="break-all">{employee.email || 'Not set'}</span>} />
                       </div>
                     </ContentCard>
                   </>

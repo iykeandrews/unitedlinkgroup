@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useMemo } from 'react';
-import api from '../../../lib/api';
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
-import { 
-  DollarSign, 
-  Calendar, 
-  CheckCircle2, 
-  AlertCircle, 
-  ChevronRight, 
+import { useEffect, useState, useMemo } from "react";
+import api from "../../../lib/api";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import {
+  DollarSign,
+  Calendar,
+  CheckCircle2,
+  AlertCircle,
+  ChevronRight,
   Download,
   Play,
   X,
@@ -21,13 +21,15 @@ import {
   Filter,
   Plus,
   Trash2,
-  Eye
-} from 'lucide-react';
-import { format } from 'date-fns';
-import { generatePayslip } from '../../../utils/generatePayslip';
-import { useBusiness } from '../../../context/business-context';
-import { formatCurrency, formatDate } from '../../../lib/localization';
-import PayrollDetailsModal from '../../../components/payroll/PayrollDetailsModal';
+  Eye,
+} from "lucide-react";
+import { format } from "date-fns";
+import { generatePayslip } from "../../../utils/generatePayslip";
+import { useBusiness } from "../../../context/business-context";
+import { formatCurrency, formatDate } from "../../../lib/localization";
+import TaxSetup from "../../../components/payroll/TaxSetup";
+import { downloadCsv } from "../../../lib/time/records";
+import PayrollDetailsModal from "../../../components/payroll/PayrollDetailsModal";
 
 // --- Types ---
 
@@ -38,6 +40,9 @@ interface Payroll {
   periodEnd: string;
   status: string;
   type: string;
+  paySchedule?: string;
+  calendarTimeZone?: string;
+  totalDeductions: number;
   totalGross: number;
   totalNet: number;
   totalEmployeeTaxes: number;
@@ -49,12 +54,14 @@ interface Employee {
   id: string;
   firstName: string;
   lastName: string;
-  workerType: 'W2' | 'CONTRACTOR_1099' | 'BOTH';
+  workerType: "W2" | "CONTRACTOR_1099" | "BOTH";
   paySchedule: string;
   status: string;
   payType: string;
   hourlyRate?: number;
   salary?: number;
+  w2Profile?: any;
+  contractorProfile?: any;
 }
 
 // --- Components ---
@@ -63,8 +70,12 @@ const StatCard = ({ title, value, icon: Icon, colorClass, bgClass }: any) => (
   <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
     <div className="flex items-center justify-between">
       <div>
-        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{title}</p>
-        <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{value}</h3>
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+          {title}
+        </p>
+        <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
+          {value}
+        </h3>
       </div>
       <div className={`p-3 rounded-full ${bgClass}`}>
         <Icon className={`w-6 h-6 ${colorClass}`} />
@@ -75,17 +86,19 @@ const StatCard = ({ title, value, icon: Icon, colorClass, bgClass }: any) => (
 
 export default function PayrollPage() {
   const { selectedBusiness } = useBusiness();
-  const [activeTab, setActiveTab] = useState<'overview' | 'run' | 'history' | 'employees' | 'filings'>('overview');
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "run" | "history" | "employees" | "filings" | "setup"
+  >("overview");
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Stats
   const [stats, setStats] = useState({
     ytdCost: 0,
-    lastPayDate: '-',
+    lastPayDate: "-",
     activeEmployees: 0,
-    nextPayDate: '-'
+    nextPayDate: "-",
   });
 
   const [resumingPayroll, setResumingPayroll] = useState<Payroll | null>(null);
@@ -93,7 +106,7 @@ export default function PayrollPage() {
 
   useEffect(() => {
     fetchData();
-  }, [activeTab]);
+  }, [activeTab, selectedBusiness?.id]);
 
   const fetchData = async () => {
     try {
@@ -102,75 +115,148 @@ export default function PayrollPage() {
       if (!businessId) return;
 
       const [payrollRes, employeeRes] = await Promise.all([
-        api.get('/payroll', { params: { businessId } }),
-        api.get('/employees?status=ACTIVE') // Assuming endpoint exists or filters work
+        api.get("/payroll", { params: { businessId } }),
+        api.get("/employees", {
+          params: { status: "ACTIVE" },
+          headers: { "x-business-id": businessId },
+        }), // Assuming endpoint exists or filters work
       ]);
 
       setPayrolls(payrollRes.data);
-      setEmployees(employeeRes.data);
+      setEmployees(
+        employeeRes.data
+          .filter(
+            (e: any) => !["SUPER_ADMIN", "BUSINESS_ADMIN"].includes(e.role),
+          )
+          .map((e: any) => ({
+            ...e,
+            payType: e.w2Profile?.payType || e.payType,
+            paySchedule: e.w2Profile?.paySchedule || e.paySchedule,
+            hourlyRate:
+              e.workerType === "CONTRACTOR_1099"
+                ? (e.contractorProfile?.rate ?? e.hourlyRate)
+                : e.w2Profile?.payType === "HOURLY"
+                  ? e.w2Profile.rate
+                  : e.hourlyRate,
+            salary: ["SALARY", "SALARIED"].includes(e.w2Profile?.payType)
+              ? e.w2Profile.rate
+              : e.salary,
+          })),
+      );
 
       // Calculate Stats
-      const processed = payrollRes.data.filter((p: Payroll) => p.status === 'PROCESSED' || p.status === 'PAID');
-      const totalCost = processed.reduce((acc: number, p: Payroll) => acc + (p.totalGross + p.totalEmployerTaxes), 0);
-      
+      const processed = payrollRes.data
+        .filter((p: Payroll) => p.status === "PAID")
+        .sort(
+          (a: Payroll, b: Payroll) =>
+            +new Date(b.payDate) - +new Date(a.payDate),
+        );
+      const thisYear = processed.filter(
+        (p: Payroll) =>
+          new Date(p.payDate).getUTCFullYear() === new Date().getFullYear(),
+      );
+      const totalCost = thisYear.reduce(
+        (acc: number, p: Payroll) =>
+          acc +
+          (p.totalNet +
+            p.totalEmployeeTaxes +
+            p.totalEmployerTaxes +
+            (p.totalDeductions || 0)),
+        0,
+      );
+
       const lastRun = processed.length > 0 ? processed[0] : null;
-      
+
       setStats({
         ytdCost: totalCost,
-        lastPayDate: lastRun ? formatDate(lastRun.payDate, selectedBusiness?.country) : '-',
+        lastPayDate: lastRun
+          ? formatDate(lastRun.payDate, selectedBusiness?.country)
+          : "-",
         activeEmployees: employeeRes.data.length,
-        nextPayDate: 'Dec 29, 2024' // Mock for now, normally calculated from schedule
+        nextPayDate: payrollRes.data
+          .filter(
+            (p: Payroll) =>
+              p.status === "DRAFT" &&
+              +new Date(p.payDate) >=
+                +new Date(new Date().toISOString().slice(0, 10)),
+          )
+          .sort(
+            (a: Payroll, b: Payroll) =>
+              +new Date(a.payDate) - +new Date(b.payDate),
+          )[0]?.payDate
+          ? formatDate(
+              payrollRes.data
+                .filter(
+                  (p: Payroll) =>
+                    p.status === "DRAFT" &&
+                    +new Date(p.payDate) >=
+                      +new Date(new Date().toISOString().slice(0, 10)),
+                )
+                .sort(
+                  (a: Payroll, b: Payroll) =>
+                    +new Date(a.payDate) - +new Date(b.payDate),
+                )[0].payDate,
+              selectedBusiness?.country,
+            )
+          : "No draft scheduled",
       });
-
     } catch (error) {
-      console.error('Failed to fetch payroll data', error);
-      // toast.error('Failed to load payroll data'); 
+      console.error("Failed to fetch payroll data", error);
+      toast.error("Failed to load payroll data. Please try again.");
+      setPayrolls([]);
+      setEmployees([]);
     } finally {
       setLoading(false);
     }
   };
 
   const getBusinessId = () => {
-    if (typeof window === 'undefined') return null;
-    const stored = localStorage.getItem('selectedBusiness');
-    return stored ? JSON.parse(stored).id : null;
+    return selectedBusiness?.id || null;
   };
 
   const handleContinuePayroll = (payroll: Payroll) => {
     setResumingPayroll(payroll);
-    setActiveTab('run');
+    setActiveTab("run");
   };
 
   const handleDeletePayroll = async (payroll: Payroll) => {
-    if (!confirm('Are you sure you want to delete this draft payroll? This action cannot be undone.')) return;
-    
+    if (
+      !confirm(
+        "Are you sure you want to delete this draft payroll? This action cannot be undone.",
+      )
+    )
+      return;
+
     try {
-        setLoading(true);
-        await api.delete(`/payroll/${payroll.id}`);
-        toast.success('Draft payroll deleted');
-        fetchData();
+      setLoading(true);
+      await api.delete(`/payroll/${payroll.id}`);
+      toast.success("Draft payroll deleted");
+      fetchData();
     } catch (error) {
-        console.error('Failed to delete payroll', error);
-        toast.error('Failed to delete payroll');
-        setLoading(false);
+      console.error("Failed to delete payroll", error);
+      toast.error("Failed to delete payroll");
+      setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6 p-6 w-full">
+    <div className="space-y-6 p-4 sm:p-6 pb-24 sm:pb-24 w-full min-w-0 max-w-[1600px] mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Payroll</h1>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+            Payroll
+          </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Washington DC • {stats.activeEmployees} Active Workers
+            {selectedBusiness?.name || "Your business"} · United States ·{" "}
+            {stats.activeEmployees} active workers
           </p>
         </div>
-        <div className="flex gap-3">
-           <button 
+        <div className="flex flex-wrap gap-3">
+          <button
             onClick={() => {
               setResumingPayroll(null);
-              setActiveTab('run');
+              setActiveTab("run");
             }}
             className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg font-medium shadow-sm transition-all active:scale-95"
           >
@@ -180,30 +266,55 @@ export default function PayrollPage() {
         </div>
       </div>
 
+      <div className="rounded-2xl bg-slate-900 text-white p-5 sm:p-6 flex flex-col sm:flex-row justify-between gap-4">
+        <div>
+          <p className="text-teal-300 text-xs font-semibold tracking-widest uppercase">
+            Payroll control center
+          </p>
+          <h2 className="text-lg font-semibold mt-2">
+            A clear view of every dollar.
+          </h2>
+          <p className="text-sm text-slate-300 mt-1">
+            Review earnings, employee deductions and employer contributions
+            before approving a run.
+          </p>
+        </div>
+        <button
+          onClick={() => setActiveTab("setup")}
+          className="self-start sm:self-center bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-4 py-2.5 text-sm font-medium"
+        >
+          Manage tax rules →
+        </button>
+      </div>
       {/* Tabs */}
       <div className="border-b border-slate-200 dark:border-slate-700">
-        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+        <nav className="-mb-px flex gap-6 overflow-x-auto" aria-label="Tabs">
           {[
-            { id: 'overview', name: 'Overview', icon: DollarSign },
-            { id: 'run', name: 'Run Payroll', icon: Play },
-            { id: 'history', name: 'History', icon: FileText },
-            { id: 'employees', name: 'Employees', icon: Users },
-            { id: 'filings', name: 'Tax & Filings', icon: CheckCircle2 },
+            { id: "overview", name: "Overview", icon: DollarSign },
+            { id: "run", name: "Run Payroll", icon: Play },
+            { id: "history", name: "History", icon: FileText },
+            { id: "employees", name: "Employees", icon: Users },
+            { id: "filings", name: "Tax reports", icon: FileText },
+            { id: "setup", name: "Tax setup", icon: Settings },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={`
-                group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm
-                ${activeTab === tab.id
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300'}
+                group inline-flex items-center whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm
+                ${
+                  activeTab === tab.id
+                    ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                    : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-300"
+                }
               `}
             >
-              <tab.icon className={`
+              <tab.icon
+                className={`
                 -ml-0.5 mr-2 h-5 w-5
-                ${activeTab === tab.id ? 'text-indigo-500 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-500'}
-              `} />
+                ${activeTab === tab.id ? "text-indigo-500 dark:text-indigo-400" : "text-slate-400 group-hover:text-slate-500"}
+              `}
+              />
               {tab.name}
             </button>
           ))}
@@ -212,33 +323,36 @@ export default function PayrollPage() {
 
       {/* Content */}
       <div className="min-h-[400px]">
-        {activeTab === 'overview' && (
+        {activeTab === "overview" && (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <StatCard 
-                title="Total Cost (YTD)" 
-                value={formatCurrency(stats.ytdCost, selectedBusiness?.currencyCode)}
+              <StatCard
+                title="Total Cost (YTD)"
+                value={formatCurrency(
+                  stats.ytdCost,
+                  selectedBusiness?.currencyCode,
+                )}
                 icon={DollarSign}
                 bgClass="bg-green-50 dark:bg-green-900/20"
                 colorClass="text-green-600 dark:text-green-400"
               />
-              <StatCard 
-                title="Next Pay Date" 
+              <StatCard
+                title="Next Pay Date"
                 value={stats.nextPayDate}
                 icon={Calendar}
                 bgClass="bg-blue-50 dark:bg-blue-900/20"
                 colorClass="text-blue-600 dark:text-blue-400"
               />
-               <StatCard 
-                title="Active Workers" 
+              <StatCard
+                title="Active Workers"
                 value={stats.activeEmployees}
                 icon={Users}
                 bgClass="bg-purple-50 dark:bg-purple-900/20"
                 colorClass="text-purple-600 dark:text-purple-400"
               />
-               <StatCard 
-                title="Tax Status (DC)" 
-                value="Compliant"
+              <StatCard
+                title="Tax calculation mode"
+                value="Manual rules"
                 icon={CheckCircle2}
                 bgClass="bg-indigo-50 dark:bg-indigo-900/20"
                 colorClass="text-indigo-600 dark:text-indigo-400"
@@ -248,49 +362,57 @@ export default function PayrollPage() {
             {/* Recent Payrolls */}
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
               <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
-                <h3 className="font-semibold text-slate-900 dark:text-white">Recent Payroll Runs</h3>
-                <button onClick={() => setActiveTab('history')} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">View All</button>
+                <h3 className="font-semibold text-slate-900 dark:text-white">
+                  Recent Payroll Runs
+                </h3>
+                <button
+                  onClick={() => setActiveTab("history")}
+                  className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                >
+                  View All
+                </button>
               </div>
-              <PayrollTable 
-                payrolls={payrolls.slice(0, 5)} 
-                onContinue={handleContinuePayroll} 
-                onDelete={handleDeletePayroll} 
+              <PayrollTable
+                payrolls={payrolls.slice(0, 5)}
+                onContinue={handleContinuePayroll}
+                onDelete={handleDeletePayroll}
                 onView={(p) => setViewingPayrollId(p.id)}
               />
             </div>
           </div>
         )}
 
-        {activeTab === 'run' && (
-          <RunPayrollWizard 
-            employees={employees} 
+        {activeTab === "run" && (
+          <RunPayrollWizard
+            key={`${selectedBusiness?.id || "none"}:${resumingPayroll?.id || "new"}`}
+            employees={employees}
             initialPayroll={resumingPayroll}
             onSuccess={() => {
               fetchData();
-              setActiveTab('history');
+              setActiveTab("history");
               setResumingPayroll(null);
-            }} 
+            }}
           />
         )}
 
-        {activeTab === 'history' && (
+        {activeTab === "history" && (
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 animate-in fade-in duration-300">
-            <PayrollTable 
-              payrolls={payrolls} 
-              onContinue={handleContinuePayroll} 
-              onDelete={handleDeletePayroll} 
+            <PayrollTable
+              payrolls={payrolls}
+              onContinue={handleContinuePayroll}
+              onDelete={handleDeletePayroll}
               onView={(p) => setViewingPayrollId(p.id)}
             />
           </div>
         )}
 
-        {activeTab === 'employees' && (
+        {activeTab === "employees" && (
           <EmployeePayrollList employees={employees} />
         )}
 
-        {activeTab === 'filings' && (
-          <TaxFilingsTab />
-        )}
+        {activeTab === "setup" && <TaxSetup />}
+
+        {activeTab === "filings" && <TaxFilingsTab />}
       </div>
 
       {/* Payroll Details Modal */}
@@ -311,145 +433,211 @@ function TaxFilingsTab() {
   const [loading, setLoading] = useState(false);
 
   const getBusinessId = () => {
-    if (typeof window === 'undefined') return null;
-    const stored = localStorage.getItem('selectedBusiness');
-    return stored ? JSON.parse(stored).id : null;
+    return selectedBusiness?.id || null;
   };
 
   useEffect(() => {
     fetchFilings();
-  }, [year]);
+  }, [year, selectedBusiness?.id]);
 
   const fetchFilings = async () => {
     try {
       setLoading(true);
       const businessId = getBusinessId();
       if (!businessId) return;
-      
-      const res = await api.get(`/payroll/report/year-end?businessId=${businessId}&year=${year}`);
+
+      const res = await api.get(
+        `/payroll/report/year-end?businessId=${businessId}&year=${year}`,
+      );
       setData(res.data);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to fetch tax filings');
+      toast.error("Failed to fetch tax filings");
     } finally {
       setLoading(false);
     }
   };
 
-  const downloadCSV = (type: 'w2' | '1099') => {
+  const downloadCSV = (type: "w2" | "1099") => {
     if (!data) return;
-    const items = type === 'w2' ? data.w2s : data.nec1099s;
+    const items = type === "w2" ? data.w2s : data.nec1099s;
     if (!items || items.length === 0) {
-        toast.info('No data to export');
-        return;
+      toast.info("No data to export");
+      return;
     }
-    
-    // Flatten and get headers
-    const headers = Object.keys(items[0]);
-    const csvContent = [
-        headers.join(','),
-        ...items.map((row: any) => headers.map(fieldName => JSON.stringify(row[fieldName] || '')).join(','))
-    ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${type}_${year}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const headers = Object.keys(items[0]);
+    downloadCsv(
+      [
+        headers,
+        ...items.map((row: any) =>
+          headers.map((k) =>
+            typeof row[k] === "object" ? JSON.stringify(row[k]) : row[k],
+          ),
+        ),
+      ],
+      `${type}_${year}.csv`,
+    );
   };
 
-  if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin" /></div>;
+  if (loading)
+    return (
+      <div className="flex justify-center p-12">
+        <Loader2 className="animate-spin" />
+      </div>
+    );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Year-End Tax Forms</h2>
-          <p className="text-sm text-slate-500">Generate W-2 and 1099-NEC forms for your employees and contractors.</p>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+            Year-end payroll summaries
+          </h2>
+          <p className="text-sm text-slate-500">
+            Export payroll summaries for W-2 and 1099-NEC preparation. These
+            exports are not filed tax forms.
+          </p>
         </div>
         <div className="flex items-center space-x-4">
-           <select 
-             value={year} 
-             onChange={(e) => setYear(Number(e.target.value))}
-             className="form-select rounded-lg border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
-           >
-             {[2023, 2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}
-           </select>
+          <select
+            value={year}
+            onChange={(e) => setYear(Number(e.target.value))}
+            className="form-select rounded-lg border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+          >
+            {Array.from(
+              { length: 3 },
+              (_, i) => new Date().getFullYear() - i,
+            ).map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
       {/* W-2 Section */}
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
-            <h3 className="font-medium text-slate-900 dark:text-white">Form W-2 (Employees)</h3>
-            <button onClick={() => downloadCSV('w2')} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center">
-                <Download size={16} className="mr-1"/> Export CSV
-            </button>
+          <h3 className="font-medium text-slate-900 dark:text-white">
+            Form W-2 (Employees)
+          </h3>
+          <button
+            onClick={() => downloadCSV("w2")}
+            className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center"
+          >
+            <Download size={16} className="mr-1" /> Export CSV
+          </button>
         </div>
         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-700/50">
-                    <tr>
-                        <th className="px-6 py-3">Employee</th>
-                        <th className="px-6 py-3">SSN</th>
-                        <th className="px-6 py-3 text-right">Wages (Box 1)</th>
-                        <th className="px-6 py-3 text-right">Fed Tax (Box 2)</th>
-                        <th className="px-6 py-3 text-right">State Tax (Box 17)</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                    {data?.w2s.map((w2: any) => (
-                        <tr key={w2.employeeId}>
-                            <td className="px-6 py-4 font-medium">{w2.name}</td>
-                            <td className="px-6 py-4 text-slate-500">***-**-{w2.ssn?.slice(-4) || '****'}</td>
-                            <td className="px-6 py-4 text-right">{formatCurrency(w2.wages, selectedBusiness?.currencyCode)}</td>
-                            <td className="px-6 py-4 text-right">{formatCurrency(w2.fedIncomeTax, selectedBusiness?.currencyCode)}</td>
-                            <td className="px-6 py-4 text-right">{formatCurrency(w2.stateIncomeTax, selectedBusiness?.currencyCode)}</td>
-                        </tr>
-                    ))}
-                    {(!data?.w2s || data.w2s.length === 0) && (
-                        <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">No W-2 data found for this year.</td></tr>
+          <table className="w-full text-sm text-left">
+            <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-700/50">
+              <tr>
+                <th className="px-6 py-3">Employee</th>
+                <th className="px-6 py-3">SSN</th>
+                <th className="px-6 py-3 text-right">Wages (Box 1)</th>
+                <th className="px-6 py-3 text-right">Fed Tax (Box 2)</th>
+                <th className="px-6 py-3 text-right">State Tax (Box 17)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {data?.w2s.map((w2: any) => (
+                <tr key={w2.employeeId}>
+                  <td className="px-6 py-4 font-medium">{w2.name}</td>
+                  <td className="px-6 py-4 text-slate-500">
+                    ***-**-{w2.ssn?.slice(-4) || "****"}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {formatCurrency(w2.wages, selectedBusiness?.currencyCode)}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {formatCurrency(
+                      w2.fedIncomeTax,
+                      selectedBusiness?.currencyCode,
                     )}
-                </tbody>
-            </table>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {formatCurrency(
+                      w2.stateIncomeTax,
+                      selectedBusiness?.currencyCode,
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {(!data?.w2s || data.w2s.length === 0) && (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-6 py-8 text-center text-slate-500"
+                  >
+                    No W-2 data found for this year.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
       {/* 1099-NEC Section */}
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
-            <h3 className="font-medium text-slate-900 dark:text-white">Form 1099-NEC (Contractors)</h3>
-             <button onClick={() => downloadCSV('1099')} className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center">
-                <Download size={16} className="mr-1"/> Export CSV
-            </button>
+          <h3 className="font-medium text-slate-900 dark:text-white">
+            Form 1099-NEC (Contractors)
+          </h3>
+          <button
+            onClick={() => downloadCSV("1099")}
+            className="text-sm text-indigo-600 hover:text-indigo-700 font-medium flex items-center"
+          >
+            <Download size={16} className="mr-1" /> Export CSV
+          </button>
         </div>
         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-700/50">
-                    <tr>
-                        <th className="px-6 py-3">Contractor</th>
-                        <th className="px-6 py-3">TIN</th>
-                        <th className="px-6 py-3 text-right">Nonemployee Comp (Box 1)</th>
-                        <th className="px-6 py-3 text-right">State Tax</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                     {data?.nec1099s.map((nec: any) => (
-                        <tr key={nec.contractorId}>
-                            <td className="px-6 py-4 font-medium">{nec.name}</td>
-                            <td className="px-6 py-4 text-slate-500">***-**-{nec.tin?.slice(-4) || '****'}</td>
-                            <td className="px-6 py-4 text-right">{formatCurrency(nec.nonemployeeCompensation, selectedBusiness?.currencyCode)}</td>
-                            <td className="px-6 py-4 text-right">{formatCurrency(nec.stateTaxWithheld, selectedBusiness?.currencyCode)}</td>
-                        </tr>
-                    ))}
-                     {(!data?.nec1099s || data.nec1099s.length === 0) && (
-                        <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-500">No 1099-NEC data found for this year.</td></tr>
+          <table className="w-full text-sm text-left">
+            <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-700/50">
+              <tr>
+                <th className="px-6 py-3">Contractor</th>
+                <th className="px-6 py-3">TIN</th>
+                <th className="px-6 py-3 text-right">
+                  Nonemployee Comp (Box 1)
+                </th>
+                <th className="px-6 py-3 text-right">State Tax</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {data?.nec1099s.map((nec: any) => (
+                <tr key={nec.contractorId}>
+                  <td className="px-6 py-4 font-medium">{nec.name}</td>
+                  <td className="px-6 py-4 text-slate-500">
+                    ***-**-{nec.tin?.slice(-4) || "****"}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {formatCurrency(
+                      nec.nonemployeeCompensation,
+                      selectedBusiness?.currencyCode,
                     )}
-                </tbody>
-            </table>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {formatCurrency(
+                      nec.stateTaxWithheld,
+                      selectedBusiness?.currencyCode,
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {(!data?.nec1099s || data.nec1099s.length === 0) && (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-6 py-8 text-center text-slate-500"
+                  >
+                    No 1099-NEC data found for this year.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -458,7 +646,17 @@ function TaxFilingsTab() {
 
 // --- Sub-Components ---
 
-function PayrollTable({ payrolls, onContinue, onDelete, onView }: { payrolls: Payroll[], onContinue?: (payroll: Payroll) => void, onDelete?: (payroll: Payroll) => void, onView?: (payroll: Payroll) => void }) {
+function PayrollTable({
+  payrolls,
+  onContinue,
+  onDelete,
+  onView,
+}: {
+  payrolls: Payroll[];
+  onContinue?: (payroll: Payroll) => void;
+  onDelete?: (payroll: Payroll) => void;
+  onView?: (payroll: Payroll) => void;
+}) {
   const { selectedBusiness } = useBusiness();
   const [downloading, setDownloading] = useState<string | null>(null);
 
@@ -467,10 +665,10 @@ function PayrollTable({ payrolls, onContinue, onDelete, onView }: { payrolls: Pa
       setDownloading(payrollId);
       const res = await api.get(`/payroll/${payrollId}`);
       await generatePayslip(res.data, selectedBusiness);
-      toast.success('Payslips downloaded successfully');
+      toast.success("Payslips downloaded successfully");
     } catch (error) {
       console.error(error);
-      toast.error('Failed to download payslips');
+      toast.error("Failed to download payslips");
     } finally {
       setDownloading(null);
     }
@@ -499,44 +697,57 @@ function PayrollTable({ payrolls, onContinue, onDelete, onView }: { payrolls: Pa
         </thead>
         <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
           {payrolls.map((p) => (
-            <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+            <tr
+              key={p.id}
+              className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors"
+            >
               <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                 {formatDate(p.payDate, selectedBusiness?.country)}
               </td>
               <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
-                {formatDate(p.periodStart, selectedBusiness?.country, { month: 'short', day: 'numeric' })} - {formatDate(p.periodEnd, selectedBusiness?.country)}
+                {formatDate(p.periodStart, selectedBusiness?.country, {
+                  month: "short",
+                  day: "numeric",
+                })}{" "}
+                - {formatDate(p.periodEnd, selectedBusiness?.country)}
               </td>
               <td className="px-6 py-4 text-slate-500 dark:text-slate-400 capitalize">
-                {p.type?.toLowerCase() || 'Regular'}
+                {p.type?.toLowerCase() || "Regular"}
               </td>
               <td className="px-6 py-4">
-                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize
-                  ${p.status === 'PROCESSED' || p.status === 'PAID'
-                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
-                    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize
+                  ${
+                    p.status === "PROCESSED" || p.status === "PAID"
+                      ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
                   }`}
                 >
                   {p.status.toLowerCase()}
                 </span>
               </td>
               <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
-                {formatCurrency((p.totalGross || 0) + (p.totalEmployerTaxes || 0), selectedBusiness?.currencyCode)}
+                {formatCurrency(
+                  (p.totalGross || 0) + (p.totalEmployerTaxes || 0),
+                  selectedBusiness?.currencyCode,
+                )}
               </td>
               <td className="px-6 py-4 text-right">
-                {(p.status === 'DRAFT' || p.status === 'PROCESSED') && onContinue ? (
+                {(p.status === "DRAFT" || p.status === "PROCESSED") &&
+                onContinue ? (
                   <div className="flex items-center justify-end gap-2">
-                    <button 
-                        onClick={() => onDelete?.(p)}
-                        className="text-slate-400 hover:text-red-600 p-1"
-                        title="Delete Draft"
+                    <button
+                      onClick={() => onDelete?.(p)}
+                      className="text-slate-400 hover:text-red-600 p-1"
+                      title="Delete Draft"
                     >
-                        <Trash2 size={16} />
+                      <Trash2 size={16} />
                     </button>
-                    <button 
-                        onClick={() => onContinue(p)}
-                        className="text-indigo-600 hover:text-indigo-700 font-medium text-sm flex items-center"
+                    <button
+                      onClick={() => onContinue(p)}
+                      className="text-indigo-600 hover:text-indigo-700 font-medium text-sm flex items-center"
                     >
-                        Continue <ChevronRight size={16} className="ml-1" />
+                      Continue <ChevronRight size={16} className="ml-1" />
                     </button>
                   </div>
                 ) : (
@@ -550,13 +761,17 @@ function PayrollTable({ payrolls, onContinue, onDelete, onView }: { payrolls: Pa
                         <Eye size={18} />
                       </button>
                     )}
-                    <button 
+                    <button
                       onClick={() => handleDownload(p.id)}
                       disabled={downloading === p.id}
                       className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 disabled:opacity-50"
                       title="Download PDF"
                     >
-                      {downloading === p.id ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                      {downloading === p.id ? (
+                        <Loader2 size={18} className="animate-spin" />
+                      ) : (
+                        <Download size={18} />
+                      )}
                     </button>
                   </div>
                 )}
@@ -569,17 +784,25 @@ function PayrollTable({ payrolls, onContinue, onDelete, onView }: { payrolls: Pa
   );
 }
 
-function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees: Employee[], onSuccess: () => void, initialPayroll?: Payroll | null }) {
+function RunPayrollWizard({
+  employees,
+  onSuccess,
+  initialPayroll,
+}: {
+  employees: Employee[];
+  onSuccess: () => void;
+  initialPayroll?: Payroll | null;
+}) {
   const { selectedBusiness } = useBusiness();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
-    schedule: 'BI_WEEKLY',
-    periodStart: '',
-    periodEnd: '',
-    payDate: '',
-    type: 'REGULAR'
+    schedule: "BI_WEEKLY",
+    periodStart: "",
+    periodEnd: "",
+    payDate: "",
+    type: "REGULAR",
   });
   const [previewData, setPreviewData] = useState<any>(null);
   const [inputData, setInputData] = useState<any[]>([]);
@@ -587,11 +810,17 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
   useEffect(() => {
     if (initialPayroll) {
       setFormData({
-        schedule: 'BI_WEEKLY', // or derive if possible, but payroll object doesn't have it directly usually
-        periodStart: initialPayroll.periodStart.split('T')[0], // Ensure format YYYY-MM-DD
-        periodEnd: initialPayroll.periodEnd.split('T')[0],
-        payDate: initialPayroll.payDate.split('T')[0],
-        type: initialPayroll.type || 'REGULAR'
+        schedule: initialPayroll.paySchedule || "BI_WEEKLY",
+        periodStart: payrollCalendarDate(
+          initialPayroll.periodStart,
+          initialPayroll.calendarTimeZone,
+        ), // Ensure format YYYY-MM-DD
+        periodEnd: payrollCalendarDate(
+          initialPayroll.periodEnd,
+          initialPayroll.calendarTimeZone,
+        ),
+        payDate: initialPayroll.payDate.split("T")[0],
+        type: initialPayroll.type || "REGULAR",
       });
       loadDraft(initialPayroll.id);
     }
@@ -599,95 +828,31 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
 
   const loadDraft = async (payrollId: string) => {
     if (!payrollId) {
-      console.error('loadDraft called with missing payrollId');
-      toast.error('Invalid payroll ID');
+      console.error("loadDraft called with missing payrollId");
+      toast.error("Invalid payroll ID");
       return;
     }
-    console.log('Loading draft for payrollId:', payrollId);
-    
+    console.log("Loading draft for payrollId:", payrollId);
+
     setLoading(true);
     try {
       // 2. Fetch existing payroll data (do NOT recalculate)
       const res = await api.get(`/payroll/${payrollId}`);
       const payrollData = res.data;
-      
+
       setPreviewData(payrollData);
-      
+
       // Initialize Input Data from PayStubs
       if (payrollData.payStubs) {
-          setInputData(payrollData.payStubs.map((stub: any) => {
-              const details = stub.deductionDetails ? JSON.parse(stub.deductionDetails) : {};
-              const taxDetails = stub.taxDetails ? JSON.parse(stub.taxDetails) : {};
-              return {
-                  id: stub.id,
-                  employeeId: stub.employeeId,
-                  workerType: stub.workerType, // Add workerType
-                  regularHours: stub.regularHours || 0,
-                  overtimeHours: stub.overtimeHours || 0,
-                  bonus: stub.bonus || 0,
-                  commission: stub.commission || 0,
-                  reimbursement: stub.reimbursement || 0,
-                  deductions: stub.deductions || 0,
-                  isManualDeduction: !!details.manualOverride,
-                  federalTax: taxDetails.federalTax || 0,
-                  socialSecurity: taxDetails.socialSecurity || 0,
-                  medicare: taxDetails.medicare || 0,
-                  stateTax: taxDetails.stateTax || 0,
-                  isManualTax: !!taxDetails.manualOverride
-              };
-          }));
-      }
-      
-      setStep(2);
-    } catch (error: any) {
-      console.error('Load Draft Error:', error);
-      if (error.response?.data) {
-          console.error('Error Details:', error.response.data);
-      }
-      let msg = error.response?.data?.message;
-      if (Array.isArray(msg)) msg = msg.join(', ');
-      toast.error(msg || 'Failed to load payroll draft');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getBusinessId = () => {
-    if (typeof window === 'undefined') return null;
-    const stored = localStorage.getItem('selectedBusiness');
-    return stored ? JSON.parse(stored).id : null;
-  };
-
-  const handleCalculate = async () => {
-    setLoading(true);
-    try {
-      const businessId = getBusinessId();
-      if (!businessId) {
-          toast.error('No business selected');
-          return;
-      }
-
-      // 1. Create Draft
-      const createRes = await api.post('/payroll/create', {
-        businessId,
-        periodStart: new Date(formData.periodStart).toISOString(),
-        periodEnd: new Date(formData.periodEnd).toISOString(),
-        payDate: new Date(formData.payDate).toISOString(),
-        type: formData.type
-      });
-      
-      const payrollId = createRes.data.id;
-
-      // 2. Calculate (Initialize)
-      const calcRes = await api.post(`/payroll/${payrollId}/calculate`);
-      
-      setPreviewData(calcRes.data);
-      
-      // Initialize Input Data
-      setInputData(calcRes.data.payStubs.map((stub: any) => {
-          const details = stub.deductionDetails ? JSON.parse(stub.deductionDetails) : {};
-          const taxDetails = stub.taxDetails ? JSON.parse(stub.taxDetails) : {};
-          return {
+        setInputData(
+          payrollData.payStubs.map((stub: any) => {
+            const details = stub.deductionDetails
+              ? JSON.parse(stub.deductionDetails)
+              : {};
+            const taxDetails = stub.taxDetails
+              ? JSON.parse(stub.taxDetails)
+              : {};
+            return {
               id: stub.id,
               employeeId: stub.employeeId,
               workerType: stub.workerType, // Add workerType
@@ -701,44 +866,75 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
               federalTax: taxDetails.federalTax || 0,
               socialSecurity: taxDetails.socialSecurity || 0,
               medicare: taxDetails.medicare || 0,
+              additionalMedicare: taxDetails.additionalMedicare || 0,
               stateTax: taxDetails.stateTax || 0,
-              isManualTax: !!taxDetails.manualOverride
-          };
-      }));
-      
+              isManualTax: !!taxDetails.manualOverride,
+            };
+          }),
+        );
+      }
+
       setStep(2);
-
     } catch (error: any) {
-      console.error('Calculate Error:', error);
+      console.error("Load Draft Error:", error);
       if (error.response?.data) {
-          console.error('Error Details:', error.response.data);
+        console.error("Error Details:", error.response.data);
       }
-      
       let msg = error.response?.data?.message;
-      if (Array.isArray(msg)) msg = msg.join(', ');
-      
-      // Handle specific backend errors
-      if (msg && msg.includes('already exists')) {
-          msg = 'A payroll run for this period already exists. Please check Drafts or History.';
-      }
-
-      toast.error(msg || 'Failed to create payroll draft');
+      if (Array.isArray(msg)) msg = msg.join(", ");
+      toast.error(msg || "Failed to load payroll draft");
     } finally {
       setLoading(false);
     }
   };
-  
-  const handleRecalculate = async () => {
-    if (!confirm('This will reset all manual changes and recalculate based on approved timesheets. Continue?')) return;
-    
+
+  const getBusinessId = () => {
+    return selectedBusiness?.id || null;
+  };
+
+  const handleCalculate = async () => {
     setLoading(true);
     try {
-        if (!previewData?.id) return;
-        
-        const calcRes = await api.post(`/payroll/${previewData.id}/calculate`);
-        setPreviewData(calcRes.data);
-        
-        setInputData(calcRes.data.payStubs.map((stub: any) => ({
+      const businessId = getBusinessId();
+      if (!businessId) {
+        toast.error("No business selected");
+        return;
+      }
+
+      if (
+        formData.periodStart > formData.periodEnd ||
+        formData.payDate < formData.periodEnd
+      ) {
+        toast.error(
+          "Choose a valid pay period and a pay date on or after its end.",
+        );
+        return;
+      }
+      // 1. Create Draft
+      const createRes = await api.post("/payroll/create", {
+        businessId,
+        periodStart: new Date(formData.periodStart).toISOString(),
+        periodEnd: new Date(formData.periodEnd).toISOString(),
+        payDate: new Date(formData.payDate).toISOString(),
+        type: formData.type,
+        paySchedule: formData.schedule,
+      });
+
+      const payrollId = createRes.data.id;
+
+      // 2. Calculate (Initialize)
+      const calcRes = await api.post(`/payroll/${payrollId}/calculate`);
+
+      setPreviewData(calcRes.data);
+
+      // Initialize Input Data
+      setInputData(
+        calcRes.data.payStubs.map((stub: any) => {
+          const details = stub.deductionDetails
+            ? JSON.parse(stub.deductionDetails)
+            : {};
+          const taxDetails = stub.taxDetails ? JSON.parse(stub.taxDetails) : {};
+          return {
             id: stub.id,
             employeeId: stub.employeeId,
             workerType: stub.workerType, // Add workerType
@@ -748,132 +944,193 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
             commission: stub.commission || 0,
             reimbursement: stub.reimbursement || 0,
             deductions: stub.deductions || 0,
-        })));
-        
-        toast.success('Payroll recalculated from timesheets');
+            isManualDeduction: !!details.manualOverride,
+            federalTax: taxDetails.federalTax || 0,
+            socialSecurity: taxDetails.socialSecurity || 0,
+            medicare: taxDetails.medicare || 0,
+            additionalMedicare: taxDetails.additionalMedicare || 0,
+            stateTax: taxDetails.stateTax || 0,
+            isManualTax: !!taxDetails.manualOverride,
+          };
+        }),
+      );
+
+      setStep(2);
     } catch (error: any) {
-        console.error('Recalculate Error:', error);
-        if (error.response?.data) {
-            console.error('Error Details:', error.response.data);
-        }
-        let msg = error.response?.data?.message;
-        if (Array.isArray(msg)) msg = msg.join(', ');
-        toast.error(msg || 'Failed to recalculate payroll');
+      console.error("Calculate Error:", error);
+      if (error.response?.data) {
+        console.error("Error Details:", error.response.data);
+      }
+
+      let msg = error.response?.data?.message;
+      if (Array.isArray(msg)) msg = msg.join(", ");
+
+      // Handle specific backend errors
+      if (msg && msg.includes("already exists")) {
+        msg =
+          "A payroll run for this period already exists. Please check Drafts or History.";
+      }
+
+      toast.error(msg || "Failed to create payroll draft");
     } finally {
-        setLoading(false);
+      setLoading(false);
+    }
+  };
+
+  const handleRecalculate = async () => {
+    if (
+      !confirm(
+        "This will reset all manual changes and recalculate based on approved timesheets. Continue?",
+      )
+    )
+      return;
+
+    setLoading(true);
+    try {
+      if (!previewData?.id) return;
+
+      const calcRes = await api.post(`/payroll/${previewData.id}/calculate`);
+      setPreviewData(calcRes.data);
+
+      setInputData(
+        calcRes.data.payStubs.map((stub: any) => ({
+          id: stub.id,
+          employeeId: stub.employeeId,
+          workerType: stub.workerType, // Add workerType
+          regularHours: stub.regularHours || 0,
+          overtimeHours: stub.overtimeHours || 0,
+          bonus: stub.bonus || 0,
+          commission: stub.commission || 0,
+          reimbursement: stub.reimbursement || 0,
+          deductions: stub.deductions || 0,
+          federalTax: JSON.parse(stub.taxDetails || "{}").federalTax || 0,
+          socialSecurity:
+            JSON.parse(stub.taxDetails || "{}").socialSecurity || 0,
+          medicare: JSON.parse(stub.taxDetails || "{}").medicare || 0,
+          additionalMedicare:
+            JSON.parse(stub.taxDetails || "{}").additionalMedicare || 0,
+          stateTax: JSON.parse(stub.taxDetails || "{}").stateTax || 0,
+        })),
+      );
+
+      toast.success("Payroll recalculated from timesheets");
+    } catch (error: any) {
+      console.error("Recalculate Error:", error);
+      if (error.response?.data) {
+        console.error("Error Details:", error.response.data);
+      }
+      let msg = error.response?.data?.message;
+      if (Array.isArray(msg)) msg = msg.join(", ");
+      toast.error(msg || "Failed to recalculate payroll");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handlePreview = async () => {
-      setIsSaving(true);
-      try {
-          // Save inputs
-          const updates = inputData.map(input => {
-              const payload: any = {
-                  regularHours: Number(input.regularHours),
-                  overtimeHours: Number(input.overtimeHours),
-                  bonus: Number(input.bonus),
-                  commission: Number(input.commission),
-                  reimbursement: Number(input.reimbursement)
-              };
-              
-              if (input.isManualDeduction) {
-                  payload.deductions = Number(input.deductions);
-              }
-
-              if (input.isManualTax) {
-                  payload.federalTax = Number(input.federalTax);
-                  payload.socialSecurity = Number(input.socialSecurity);
-                  payload.medicare = Number(input.medicare);
-                  payload.stateTax = Number(input.stateTax);
-              }
-              
-              return api.patch(`/payroll/paystub/${input.id}`, payload);
-          });
-          
-          const responses = await Promise.all(updates);
-          const updatedStubs = responses.map(r => r.data);
-          
-          // Update previewData with new calculations
-          const totalGross = updatedStubs.reduce((acc, s) => acc + s.grossPay, 0);
-          const totalEmployerTaxes = updatedStubs.reduce((acc, s) => acc + s.employerTaxes, 0);
-          
-          setPreviewData({
-              ...previewData,
-              payStubs: updatedStubs,
-              totalGross,
-              totalEmployerTaxes
-          });
-          
-          setStep(3);
-          
-      } catch (err: any) {
-          console.error('Preview Error:', err);
-          if (err.response?.data) {
-              console.error('Error Details:', err.response.data);
-          }
-          let msg = err.response?.data?.message;
-          if (Array.isArray(msg)) msg = msg.join(', ');
-          toast.error(msg || 'Failed to update payroll inputs');
-      } finally {
-          setIsSaving(false);
+    setIsSaving(true);
+    try {
+      for (const input of inputData) {
+        const payload: any = {};
+        for (const key of [
+          "regularHours",
+          "overtimeHours",
+          "bonus",
+          "commission",
+          "reimbursement",
+        ]) {
+          const value = Number(input[key] ?? 0);
+          if (!Number.isFinite(value) || value < 0)
+            throw new Error("Enter non-negative hours and amounts.");
+          payload[key] = value;
+        }
+        if (input.isManualDeduction)
+          payload.deductions = Number(input.deductions);
+        await api.patch(`/payroll/paystub/${input.id}`, payload);
       }
+      const updated = await api.get(`/payroll/${previewData.id}`);
+      setPreviewData(updated.data);
+      setStep(3);
+    } catch (err: any) {
+      console.error("Preview Error:", err);
+      if (err.response?.data) {
+        console.error("Error Details:", err.response.data);
+      }
+      let msg = err.response?.data?.message;
+      if (Array.isArray(msg)) msg = msg.join(", ");
+      toast.error(msg || err.message || "Failed to update payroll inputs");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSubmit = async () => {
     // Approve and finalize
     setLoading(true);
     try {
-        if (!previewData?.id) return;
-        
-        await api.post(`/payroll/${previewData.id}/finalize`);
-        
-        toast.success('Payroll approved and finalized!');
-        onSuccess();
+      if (!previewData?.id) return;
+
+      await api.post(`/payroll/${previewData.id}/finalize`);
+
+      toast.success("Payroll approved and finalized!");
+      onSuccess();
     } catch (err: any) {
-        console.error('Submit Error:', err);
-        if (err.response?.data) {
-            console.error('Error Details:', err.response.data);
-        }
-        let msg = err.response?.data?.message;
-        if (Array.isArray(msg)) msg = msg.join(', ');
-        toast.error(msg || 'Failed to finalize payroll');
+      console.error("Submit Error:", err);
+      if (err.response?.data) {
+        console.error("Error Details:", err.response.data);
+      }
+      let msg = err.response?.data?.message;
+      if (Array.isArray(msg)) msg = msg.join(", ");
+      toast.error(msg || "Failed to finalize payroll");
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
   };
-  
+
   const handleInputChange = (id: string, field: string, value: string) => {
-      setInputData(prev => prev.map(item => {
-          if (item.id !== id) return item;
-          
-          const updates: any = { [field]: value };
-          
-          if (field === 'deductions') {
-              updates.isManualDeduction = true;
-          }
-          
-          if (['federalTax', 'socialSecurity', 'medicare', 'stateTax'].includes(field)) {
-              updates.isManualTax = true;
-          }
-          
-          return { ...item, ...updates };
-      }));
+    setInputData((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+
+        const updates: any = { [field]: value };
+
+        if (field === "deductions") {
+          updates.isManualDeduction = true;
+        }
+
+        if (
+          ["federalTax", "socialSecurity", "medicare", "stateTax"].includes(
+            field,
+          )
+        ) {
+          updates.isManualTax = true;
+        }
+
+        return { ...item, ...updates };
+      }),
+    );
   };
 
   if (step === 1) {
     // ... (Step 1 Form) ...
     return (
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-8 max-w-2xl mx-auto animate-in fade-in zoom-in-95 duration-200">
-        <h2 className="text-xl font-semibold mb-6">Run Payroll - Step 1: Period</h2>
+        <h2 className="text-xl font-semibold mb-6">
+          Run Payroll - Step 1: Period
+        </h2>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Pay Schedule</label>
-              <select 
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Pay Schedule
+              </label>
+              <select
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                aria-label="Pay Schedule"
                 value={formData.schedule}
-                onChange={(e) => setFormData({...formData, schedule: e.target.value})}
+                onChange={(e) =>
+                  setFormData({ ...formData, schedule: e.target.value })
+                }
               >
                 <option value="WEEKLY">Weekly</option>
                 <option value="BI_WEEKLY">Bi-Weekly</option>
@@ -882,57 +1139,80 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Run Type</label>
-              <select 
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Run Type
+              </label>
+              <select
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                aria-label="Run Type"
                 value={formData.type}
-                onChange={(e) => setFormData({...formData, type: e.target.value})}
+                onChange={(e) =>
+                  setFormData({ ...formData, type: e.target.value })
+                }
               >
                 <option value="REGULAR">Regular Payroll</option>
-                <option value="OFF_CYCLE">Off-Cycle</option>
-                <option value="BONUS">Bonus Run</option>
               </select>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Period Start</label>
-              <input 
-                type="date" 
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Period Start
+              </label>
+              <input
+                type="date"
                 required
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                aria-label="Period Start"
                 value={formData.periodStart}
-                onChange={(e) => setFormData({...formData, periodStart: e.target.value})}
+                onChange={(e) =>
+                  setFormData({ ...formData, periodStart: e.target.value })
+                }
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Period End</label>
-              <input 
-                type="date" 
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Period End
+              </label>
+              <input
+                type="date"
                 required
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                aria-label="Period End"
                 value={formData.periodEnd}
-                onChange={(e) => setFormData({...formData, periodEnd: e.target.value})}
+                onChange={(e) =>
+                  setFormData({ ...formData, periodEnd: e.target.value })
+                }
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Pay Date</label>
-            <input 
-              type="date" 
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Pay Date
+            </label>
+            <input
+              type="date"
               required
               className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+              aria-label="Pay Date"
               value={formData.payDate}
-              onChange={(e) => setFormData({...formData, payDate: e.target.value})}
+              onChange={(e) =>
+                setFormData({ ...formData, payDate: e.target.value })
+              }
             />
           </div>
 
           <div className="pt-6 flex justify-end">
-            <button 
+            <button
               onClick={handleCalculate}
-              disabled={loading || !formData.periodStart || !formData.periodEnd || !formData.payDate}
+              disabled={
+                loading ||
+                !formData.periodStart ||
+                !formData.periodEnd ||
+                !formData.payDate
+              }
               className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -943,244 +1223,405 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
       </div>
     );
   }
-  
+
   if (step === 2) {
-      return (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Enter Hours & Earnings</h2>
-              <div className="flex gap-3">
-                 <button 
-                    onClick={handleRecalculate}
-                    disabled={loading || isSaving}
-                    className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
-                >
-                    Recalculate
-                </button>
-                <button 
-                    onClick={handlePreview}
-                    disabled={isSaving || loading}
-                    className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 flex items-center gap-2"
-                >
-                    {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Preview Payroll
-                </button>
-              </div>
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                Hours & earnings
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Taxes are calculated from tax rules. Deductions here are
+                post-tax. Bonus and commission runs require supplemental payroll
+                support.
+              </p>
             </div>
-            
-            <div className="overflow-x-auto">
-              <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">W-2 Employees</h3>
-              <table className="w-full text-sm text-left mb-8">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-medium">
-                  <tr>
-                    <th className="px-4 py-3">Employee</th>
-                    <th className="px-4 py-3 w-32">Rate</th>
-                    <th className="px-4 py-3 w-32">Reg Hours</th>
-                    <th className="px-4 py-3 w-32">OT Hours</th>
-                    <th className="px-4 py-3 w-32">Bonus ($)</th>
-                    <th className="px-4 py-3 w-32">Commission ($)</th>
-                    <th className="px-4 py-3 w-24">FED WTH</th>
-                    <th className="px-4 py-3 w-24">FICA</th>
-                    <th className="px-4 py-3 w-24">MEDFICA</th>
-                    <th className="px-4 py-3 w-24">STATE</th>
-                    <th className="px-4 py-3 w-24">Deductions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {inputData.filter(input => input.workerType === 'W2').map((input) => {
-                    const employee = employees.find(e => e.id === input.employeeId);
-                    return (
-                      <tr key={input.id}>
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{employee?.firstName} {employee?.lastName}</div>
-                          <div className="text-xs text-slate-500">{employee?.payType}</div>
-                          {employee?.workerType === 'BOTH' && <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">W-2 Portion</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                           <div className="text-sm text-slate-600 dark:text-slate-400">
-                             ${employee?.hourlyRate || employee?.salary || 0}
-                           </div>
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                              value={input.regularHours}
-                              onChange={(e) => handleInputChange(input.id, 'regularHours', e.target.value)}
-                           />
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                              value={input.overtimeHours}
-                              onChange={(e) => handleInputChange(input.id, 'overtimeHours', e.target.value)}
-                           />
-                        </td>
-                         <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                              value={input.bonus}
-                              onChange={(e) => handleInputChange(input.id, 'bonus', e.target.value)}
-                           />
-                        </td>
-                         <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                              value={input.commission}
-                              onChange={(e) => handleInputChange(input.id, 'commission', e.target.value)}
-                           />
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
-                              value={input.federalTax}
-                              onChange={(e) => handleInputChange(input.id, 'federalTax', e.target.value)}
-                           />
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
-                              value={input.socialSecurity}
-                              onChange={(e) => handleInputChange(input.id, 'socialSecurity', e.target.value)}
-                           />
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
-                              value={input.medicare}
-                              onChange={(e) => handleInputChange(input.id, 'medicare', e.target.value)}
-                           />
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
-                              value={input.stateTax}
-                              onChange={(e) => handleInputChange(input.id, 'stateTax', e.target.value)}
-                           />
-                        </td>
-                        <td className="px-4 py-3">
-                            <input 
-                                type="number" 
-                                className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                                value={input.deductions}
-                                onChange={(e) => handleInputChange(input.id, 'deductions', e.target.value)}
-                            />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">1099 Contractors</h3>
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-medium">
-                  <tr>
-                    <th className="px-4 py-3">Contractor</th>
-                    <th className="px-4 py-3 w-32">Hours/Units</th>
-                    <th className="px-4 py-3 w-32">Rate</th>
-                    <th className="px-4 py-3 w-32">Deductions ($)</th>
-                    <th className="px-4 py-3 w-32">Reimbursement ($)</th>
-                    <th className="px-4 py-3 w-32">Total Pay ($)</th>
-                    <th className="px-4 py-3 w-24">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {inputData.filter(input => input.workerType === 'CONTRACTOR_1099').map((input) => {
-                    const employee = employees.find(e => e.id === input.employeeId);
-                    return (
-                      <tr key={input.id}>
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{employee?.firstName} {employee?.lastName}</div>
-                          <div className="text-xs text-slate-500">{employee?.payType}</div>
-                          {employee?.workerType === 'BOTH' && <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">1099 Portion</span>}
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                              value={input.regularHours}
-                              onChange={(e) => handleInputChange(input.id, 'regularHours', e.target.value)}
-                           />
-                        </td>
-                        <td className="px-4 py-3">
-                           <div className="text-sm text-slate-600 dark:text-slate-400">
-                             ${employee?.hourlyRate || employee?.salary || 0}
-                           </div>
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                              value={input.deductions}
-                              onChange={(e) => handleInputChange(input.id, 'deductions', e.target.value)}
-                           />
-                        </td>
-                         <td className="px-4 py-3">
-                           <input 
-                              type="number" 
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
-                              value={input.reimbursement}
-                              onChange={(e) => handleInputChange(input.id, 'reimbursement', e.target.value)}
-                           />
-                        </td>
-                         <td className="px-4 py-3">
-                           <div className="text-sm font-medium text-slate-900 dark:text-white">
-                             {/* Assuming simple calculation for display, real calc is backend */}
-                             {formatCurrency(((input.regularHours || 0) * (employee?.hourlyRate || 0)) + Number(input.reimbursement || 0) - Number(input.deductions || 0), selectedBusiness?.currencyCode)}
-                           </div>
-                        </td>
-                        <td className="px-4 py-3">
-                           <input 
-                              type="text" 
-                              placeholder="Optional"
-                              className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
-                           />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleRecalculate}
+                disabled={loading || isSaving}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+              >
+                Recalculate
+              </button>
+              <button
+                onClick={handlePreview}
+                disabled={isSaving || loading}
+                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 flex items-center gap-2"
+              >
+                {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Preview Payroll
+              </button>
             </div>
           </div>
+
+          <div className="overflow-x-auto">
+            {!previewData?.taxReadiness?.complete && (
+              <p
+                role="status"
+                className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-sm"
+              >
+                State/local or employer tax rules are incomplete. Complete Tax
+                setup and recalculate before approval.
+              </p>
+            )}
+            <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">
+              W-2 Employees
+            </h3>
+            <table className="w-full text-sm text-left mb-8">
+              <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-medium">
+                <tr>
+                  <th className="px-4 py-3">Employee</th>
+                  <th className="px-4 py-3 w-32">Rate</th>
+                  <th className="px-4 py-3 w-32">Reg Hours</th>
+                  <th className="px-4 py-3 w-32">OT Hours</th>
+                  <th className="px-4 py-3 w-32">Bonus ($)</th>
+                  <th className="px-4 py-3 w-32">Commission ($)</th>
+                  <th className="px-4 py-3 w-24">FED WTH</th>
+                  <th className="px-4 py-3 w-24">FICA</th>
+                  <th className="px-4 py-3 w-24">MEDFICA</th>
+                  <th className="px-4 py-3 w-24">STATE</th>
+                  <th className="px-4 py-3 w-24">Deductions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                {inputData
+                  .filter((input) => input.workerType === "W2")
+                  .map((input) => {
+                    const employee = employees.find(
+                      (e) => e.id === input.employeeId,
+                    );
+                    return (
+                      <tr key={input.id}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">
+                            {employee?.firstName} {employee?.lastName}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {employee?.payType}
+                          </div>
+                          {employee?.workerType === "BOTH" && (
+                            <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">
+                              W-2 Portion
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-slate-600 dark:text-slate-400">
+                            ${employee?.hourlyRate || employee?.salary || 0}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.regularHours}
+                            onChange={(e) =>
+                              handleInputChange(
+                                input.id,
+                                "regularHours",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.overtimeHours}
+                            onChange={(e) =>
+                              handleInputChange(
+                                input.id,
+                                "overtimeHours",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.bonus}
+                            readOnly
+                            aria-label="bonus requires supplemental payroll support"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.commission}
+                            readOnly
+                            aria-label="commission requires supplemental payroll support"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
+                            value={input.federalTax}
+                            readOnly
+                            aria-label="Calculated federalTax"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
+                            value={input.socialSecurity}
+                            readOnly
+                            aria-label="Calculated socialSecurity"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
+                            value={
+                              Number(input.medicare || 0) +
+                              Number(input.additionalMedicare || 0)
+                            }
+                            readOnly
+                            aria-label="Calculated medicare"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
+                            value={input.stateTax}
+                            readOnly
+                            aria-label="Calculated stateTax"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.deductions}
+                            onChange={(e) =>
+                              handleInputChange(
+                                input.id,
+                                "deductions",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+
+            <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">
+              1099 Contractors
+            </h3>
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-medium">
+                <tr>
+                  <th className="px-4 py-3">Contractor</th>
+                  <th className="px-4 py-3 w-32">Hours/Units</th>
+                  <th className="px-4 py-3 w-32">Rate</th>
+                  <th className="px-4 py-3 w-32">Deductions ($)</th>
+                  <th className="px-4 py-3 w-32">Reimbursement ($)</th>
+                  <th className="px-4 py-3 w-32">Total Pay ($)</th>
+                  <th className="px-4 py-3 w-24">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                {inputData
+                  .filter((input) => input.workerType === "CONTRACTOR_1099")
+                  .map((input) => {
+                    const employee = employees.find(
+                      (e) => e.id === input.employeeId,
+                    );
+                    return (
+                      <tr key={input.id}>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">
+                            {employee?.firstName} {employee?.lastName}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {employee?.payType}
+                          </div>
+                          {employee?.workerType === "BOTH" && (
+                            <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">
+                              1099 Portion
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.regularHours}
+                            onChange={(e) =>
+                              handleInputChange(
+                                input.id,
+                                "regularHours",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-slate-600 dark:text-slate-400">
+                            ${employee?.hourlyRate || employee?.salary || 0}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.deductions}
+                            onChange={(e) =>
+                              handleInputChange(
+                                input.id,
+                                "deductions",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700"
+                            value={input.reimbursement}
+                            onChange={(e) =>
+                              handleInputChange(
+                                input.id,
+                                "reimbursement",
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm font-medium text-slate-900 dark:text-white">
+                            {/* Assuming simple calculation for display, real calc is backend */}
+                            {formatCurrency(
+                              (input.regularHours || 0) *
+                                (employee?.hourlyRate || 0) +
+                                Number(input.reimbursement || 0) -
+                                Number(input.deductions || 0),
+                              selectedBusiness?.currencyCode,
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="text"
+                            placeholder="Optional"
+                            min="0"
+                            step="0.01"
+                            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      );
+      </div>
+    );
   }
 
   // Preview Step (Step 3)
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-             <h2 className="text-xl font-bold text-slate-900 dark:text-white">Review Payroll</h2>
-             <p className="text-slate-500">
-               Total Cash Requirement: <span className="font-bold text-slate-900 dark:text-white">{formatCurrency((previewData?.totalGross || 0) + (previewData?.totalEmployerTaxes || 0), selectedBusiness?.currencyCode)}</span>
-             </p>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+              Review Payroll
+            </h2>
+            <p className="text-slate-500">
+              Total employer cost:{" "}
+              <span className="font-bold text-slate-900 dark:text-white">
+                {formatCurrency(
+                  (previewData?.totalNet || 0) +
+                    (previewData?.totalEmployeeTaxes || 0) +
+                    (previewData?.totalEmployerTaxes || 0) +
+                    (previewData?.totalDeductions || 0),
+                  selectedBusiness?.currencyCode,
+                )}
+              </span>
+            </p>
           </div>
-          <div className="flex gap-3">
-             <button onClick={() => setStep(2)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">
-               Back
-             </button>
-             <button onClick={handleSubmit} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-sm">
-               Submit Payroll
-             </button>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => setStep(2)}
+              className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              Back
+            </button>
+            <button
+              disabled={loading || !previewData?.taxReadiness?.complete}
+              onClick={handleSubmit}
+              className="px-6 py-2 bg-teal-700 text-white rounded-lg hover:bg-teal-800 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+            >
+              {loading ? "Approving…" : "Approve & record payroll"}
+            </button>
           </div>
         </div>
 
+        {!previewData?.taxReadiness?.complete && (
+          <div
+            role="alert"
+            className="mb-6 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 p-4"
+          >
+            <h3 className="font-semibold">Tax setup needs attention</h3>
+            <p className="text-sm mt-1">
+              Net pay is provisional. Complete these items in Tax setup, then
+              recalculate.
+            </p>
+            <ul className="text-sm mt-3 space-y-1 list-disc pl-5">
+              {(previewData?.taxReadiness?.issues || []).map(
+                (issue: string) => (
+                  <li key={issue}>{issue}</li>
+                ),
+              )}
+            </ul>
+          </div>
+        )}
         <div className="overflow-x-auto">
           {/* W-2 Employees Section */}
-          <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">W-2 Employees</h3>
+          <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">
+            W-2 Employees
+          </h3>
           <table className="w-full text-sm text-left mb-8">
             <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-medium">
               <tr>
@@ -1190,40 +1631,101 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
                 <th className="px-4 py-3">FED WTH</th>
                 <th className="px-4 py-3">FICA</th>
                 <th className="px-4 py-3">MEDFICA</th>
-                <th className="px-4 py-3">STATE</th>
+                <th className="px-4 py-3">State / local / other</th>
                 <th className="px-4 py-3">Deductions</th>
                 <th className="px-4 py-3">Net Pay</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-              {previewData?.payStubs?.filter((stub: any) => stub.workerType === 'W2').map((stub: any) => {
-                const employee = employees.find(e => e.id === stub.employeeId);
-                const taxDetails = stub.taxDetails ? JSON.parse(stub.taxDetails) : {};
-                return (
-                  <tr key={stub.id}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{employee?.firstName} {employee?.lastName}</div>
-                      <div className="text-xs text-slate-500">W-2 Employee</div>
-                      {employee?.workerType === 'BOTH' && <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">W-2 Portion</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                        {stub.regularHours + stub.overtimeHours > 0 ? (stub.regularHours + stub.overtimeHours).toFixed(1) : '-'}
-                    </td>
-                    <td className="px-4 py-3">{formatCurrency(stub.grossPay, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 text-red-600">-{formatCurrency(taxDetails.federalTax || 0, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 text-red-600">-{formatCurrency(taxDetails.socialSecurity || 0, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 text-red-600">-{formatCurrency(taxDetails.medicare || 0, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 text-red-600">-{formatCurrency(taxDetails.stateTax || 0, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 text-red-600">-{formatCurrency(stub.deductions, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">{formatCurrency(stub.netPay, selectedBusiness?.currencyCode)}</td>
-                  </tr>
-                );
-              })}
+              {previewData?.payStubs
+                ?.filter((stub: any) => stub.workerType === "W2")
+                .map((stub: any) => {
+                  const employee = employees.find(
+                    (e) => e.id === stub.employeeId,
+                  );
+                  const taxDetails = stub.taxDetails
+                    ? JSON.parse(stub.taxDetails)
+                    : {};
+                  return (
+                    <tr key={stub.id}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium">
+                          {employee?.firstName} {employee?.lastName}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          W-2 Employee
+                        </div>
+                        {employee?.workerType === "BOTH" && (
+                          <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">
+                            W-2 Portion
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {stub.regularHours + stub.overtimeHours > 0
+                          ? (stub.regularHours + stub.overtimeHours).toFixed(1)
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {formatCurrency(
+                          stub.grossPay,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-red-600">
+                        -
+                        {formatCurrency(
+                          taxDetails.federalTax || 0,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-red-600">
+                        -
+                        {formatCurrency(
+                          taxDetails.socialSecurity || 0,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-red-600">
+                        -
+                        {formatCurrency(
+                          (taxDetails.medicare || 0) +
+                            (taxDetails.additionalMedicare || 0),
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-red-600">
+                        -
+                        {formatCurrency(
+                          (taxDetails.stateTax || 0) +
+                            (taxDetails.localTax || 0) +
+                            (taxDetails.otherTax || 0),
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-red-600">
+                        -
+                        {formatCurrency(
+                          stub.deductions,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
+                        {formatCurrency(
+                          stub.netPay,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
 
           {/* 1099 Contractors Section */}
-          <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">1099 Contractors</h3>
+          <h3 className="text-md font-semibold mb-4 text-slate-800 dark:text-slate-200">
+            1099 Contractors
+          </h3>
           <table className="w-full text-sm text-left">
             <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-medium">
               <tr>
@@ -1236,25 +1738,59 @@ function RunPayrollWizard({ employees, onSuccess, initialPayroll }: { employees:
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-              {previewData?.payStubs?.filter((stub: any) => stub.workerType === 'CONTRACTOR_1099').map((stub: any) => {
-                const employee = employees.find(e => e.id === stub.employeeId);
-                return (
-                  <tr key={stub.id}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{employee?.firstName} {employee?.lastName}</div>
-                      <div className="text-xs text-slate-500">Contractor</div>
-                      {employee?.workerType === 'BOTH' && <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">1099 Portion</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                        {stub.regularHours > 0 ? stub.regularHours.toFixed(1) : '-'}
-                    </td>
-                    <td className="px-4 py-3">{formatCurrency(stub.grossPay, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 text-red-600">-{formatCurrency(stub.deductions, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 text-green-600">+{formatCurrency(stub.reimbursement, selectedBusiness?.currencyCode)}</td>
-                    <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">{formatCurrency(stub.netPay, selectedBusiness?.currencyCode)}</td>
-                  </tr>
-                );
-              })}
+              {previewData?.payStubs
+                ?.filter((stub: any) => stub.workerType === "CONTRACTOR_1099")
+                .map((stub: any) => {
+                  const employee = employees.find(
+                    (e) => e.id === stub.employeeId,
+                  );
+                  return (
+                    <tr key={stub.id}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium">
+                          {employee?.firstName} {employee?.lastName}
+                        </div>
+                        <div className="text-xs text-slate-500">Contractor</div>
+                        {employee?.workerType === "BOTH" && (
+                          <span className="text-[10px] bg-purple-100 text-purple-800 px-1 rounded ml-1">
+                            1099 Portion
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {stub.regularHours > 0
+                          ? stub.regularHours.toFixed(1)
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {formatCurrency(
+                          stub.grossPay,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-red-600">
+                        -
+                        {formatCurrency(
+                          stub.deductions,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-green-600">
+                        +
+                        {formatCurrency(
+                          stub.reimbursement,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
+                        {formatCurrency(
+                          stub.netPay,
+                          selectedBusiness?.currencyCode,
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>
@@ -1270,7 +1806,9 @@ function EmployeePayrollList({ employees }: { employees: Employee[] }) {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 animate-in fade-in duration-300">
       <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
-        <h3 className="font-semibold text-slate-900 dark:text-white">Employee Payroll Settings</h3>
+        <h3 className="font-semibold text-slate-900 dark:text-white">
+          Employee Payroll Settings
+        </h3>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
@@ -1286,34 +1824,47 @@ function EmployeePayrollList({ employees }: { employees: Employee[] }) {
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
             {employees.map((e) => (
-              <tr key={e.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
+              <tr
+                key={e.id}
+                className="hover:bg-slate-50 dark:hover:bg-slate-700/30"
+              >
                 <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
                   {e.firstName} {e.lastName}
                 </td>
                 <td className="px-6 py-4">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                    ${e.workerType === 'CONTRACTOR_1099' 
-                      ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
-                      : e.workerType === 'BOTH'
-                        ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
-                        : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                    ${
+                      e.workerType === "CONTRACTOR_1099"
+                        ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400"
+                        : e.workerType === "BOTH"
+                          ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                          : "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
                     }`}
                   >
-                    {e.workerType === 'CONTRACTOR_1099' ? '1099 Contractor' : e.workerType === 'BOTH' ? 'W-2 & 1099' : 'W-2 Employee'}
+                    {e.workerType === "CONTRACTOR_1099"
+                      ? "1099 Contractor"
+                      : e.workerType === "BOTH"
+                        ? "W-2 & 1099"
+                        : "W-2 Employee"}
                   </span>
                 </td>
                 <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
-                  {e.paySchedule || 'Bi-Weekly'}
+                  {e.paySchedule || "Bi-Weekly"}
                 </td>
                 <td className="px-6 py-4 text-slate-500 dark:text-slate-400 capitalize">
                   {e.payType?.toLowerCase()}
                 </td>
                 <td className="px-6 py-4 text-slate-900 dark:text-white font-medium">
-                  {e.payType === 'HOURLY' ? `${formatCurrency(e.hourlyRate || 0, selectedBusiness?.currencyCode)}/hr` : `${formatCurrency(e.salary || 0, selectedBusiness?.currencyCode)}/yr`}
+                  {e.payType === "HOURLY"
+                    ? `${formatCurrency(e.hourlyRate || 0, selectedBusiness?.currencyCode)}/hr`
+                    : `${formatCurrency(e.salary || 0, selectedBusiness?.currencyCode)}/yr`}
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <button 
-                    onClick={() => router.push(`/dashboard/people?employeeId=${e.id}`)}
+                  <button
+                    onClick={() =>
+                      router.push(`/dashboard/people?employeeId=${e.id}`)
+                    }
                     className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
                   >
                     <Settings size={18} />
@@ -1326,4 +1877,15 @@ function EmployeePayrollList({ employees }: { employees: Employee[] }) {
       </div>
     </div>
   );
+}
+
+function payrollCalendarDate(value: string, zone = "UTC") {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }

@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import { TimeTrackingService } from '../src/time-tracking/time-tracking.service';
+import { LocationsService } from '../src/locations/locations.service';
+import { ReportsService } from '../src/reports/reports.service';
+import { workedHours, csvText } from '../../web/src/lib/time/records';
+let checks = 0;
+function check(a:unknown,b:unknown){assert.deepEqual(a,b);checks++;}
+async function rejects(fn:()=>Promise<unknown>, pattern:RegExp){await assert.rejects(fn,pattern);checks++;}
+async function main(){
+  check(workedHours('2026-01-01T22:00Z','2026-01-02T06:00Z',[{startTime:'2026-01-02T01:00Z',endTime:'2026-01-02T01:30Z'}]),7.5);
+  check(workedHours('bad','bad'),0);
+  check(workedHours('2026-01-01T10:00Z','2026-01-01T09:00Z'),0);
+  check(workedHours('2026-01-01T09:00Z','2026-01-01T17:00Z',[{startTime:'2026-01-01T08:00Z',endTime:'2026-01-01T10:00Z'},{startTime:'2026-01-01T09:30Z',endTime:'2026-01-01T11:00Z'}]),6);
+  check(workedHours('2026-01-01T09:00Z',null,[{startTime:'2026-01-01T10:00Z',endTime:null}],new Date('2026-01-01T11:00Z')),1);
+  check(csvText([['=2+2','Smith, "Ada"']]).includes('"\'=2+2","Smith, ""Ada"""'),true);
+  const person = {id:'e',businessId:'b'};
+  let record:any = {id:'t',employeeId:'e',employee:person,startTime:new Date('2026-01-01T09:00Z'),endTime:new Date('2026-01-01T17:00Z'),status:'PENDING'};
+  let deleted=0, updated:any, query:any;
+  const prisma:any = { timesheet:{findUnique:async()=>record,findMany:async(q:any)=>{query=q;return[];},update:async(q:any)=>{updated=q.data;return record;}},break:{findMany:async()=>[{startTime:new Date('2026-01-01T12:00Z'),endTime:new Date('2026-01-01T12:30Z')}],deleteMany:async()=>{deleted++;},createMany:async()=>{}},location:{findFirst:async()=>null}, employee:{findUnique:async()=>person},$transaction:async(fn:any)=>fn(prisma)};
+  const service=new TimeTrackingService(prisma,{} as any,{} as any);
+  await service.updateTimesheet('t',{status:'APPROVED'},{role:'SUPER_ADMIN'}); check(deleted,0);check(updated.status,'APPROVED');
+  await rejects(()=>service.updateTimesheet('t',{endTime:'2026-01-01T08:00Z'}),/valid start/);
+  await rejects(()=>service.updateTimesheet('t',{startTime:'invalid'}),/valid start/);
+  await rejects(()=>service.updateTimesheet('t',{locationId:'other'}),/belong/);
+  await rejects(()=>service.updateTimesheet('t',{status:'UNKNOWN'}),/Invalid timesheet status/);
+  await rejects(()=>service.updateTimesheet('t',{status:'APPROVED',endTime:null}),/completed/);
+  await rejects(()=>service.updateTimesheet('t',{breaks:[{startTime:'2026-01-01T08:00Z',endTime:'2026-01-01T09:00Z'}]}),/within/);
+  await rejects(()=>service.updateTimesheet('t',{breaks:[{startTime:'2026-01-01T12:00Z',endTime:'2026-01-01T13:00Z'},{startTime:'2026-01-01T12:30Z',endTime:'2026-01-01T14:00Z'}]}),/overlap/);
+  await service.updateTimesheet('t',{breaks:[]});check(deleted,1);
+  await service.getTimesheets('e',new Date('2026-01-01'),new Date('2026-01-02'));check(query.where.OR[1],{endTime:null});
+  await rejects(()=>service.getBusinessTimesheets('b',new Date('invalid'),new Date()),/date range/);
+  record.endTime=null;await rejects(()=>service.deleteTimesheet('t'),/active timesheet/);
+  const sites:any={business:{findUnique:async()=>({id:'b'})},client:{findFirst:async()=>null},location:{findFirst:async()=>({id:'l',name:'North',address:'Street',status:'ACTIVE'}),create:async({data}:any)=>data},servicePin:{count:async()=>1},shift:{count:async()=>1},timesheet:{count:async()=>0}};
+  const locations=new LocationsService(sites,{} as any);const admin={role:'SUPER_ADMIN'};
+  await rejects(()=>locations.create(admin,{name:' ',address:'Street'},'b'),/required/);
+  await rejects(()=>locations.create(admin,{name:'North',address:'Street',clientId:'other'},'b'),/belong/);
+  await rejects(()=>locations.create(admin,{name:'North',address:'Street',geoLat:91},'b'),/geoLat/);
+  await rejects(()=>locations.create(admin,{name:'North',address:'Street',startDate:'2026-01-02',endDate:'2026-01-01'},'b'),/date range/);
+  await rejects(()=>locations.update(admin,'l',{status:'INACTIVE'},'b'),/upcoming shifts/);
+  const reports=new ReportsService({timesheet:{findMany:async(q:any)=>{query=q;return[];}},shiftCallout:{findMany:async()=>[]}} as any);
+  const result=await reports.getAttendanceReport('b','2026-01-01','2026-01-02');check(result,{timesheets:[],callouts:[]});check(query.include.employee.select.email,true);check(query.where.status.notIn,['DISCARDED','REJECTED']);
+  await rejects(()=>reports.getAttendanceReport('b','invalid','2026-01-02'),/date range/);
+  console.log(`Passed ${checks} Time, Sites and Attendance regression checks`);
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});

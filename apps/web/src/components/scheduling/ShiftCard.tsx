@@ -116,11 +116,17 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
       style={style}
       {...listeners}
       {...attributes}
+      aria-label={`${shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}` : 'Unassigned shift'}, ${format(start, 'EEE d MMM h:mm a')}, ${String(shift.status || 'DRAFT').toLowerCase()}`}
+      tabIndex={0}
+      role="button"
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onEdit(shift); }
+      }}
       onClick={(e) => {
         e.stopPropagation();
         onEdit(shift);
       }}
-      className={`relative group ${containerColors} ${extraClasses} rounded pl-2 pr-1 py-1 text-xs cursor-pointer hover:brightness-95 overflow-hidden h-full min-h-[40px] w-full flex flex-col justify-center ${isDragging ? 'opacity-50 z-50 shadow-xl' : ''}`}
+      className={`relative group ${containerColors} ${extraClasses} rounded pl-2 pr-1 ${isDraft ? 'pt-5 pb-1' : 'py-1'} text-xs cursor-pointer hover:brightness-95 overflow-hidden h-full min-h-[40px] w-full flex flex-col justify-center ${isDragging ? 'opacity-50 z-50 shadow-xl' : ''}`}
     >
       {isDraft && (
         <div className="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-100 font-semibold tracking-wide">
@@ -148,9 +154,7 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
         </div>
       ) : null}
       
-      {/* Resize handles - visual only for now */}
-      <div className="absolute top-0 bottom-0 left-0 w-1 cursor-ew-resize hover:bg-blue-600/50" />
-      <div className="absolute top-0 bottom-0 right-0 w-1 cursor-ew-resize hover:bg-blue-600/50" />
+
     </div>
   );
 }

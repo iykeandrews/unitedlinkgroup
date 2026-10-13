@@ -254,6 +254,9 @@ model Employee {
   contractorType         String? // INDIVIDUAL, LLC, CORPORATION
   w9Confirmed            Boolean @default(false)
 
+  // Versioned tax elections, residence, work allocations and provider identifiers (no SSN/bank data).
+  payrollTaxProfile String?
+
   // Banking
   directDepositInfo String? // JSON: { routing, account, type }
 
@@ -1109,8 +1112,10 @@ model Payroll {
   periodEnd   DateTime
   payDate     DateTime
 
-  type   String @default("REGULAR") // REGULAR, OFF_CYCLE, BONUS
-  status String @default("DRAFT") // DRAFT, PROCESSED, PAID, CANCELLED
+  calendarTimeZone String  @default("UTC") // Snapshot of pay-period calendar boundaries.
+  paySchedule      String? // Null for legacy runs; new runs target one pay frequency.
+  type             String  @default("REGULAR") // REGULAR, OFF_CYCLE, BONUS
+  status           String  @default("DRAFT") // DRAFT, PROCESSED, PAID, CANCELLED
 
   totalGross         Float @default(0)
   totalNet           Float @default(0)
@@ -1241,10 +1246,15 @@ model Invoice {
   taxAmount Float
   total     Float
 
-  items InvoiceItem[]
+  taxInclusive Boolean          @default(false)
+  payments     InvoicePayment[]
+  items        InvoiceItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([businessId, invoiceNumber])
+  @@index([businessId, dueDate])
 }
 
 model InvoiceItem {
@@ -1529,4 +1539,25 @@ model Payment {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Accounts receivable ledger; payment recording does not charge or transfer funds.
+model InvoicePayment {
+  id             String    @id @default(uuid())
+  invoiceId      String
+  invoice        Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amountCents    Int
+  paidAt         DateTime
+  method         String
+  reference      String?
+  notes          String?
+  idempotencyKey String
+  recordedById   String
+  createdAt      DateTime  @default(now())
+  voidedAt       DateTime?
+  voidedById     String?
+  voidReason     String?
+
+  @@unique([invoiceId, idempotencyKey])
+  @@index([invoiceId, paidAt])
 }

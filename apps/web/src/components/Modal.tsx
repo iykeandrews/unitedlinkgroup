@@ -58,7 +58,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-md',
           <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h3>
             <button
-              onClick={onClose}
+              aria-label="Close dialog" onClick={onClose}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 focus:outline-none transition-transform active:scale-95"
             >
               <X className="h-5 w-5" />

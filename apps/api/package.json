@@ -13,7 +13,12 @@
     "migrate:uploads:s3": "ts-node scripts/migrate-uploads-to-s3.ts",
     "self:test": "ts-node self_test.ts",
     "test:api": "ts-node tests/run_tests.ts",
-    "db:debug": "ts-node tests/db_debug.ts"
+    "db:debug": "ts-node tests/db_debug.ts",
+    "test:scheduling": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/scheduling_regression.ts",
+    "test:people": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/people_regression.ts",
+    "test:time-sites": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/time_sites_regression.ts",
+    "test:payroll": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/payroll_regression.ts",
+    "test:invoices": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/invoice_regression.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1011.0",
