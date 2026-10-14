@@ -141,13 +141,19 @@ function AddressFields({ value, onChange, title }: any) {
   );
 }
 
-export default function TaxSetup() {
+export default function TaxSetup({
+  employeeId,
+  onSaved,
+  selectedEmployee,
+}: { employeeId?: string; onSaved?: () => void; selectedEmployee?: any } = {}) {
   const { selectedBusiness } = useBusiness();
   const businessId = selectedBusiness?.id;
   const [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false),
     [error, setError] = useState("");
-  const [section, setSection] = useState<"rules" | "employees">("rules");
+  const [section, setSection] = useState<"rules" | "employees">(
+    employeeId ? "employees" : "rules",
+  );
   const [people, setPeople] = useState<any[]>([]);
   const [config, setConfig] = useState<any>({
     rules: [],
@@ -263,6 +269,27 @@ export default function TaxSetup() {
           },
     );
   };
+  useEffect(() => {
+    if (employeeId && !loading) {
+      const selected =
+        people.find((p) => p.id === employeeId) || selectedEmployee;
+      if (selected?.id === employeeId) {
+        try {
+          openPerson({
+            ...selected,
+            payrollTaxProfile:
+              typeof selected.payrollTaxProfile === "string"
+                ? JSON.parse(selected.payrollTaxProfile)
+                : selected.payrollTaxProfile,
+          });
+        } catch {
+          setError(
+            "The saved employee tax profile is invalid. Review it in Payroll before calculating deductions.",
+          );
+        }
+      }
+    }
+  }, [employeeId, people, loading, selectedEmployee]);
   const saveProfile = async () => {
     setSaving(true);
     try {
@@ -275,7 +302,8 @@ export default function TaxSetup() {
           p.id === person.id ? { ...p, payrollTaxProfile: r.data } : p,
         ),
       );
-      setPerson(null);
+      if (!employeeId) setPerson(null);
+      onSaved?.();
       toast.success(
         "Employee tax profile saved. Recalculate their draft payroll.",
       );
@@ -301,42 +329,46 @@ export default function TaxSetup() {
     setEditing((r: any) => ({ ...r, [key]: value }));
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-slate-900 text-white p-6 sm:p-8 flex flex-col sm:flex-row gap-6 justify-between">
-        <div>
-          <p className="text-xs tracking-widest uppercase text-teal-300 font-semibold mb-2">
-            UnitedLink payroll · US tax setup
-          </p>
-          <h2 className="text-2xl font-semibold">
-            Your rules. A clear payroll breakdown.
-          </h2>
-          <p className="text-slate-300 text-sm mt-3 max-w-2xl">
-            Federal withholding uses 2026 IRS tables. Enter state, local and
-            employer rules from government guidance. Your team maintains these
-            rates; changes apply when a draft is recalculated.
-          </p>
-        </div>
-        <ShieldCheck className="text-teal-300 shrink-0" size={36} />
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <button
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${section === "rules" ? "bg-teal-700 text-white" : "bg-slate-100 dark:bg-slate-700"}`}
-          onClick={() => {
-            setSection("rules");
-            setPerson(null);
-          }}
-        >
-          Tax rules
-        </button>
-        <button
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${section === "employees" ? "bg-teal-700 text-white" : "bg-slate-100 dark:bg-slate-700"}`}
-          onClick={() => {
-            setSection("employees");
-            setEditing(null);
-          }}
-        >
-          Employee tax profiles
-        </button>
-      </div>
+      {!employeeId && (
+        <>
+          <div className="rounded-2xl bg-slate-900 text-white p-6 sm:p-8 flex flex-col sm:flex-row gap-6 justify-between">
+            <div>
+              <p className="text-xs tracking-widest uppercase text-teal-300 font-semibold mb-2">
+                UnitedLink payroll · US tax setup
+              </p>
+              <h2 className="text-2xl font-semibold">
+                Your rules. A clear payroll breakdown.
+              </h2>
+              <p className="text-slate-300 text-sm mt-3 max-w-2xl">
+                Federal withholding uses 2026 IRS tables. Enter state, local and
+                employer rules from government guidance. Your team maintains
+                these rates; changes apply when a draft is recalculated.
+              </p>
+            </div>
+            <ShieldCheck className="text-teal-300 shrink-0" size={36} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${section === "rules" ? "bg-teal-700 text-white" : "bg-slate-100 dark:bg-slate-700"}`}
+              onClick={() => {
+                setSection("rules");
+                setPerson(null);
+              }}
+            >
+              Tax rules
+            </button>
+            <button
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${section === "employees" ? "bg-teal-700 text-white" : "bg-slate-100 dark:bg-slate-700"}`}
+              onClick={() => {
+                setSection("employees");
+                setEditing(null);
+              }}
+            >
+              Employee tax profiles
+            </button>
+          </div>
+        </>
+      )}
       {section === "rules" && !editing && (
         <>
           <div
@@ -910,7 +942,7 @@ export default function TaxSetup() {
           </button>
         </div>
       )}
-      {section === "employees" && !person && (
+      {section === "employees" && !person && !employeeId && (
         <div className={`${card} space-y-2`}>
           <h3 className="font-semibold mb-4">
             Residence, work locations & tax elections
@@ -945,18 +977,26 @@ export default function TaxSetup() {
           )}
         </div>
       )}
+      {employeeId && !person && (
+        <p role="alert" className="text-sm text-amber-700">
+          The employee tax profile could not be loaded. Close and reopen the
+          employee profile to retry.
+        </p>
+      )}
       {section === "employees" && person && (
         <div className={`${card} space-y-5`}>
           <div className="flex justify-between">
             <h3 className="text-lg font-semibold">
               {person.firstName} {person.lastName}
             </h3>
-            <button
-              onClick={() => setPerson(null)}
-              className="text-sm text-slate-500"
-            >
-              Back to employees
-            </button>
+            {!employeeId && (
+              <button
+                onClick={() => setPerson(null)}
+                className="text-sm text-slate-500"
+              >
+                Back to employees
+              </button>
+            )}
           </div>
           <AddressFields
             value={profile.residence}

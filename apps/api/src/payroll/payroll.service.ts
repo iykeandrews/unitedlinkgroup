@@ -1080,12 +1080,23 @@ export class PayrollService {
   }
 
   async getPayrolls(businessId: string, user?: any): Promise<Payroll[]> {
-    if (user) {
-      await this.validateBusinessAccess(businessId, user);
-    }
-    return this.prisma.payroll.findMany({
+    if (user) await this.validateBusinessAccess(businessId, user);
+    const payrolls = await this.prisma.payroll.findMany({
       where: { businessId, status: { not: "CANCELLED" } },
       orderBy: { createdAt: "desc" },
+    });
+    if (!payrolls.length) return payrolls;
+    const totals = await this.prisma.payStub.groupBy({
+      by: ["payrollId"],
+      where: { payrollId: { in: payrolls.map((payroll) => payroll.id) } },
+      _sum: { grossPay: true, netPay: true, taxes: true, employerTaxes: true, deductions: true },
+    });
+    const byPayroll = new Map(totals.map((row) => [row.payrollId, row._sum]));
+    return payrolls.map((payroll) => {
+      const sum = byPayroll.get(payroll.id);
+      return sum ? { ...payroll, totalGross: sum.grossPay ?? 0, totalNet: sum.netPay ?? 0,
+        totalEmployeeTaxes: sum.taxes ?? 0, totalEmployerTaxes: sum.employerTaxes ?? 0,
+        totalDeductions: sum.deductions ?? 0 } : payroll;
     });
   }
 

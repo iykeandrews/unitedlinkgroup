@@ -623,7 +623,7 @@ async function main() {
       business.id,
     );
     equal(overdue.status, "OVERDUE");
-    equal(overdue.daysOverdue, 3);
+    equal(overdue.daysOverdue, Math.floor((Date.parse(new Date().toISOString().slice(0,10)) - Date.parse("2026-10-10")) / 86400000));
     const overduePartial = await service.recordPayment(
       overdue.id,
       { ...payment, amount: 200, idempotencyKey: randomUUID() },

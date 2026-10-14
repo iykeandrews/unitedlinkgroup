@@ -1,3 +1,7 @@
+import { employmentForm, employmentField, employmentPayload } from "./people/employment";
+import { savedPay } from "./people/directory";
+import TaxSetup from "./payroll/TaxSetup";
+import AmericanDateInput from "./invoices/AmericanDateInput";
 import { useEffect, useState, Fragment, useRef, useCallback } from 'react';
 import { format, isSameDay, isPast, isFuture, isWithinInterval, startOfMonth, endOfMonth, addMonths } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -565,10 +569,13 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
     loadAvailability();
   }, [activeTab, employee, reloadAvailability]);
 
+  const [savingEmployment, setSavingEmployment] = useState(false);
+  const [showTaxSetup, setShowTaxSetup] = useState(false);
+  useEffect(() => { setShowTaxSetup(false); }, [employee?.id, isOpen]);
   const handleStartEdit = () => {
     if (employee) {
       // Deep copy and migrate legacy data if needed
-      const initialData = JSON.parse(JSON.stringify(employee));
+      const initialData = employmentForm(employee);
       
       // Migrate legacy W2 data if profile missing but was W2 (or generic)
       if (!initialData.w2Profile && (initialData.workerType === 'W2' || !initialData.workerType)) {
@@ -613,7 +620,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
   };
 
   const handleInputChange = (field: keyof Employee, value: any) => {
-    setEditFormData(prev => ({ ...prev, [field]: value }));
+    setEditFormData(prev => employmentField(prev, field, value));
   };
 
   const handleW2Change = (field: keyof W2Profile, value: any) => {
@@ -675,7 +682,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
   };
 
   const handleSave = async () => {
-    if (!employee) return;
+    if (!employee || savingEmployment) return;
 
     // Validation
     if (editFormData.w2Profile) {
@@ -684,23 +691,25 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
         return;
       }
       // Allow 0 rate, but must be defined
-      if (editFormData.w2Profile.rate === undefined || editFormData.w2Profile.rate === null) {
+      if (!Number.isFinite(editFormData.w2Profile.rate) || editFormData.w2Profile.rate < 0) {
         toast.error('W-2 Profile: Rate is required');
         return;
       }
     }
 
     if (editFormData.contractorProfile) {
-      if (editFormData.contractorProfile.rate === undefined || editFormData.contractorProfile.rate === null) {
+      if (!Number.isFinite(editFormData.contractorProfile.rate) || editFormData.contractorProfile.rate < 0) {
         toast.error('Contractor Profile: Rate is required');
         return;
       }
     }
 
+    setSavingEmployment(true);
     try {
       // Ensure numeric values are numbers
       const businessIdOverride = selectedBusiness?.id || (employee as any)?.businessId;
-      const payload: any = { ...editFormData };
+      const payload: any = activeTab === "Employment" ? employmentPayload(editFormData) : { ...editFormData };
+      delete payload.payrollTaxProfile;
       delete payload.availability;
       delete payload.availabilities;
       delete payload.department;
@@ -728,11 +737,11 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
       await api.patch(`/employees/${employee.id}`, payload, businessIdOverride ? { headers: { 'x-business-id': businessIdOverride } } : undefined);
       onUpdate();
       setIsEditing(false);
-      toast.success('Employee updated successfully');
+      toast.success(activeTab === 'Employment' ? 'Employment info saved. Recalculate draft payroll to apply the changes.' : 'Employee updated successfully');
     } catch (e: any) {
       console.error('Failed to update employee', e);
       toast.error(e.response?.data?.message || 'Failed to update employee');
-    }
+    } finally { setSavingEmployment(false); }
   };
 
   const handleDeactivate = () => {
@@ -1501,9 +1510,10 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                        </button>
                        <button 
                          onClick={handleSave}
+                           disabled={savingEmployment}
                          className="px-6 py-2.5 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all"
                        >
-                         Save Changes
+                         {savingEmployment ? 'Saving…' : 'Save Changes'}
                        </button>
                     </div>
                   </div>
@@ -1512,6 +1522,14 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
               </div>
             )}
             
+            {activeTab === 'Employment' && !isEditing && ['BUSINESS_ADMIN','SUPER_ADMIN'].includes(userRole || '') && employee.workerType !== 'CONTRACTOR_1099' && (
+              <section className="mb-6 rounded-xl border border-teal-200 bg-teal-50 p-5 dark:border-teal-900 dark:bg-slate-800">
+                <h3 className="font-semibold">Payroll tax residence & work locations</h3>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Employment pay and W-4 settings feed payroll. Residence, work locations, exemptions and state elections use the same tax profile as Payroll. State elections override the default state fields below. Recalculate draft payroll after changes; paid payslips retain their original amounts.</p>
+                <button onClick={() => setShowTaxSetup(v => !v)} className="mt-3 rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white">{showTaxSetup ? 'Close tax profile' : 'Review payroll tax profile'}</button>
+                {showTaxSetup && <div className="mt-5"><TaxSetup employeeId={employee.id} selectedEmployee={employee} onSaved={onUpdate} /></div>}
+              </section>
+            )}
             {activeTab === 'Employment' && (
               <div className="space-y-6 relative">
                 {!isEditing ? (
@@ -1520,20 +1538,20 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                     <ContentCard title="Work details">
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <LabelValue 
-                          label="Deputy access level" 
+                          label="Access role"
                           value={employee.role === 'BUSINESS_ADMIN' ? 'System Administrator' : 
                                  employee.role === 'SUPER_ADMIN' ? 'System Administrator' : 
                                  employee.role.charAt(0) + employee.role.slice(1).toLowerCase().replace('_', ' ')}
                         />
-                        <LabelValue label="Works at" value="Igwe Scissors" />
+                        <LabelValue label="Works at" value={(employee as any).defaultLocation?.name || selectedBusiness?.name || "Not assigned"} />
                         <LabelValue 
                           label="Hired on" 
-                          value={employee.hireDate ? new Date(employee.hireDate).toLocaleDateString() : 'Not set'}
+                          value={employee.hireDate ? formatDate(employee.hireDate) : 'Not set'}
                         />
                         <LabelValue 
                           label="Training" 
-                          value="None" 
-                          subValue={<button className="text-indigo-600 hover:underline text-xs font-medium">Add training</button>}
+                          value="View qualifications"
+                          subValue={<button onClick={() => setActiveTab("Qualifications")} className="text-indigo-600 hover:underline text-xs font-medium">Review training</button>}
                         />
                       </div>
                     </ContentCard>
@@ -1555,40 +1573,41 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                         <LabelValue 
                           label="Active Roles" 
                           value={[
-                             (employee.w2Profile || employee.workerType === 'W2') && 'W-2 Employee',
-                             (employee.contractorProfile || employee.workerType === 'CONTRACTOR_1099') && '1099 Contractor'
+                             (employee.workerType !== 'CONTRACTOR_1099') && 'W-2 Employee',
+                             (['CONTRACTOR_1099','BOTH'].includes(employee.workerType || 'W2')) && '1099 Contractor'
                            ].filter(Boolean).join(', ') || 'None'}
                         />
                         <LabelValue 
                           label="Employment type" 
                           value={employee.type || 'Not set'} 
-                          isSensitive={true}
+                          isSensitive={!showSensitiveData}
                         />
                         <LabelValue 
                           label="Payroll ID" 
                           value={employee.payrollId || 'Not set'}
                           subValue={!employee.payrollId && <button onClick={handleStartEdit} className="text-indigo-600 hover:underline text-xs font-medium">Add ID</button>}
-                          isSensitive={true}
+                          isSensitive={!showSensitiveData}
                         />
                         <LabelValue 
                           label="Pay rate (Default)" 
                           value={
-                               employee.w2Profile?.rate 
-                                 ? `${formatCurrency(Number(employee.w2Profile.rate), selectedBusiness?.currencyCode)}/${employee.w2Profile.payType === 'SALARY' ? 'yr' : 'hr'}`
-                                 : employee.hourlyRate ? `${formatCurrency(Number(employee.hourlyRate), selectedBusiness?.currencyCode)}/hr` : 'Not set'
+                               (() => { const pay = savedPay(employee as any); return pay ? `${formatCurrency(pay.amount, selectedBusiness?.currencyCode)}/${pay.unit === 'year' ? 'yr' : 'hr'}` : 'Not set'; })()
                            }
-                           isSensitive={true}
+                           isSensitive={!showSensitiveData}
                         />
                       </div>
 
                       {/* W-2 Section */}
-                      {(employee.w2Profile || employee.workerType === 'W2') && (
+                      {(employee.workerType !== 'CONTRACTOR_1099') && (
                         <div className={`pt-6 border-t border-gray-100 dark:border-slate-700/50 ${showSensitiveData ? '' : 'blur-sm select-none'}`}>
                           <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                             <Briefcase className="w-4 h-4 text-gray-400" />
                             W-2 Tax Information
                           </h4>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <LabelValue label="Pay schedule" value={({WEEKLY:'Weekly',BI_WEEKLY:'Every two weeks',SEMI_MONTHLY:'Twice monthly',MONTHLY:'Monthly'} as Record<string,string>)[employee.w2Profile?.paySchedule || employee.paySchedule || 'BI_WEEKLY'] || 'Not set'} />
+                            <LabelValue label="Federal extra withholding / paycheck" value={formatCurrency(employee.w2Profile?.additionalWithholding ?? employee.additionalWithholding ?? 0, selectedBusiness?.currencyCode)} />
+                            <LabelValue label="State extra withholding / paycheck" value={formatCurrency(employee.w2Profile?.stateAdditionalWithholding ?? employee.stateAdditionalWithholding ?? 0, selectedBusiness?.currencyCode)} />
                             <LabelValue label="Filing Status" value={employee.w2Profile?.filingStatus || employee.filingStatus || 'Not set'} />
                             <LabelValue label="Tax State" value={employee.w2Profile?.taxState || employee.taxState || 'DC'} />
                             <LabelValue 
@@ -1605,13 +1624,14 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                       )}
 
                       {/* Contractor Section */}
-                      {(employee.contractorProfile || employee.workerType === 'CONTRACTOR_1099') && (
+                      {(['CONTRACTOR_1099','BOTH'].includes(employee.workerType || 'W2')) && (
                         <div className={`pt-6 mt-6 border-t border-gray-100 dark:border-slate-700/50 ${showSensitiveData ? '' : 'blur-sm select-none'}`}>
                           <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                             <Briefcase className="w-4 h-4 text-gray-400" />
                             1099 Contractor Details
                           </h4>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <LabelValue label="Contractor hourly rate" value={employee.contractorProfile?.rate != null ? `${formatCurrency(employee.contractorProfile.rate,selectedBusiness?.currencyCode)}/hr` : employee.workerType === 'CONTRACTOR_1099' && employee.hourlyRate != null ? `${formatCurrency(employee.hourlyRate,selectedBusiness?.currencyCode)}/hr` : 'Not set'} />
                             <LabelValue label="Business Name" value={employee.contractorProfile?.businessName || employee.contractorBusinessName || 'N/A'} />
                             <LabelValue label="Type" value={employee.contractorProfile?.type || employee.contractorType || 'Individual'} />
                             <LabelValue 
@@ -1641,15 +1661,15 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                         />
                         <LabelValue 
                           label="Hours per period" 
-                          value={employee.hoursPerPeriod || 'Not set'}
+                          value={employee.hoursPerPeriod ?? 'Not set'}
                           subValue={!employee.hoursPerPeriod && <button onClick={handleStartEdit} className="text-indigo-600 hover:underline text-xs font-medium">Set hours</button>}
                         />
                         <LabelValue 
                           label="Days per period" 
-                          value={employee.daysPerPeriod || 'Not set'}
+                          value={employee.daysPerPeriod ?? 'Not set'}
                           subValue={!employee.daysPerPeriod && <button onClick={handleStartEdit} className="text-indigo-600 hover:underline text-xs font-medium">Set days</button>}
                         />
-                        <LabelValue label="Stress profile" value={employee.stressProfile || '24/7'} />
+                        <LabelValue label="Stress profile" value={employee.stressProfile || 'Not set'} />
                       </div>
                     </ContentCard>
 
@@ -1689,12 +1709,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                           </div>
                           <div>
                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Hire Date</label>
-                             <input 
-                               type="date" 
-                               value={editFormData.hireDate ? new Date(editFormData.hireDate).toISOString().split('T')[0] : ''} 
-                               onChange={(e) => handleInputChange('hireDate', e.target.value ? new Date(e.target.value).toISOString() : '')}
-                               className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
-                             />
+                             <AmericanDateInput aria-label="Hire date" value={editFormData.hireDate ? editFormData.hireDate.slice(0,10) : ''} onChange={(value) => handleInputChange('hireDate', value)} className="w-full rounded-lg border border-gray-300 px-4 py-2.5 dark:bg-slate-700 dark:border-slate-600" />
                           </div>
                           <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Employment Type</label>
@@ -1740,18 +1755,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                                 className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
                               />
                            </div>
-                           <div className="flex items-center pt-8">
-                              <input
-                                type="checkbox"
-                                id="overtimeEligibleEmployment"
-                                checked={editFormData.overtimeEligible ?? true}
-                                onChange={(e) => handleInputChange('overtimeEligible', e.target.checked)}
-                                className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded transition-colors"
-                              />
-                              <label htmlFor="overtimeEligibleEmployment" className="ml-3 block text-sm font-medium text-gray-900 dark:text-white">
-                                Eligible for Overtime
-                              </label>
-                           </div>
+
                         </div>
                       </section>
 
@@ -1761,7 +1765,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                            <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Worker Type</label>
-                              <select
+                              <select aria-label="Worker classification"
                                 value={editFormData.workerType || 'W2'}
                                 onChange={(e) => handleInputChange('workerType', e.target.value)}
                                 className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
@@ -1782,7 +1786,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               <div>
                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filing Status</label>
-                                 <select
+                                 <select aria-label="Federal filing status"
                                    value={editFormData.filingStatus || ''}
                                    onChange={(e) => handleInputChange('filingStatus', e.target.value)}
                                    className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
@@ -1793,6 +1797,9 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                                    <option value="HEAD_OF_HOUSEHOLD">Head of Household</option>
                                  </select>
                               </div>
+                              <label className="block text-sm font-medium">Legacy W-4 allowances (pre-2020 forms only)
+                                <input aria-label="Legacy federal allowances" type="number" min="0" step="1" value={editFormData.federalAllowances ?? 0} onChange={(e) => handleInputChange('federalAllowances',Number(e.target.value))} className="mt-2 w-full rounded-lg border p-3 dark:bg-slate-700" />
+                              </label>
                               <div className="flex items-center pt-8">
                                 <input
                                   type="checkbox"
@@ -1806,8 +1813,8 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                                 </label>
                               </div>
                               <div>
-                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dependents Amount ($)</label>
-                                 <input 
+                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">W-4 Step 3 credits (annual $)</label>
+                                 <input aria-label="Annual W-4 credits" min="0" step="0.01"
                                    type="number" 
                                    value={editFormData.dependentsAmount || 0} 
                                    onChange={(e) => handleInputChange('dependentsAmount', parseFloat(e.target.value))}
@@ -1815,8 +1822,8 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                                  />
                               </div>
                               <div>
-                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Other Income ($)</label>
-                                 <input 
+                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">W-4 Step 4(a) other income (annual $)</label>
+                                 <input aria-label="Annual other income" min="0" step="0.01"
                                    type="number" 
                                    value={editFormData.otherIncome || 0} 
                                    onChange={(e) => handleInputChange('otherIncome', parseFloat(e.target.value))}
@@ -1824,8 +1831,8 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                                  />
                               </div>
                               <div>
-                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deductions ($)</label>
-                                 <input 
+                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">W-4 Step 4(b) deductions (annual $)</label>
+                                 <input aria-label="Annual W-4 deductions" min="0" step="0.01"
                                    type="number" 
                                    value={editFormData.deductionsAmount || 0} 
                                    onChange={(e) => handleInputChange('deductionsAmount', parseFloat(e.target.value))}
@@ -1833,8 +1840,8 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                                  />
                               </div>
                               <div>
-                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Extra Withholding ($)</label>
-                                 <input 
+                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">W-4 Step 4(c) extra withholding ($ per paycheck)</label>
+                                 <input aria-label="Federal extra withholding" min="0" step="0.01"
                                    type="number" 
                                    value={editFormData.additionalWithholding || 0} 
                                    onChange={(e) => handleInputChange('additionalWithholding', parseFloat(e.target.value))}
@@ -1848,21 +1855,13 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                  <div>
                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tax State</label>
-                                   <input 
-                                     type="text" 
-                                     value={editFormData.taxState || 'DC'} 
-                                     onChange={(e) => handleInputChange('taxState', e.target.value)}
-                                     className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
-                                   />
+                                   <select aria-label="Default tax state" value={editFormData.taxState || ''} onChange={(e) => handleInputChange('taxState', e.target.value)} className="w-full rounded-lg border p-3 dark:bg-slate-700"><option value="">Select state</option>{'AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' ').map(state => <option key={state} value={state}>{state === 'DC' ? 'Washington, DC' : state}</option>)}</select>
                                  </div>
                                  <div>
                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State Filing Status</label>
-                                   <input 
-                                     type="text" 
-                                     value={editFormData.stateFilingStatus || ''} 
-                                     onChange={(e) => handleInputChange('stateFilingStatus', e.target.value)}
-                                     className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
-                                   />
+                                   <select aria-label="State filing status" value={editFormData.stateFilingStatus || ''} onChange={(e) => handleInputChange('stateFilingStatus',e.target.value)} className="w-full rounded-lg border p-3 dark:bg-slate-700"><option value="">Use federal filing status</option><option value="SINGLE">Single</option><option value="MARRIED_JOINT">Married filing jointly</option><option value="MARRIED_SEPARATE">Married filing separately</option><option value="HEAD_OF_HOUSEHOLD">Head of household</option></select>
+                                   <label className="mt-4 block text-sm">State allowances<input aria-label="State allowances" type="number" min="0" step="1" value={editFormData.stateAllowances ?? 0} onChange={(e) => handleInputChange('stateAllowances',Number(e.target.value))} className="mt-1 w-full rounded-lg border p-3 dark:bg-slate-700" /></label>
+                                   <label className="mt-4 block text-sm">State extra withholding ($ per paycheck)<input aria-label="State extra withholding" type="number" min="0" step="0.01" value={editFormData.stateAdditionalWithholding ?? 0} onChange={(e) => handleInputChange('stateAdditionalWithholding',Number(e.target.value))} className="mt-1 w-full rounded-lg border p-3 dark:bg-slate-700" /></label>
                                  </div>
                               </div>
                             </div>
@@ -1915,38 +1914,52 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                         )}
                       </section>
 
+                      {editFormData.workerType === 'BOTH' && <label className="block text-sm font-medium">Contractor hourly rate (separate from W-2 pay)
+                        <input aria-label="Contractor hourly rate" type="number" min="0" step="0.01" value={editFormData.contractorProfile?.rate ?? ''} onChange={(e) => handleContractorChange('rate', e.target.value === '' ? undefined : Number(e.target.value))} className="mt-2 w-full rounded-lg border p-3 dark:bg-slate-700" />
+                      </label>}
+                      <section className="grid gap-4 md:grid-cols-3">
+                        <label className="block text-sm font-medium">Work period<input aria-label="Work period" maxLength={100} value={editFormData.workPeriod || ''} onChange={(e) => handleInputChange('workPeriod',e.target.value)} placeholder="e.g. Two weeks" className="mt-2 w-full rounded-lg border p-3 dark:bg-slate-700" /></label>
+                        <label className="block text-sm font-medium">Regular hours per period<input aria-label="Regular hours per period" type="number" min="0" step="0.01" value={editFormData.hoursPerPeriod ?? ''} onChange={(e) => handleInputChange('hoursPerPeriod',e.target.value === '' ? null : Number(e.target.value))} className="mt-2 w-full rounded-lg border p-3 dark:bg-slate-700" /></label>
+                        <label className="block text-sm font-medium">Regular days per period<input aria-label="Regular days per period" type="number" min="0" step="1" value={editFormData.daysPerPeriod ?? ''} onChange={(e) => handleInputChange('daysPerPeriod',e.target.value === '' ? null : Number(e.target.value))} className="mt-2 w-full rounded-lg border p-3 dark:bg-slate-700" /></label>
+                        <p className="text-xs text-slate-500 md:col-span-3">Regular hours describe the employee’s work pattern. Hourly payroll uses approved timesheets.</p>
+                      </section>
+                      <label className="block text-sm font-medium">Pay schedule
+                        <select aria-label="Pay schedule" value={editFormData.paySchedule || 'BI_WEEKLY'} onChange={(e) => handleInputChange('paySchedule',e.target.value)} className="mt-2 w-full rounded-lg border p-3 dark:bg-slate-700">
+                          <option value="WEEKLY">Weekly</option><option value="BI_WEEKLY">Every two weeks</option><option value="SEMI_MONTHLY">Twice monthly</option><option value="MONTHLY">Monthly</option>
+                        </select>
+                      </label>
                       {/* Edit Pay Details */}
                       <section className="animate-in fade-in slide-in-from-right-4 duration-200 delay-100">
                         <h4 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider mb-4">Pay Details</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                            <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Pay Type</label>
-                              <select
+                              <select aria-label="Pay type"
                                 value={editFormData.payType || ''}
                                 onChange={(e) => handleInputChange('payType', e.target.value)}
                                 className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
                               >
                                 <option value="HOURLY">Hourly</option>
-                                <option value="SALARY">Salary</option>
+                                {editFormData.workerType !== 'CONTRACTOR_1099' && <option value="SALARY">Annual salary</option>}
                               </select>
                            </div>
                            {editFormData.payType === 'HOURLY' && (
                              <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Hourly Rate</label>
-                                <input 
+                                <input aria-label="Hourly rate" min="0" step="0.01"
                                   type="number" 
-                                  value={editFormData.hourlyRate || ''} 
+                                  value={editFormData.hourlyRate ?? ''}
                                   onChange={(e) => handleInputChange('hourlyRate', parseFloat(e.target.value))}
                                   className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
                                 />
                              </div>
                            )}
-                           {editFormData.payType === 'SALARY' && (
+                           {editFormData.workerType !== 'CONTRACTOR_1099' && editFormData.payType === 'SALARY' && (
                              <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Annual Salary</label>
-                                <input 
+                                <input aria-label="Annual salary" min="0" step="0.01"
                                   type="number" 
-                                  value={editFormData.salary || ''} 
+                                  value={editFormData.salary ?? ''}
                                   onChange={(e) => handleInputChange('salary', parseFloat(e.target.value))}
                                   className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
                                 />
@@ -1956,7 +1969,8 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                               <input
                                 type="checkbox"
                                 id="overtimeEligible"
-                                checked={editFormData.overtimeEligible ?? true}
+                                disabled={editFormData.workerType === 'CONTRACTOR_1099'}
+                                checked={editFormData.workerType !== 'CONTRACTOR_1099' && (editFormData.overtimeEligible ?? true)}
                                 onChange={(e) => handleInputChange('overtimeEligible', e.target.checked)}
                                 className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded transition-colors"
                               />
@@ -1976,9 +1990,10 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                          </button>
                          <button 
                            onClick={handleSave}
+                           disabled={savingEmployment}
                            className="px-6 py-2.5 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all"
                          >
-                           Save Changes
+                           {savingEmployment ? 'Saving…' : 'Save Changes'}
                          </button>
                       </div>
                     </div>

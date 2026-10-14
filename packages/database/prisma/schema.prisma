@@ -524,6 +524,7 @@ model Client {
   billingContactEmail String?
   billingContactEmail2 String?
   billingContactEmail3 String?
+  ccEmails String @default("[]") // JSON array of invoice CC recipients
   paymentTerms String?
   
   locations   Location[]
@@ -550,6 +551,7 @@ model Location {
   radius      Int?     // Geofence radius in meters
 
   workOrder   String?
+  billingPins String @default("[]") // Billing references only; unrelated to timekeeping
   startDate   DateTime?
   endDate     DateTime?
   

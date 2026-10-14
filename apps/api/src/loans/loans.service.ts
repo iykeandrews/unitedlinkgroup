@@ -12,6 +12,12 @@ export class LoansService {
         return businessIdHeader;
     }
 
+    if (businessIdHeader) {
+      const owned=await this.prisma.business.findFirst({where:{id:businessIdHeader,ownerId:user.userId},select:{id:true}});
+      const member=await this.prisma.employee.findFirst({where:{businessId:businessIdHeader,userId:user.userId,status:'ACTIVE'},select:{id:true}});
+      if(!owned && !member)throw new BadRequestException('Access denied: Cannot access another business data');
+      return businessIdHeader;
+    }
     let userBusinessId = user.businessId;
     if (!userBusinessId) {
         const employee = await this.prisma.employee.findFirst({ where: { userId: user.userId } });

@@ -17,6 +17,7 @@ import {
 import { useBusiness } from "../../../../context/business-context";
 import { downloadCsv } from "../../../../lib/time/records";
 import { useAuth } from "../../../../context/auth-context";
+import { stringList } from "@/components/billing/BillingReferences";
 import Link from "next/link";
 import api from "../../../../lib/api";
 
@@ -27,6 +28,7 @@ interface Location {
   address: string;
   status: string;
   workOrder?: string;
+  billingPins?: string;
   startDate?: string;
   endDate?: string;
   client?: {
@@ -100,7 +102,7 @@ export default function SitesPage() {
       "Client",
       "Address",
       "Status",
-      "Service Pins",
+      "Billing Pins",
     ];
     downloadCsv(
       [
@@ -111,7 +113,7 @@ export default function SitesPage() {
           s.client?.name,
           s.address,
           s.status,
-          s.servicePins?.length || 0,
+          stringList(s.billingPins).length,
         ]),
       ],
       "sites.csv",
@@ -166,10 +168,10 @@ export default function SitesPage() {
           {sites.filter((s) => s.status === "ACTIVE").length} active ·{" "}
           {
             sites.filter(
-              (s) => !s.servicePins?.some((p: any) => p.status === "ACTIVE"),
+              (s) => !stringList(s.billingPins).length,
             ).length
           }{" "}
-          without active pins
+          without billing pins (optional)
         </span>
         <button onClick={fetchSites} className="text-purple-600">
           Refresh
@@ -260,7 +262,7 @@ export default function SitesPage() {
                   Address
                 </th>
                 <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Service Pins
+                  Billing Pins
                 </th>
                 <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Status
@@ -337,7 +339,7 @@ export default function SitesPage() {
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
                         <Navigation size={12} />
-                        {site.servicePins?.length || 0} Pins
+                        {stringList(site.billingPins).length} Billing pins
                       </span>
                     </td>
                     <td className="px-6 py-4">

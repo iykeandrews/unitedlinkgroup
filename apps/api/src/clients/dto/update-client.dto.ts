@@ -1,3 +1,4 @@
+import { IsArray, ArrayMaxSize, MaxLength } from 'class-validator';
 import { IsString, IsOptional, IsEnum, IsBoolean, IsEmail } from 'class-validator';
 
 export class UpdateClientDto {
@@ -47,7 +48,7 @@ export class UpdateClientDto {
 
   @IsEmail()
   @IsOptional()
-  email?: string;
+  email?: string | null;
 
   @IsString()
   @IsOptional()
@@ -67,17 +68,23 @@ export class UpdateClientDto {
 
   @IsEmail()
   @IsOptional()
-  billingContactEmail?: string;
+  billingContactEmail?: string | null;
 
   @IsEmail()
   @IsOptional()
-  billingContactEmail2?: string;
+  billingContactEmail2?: string | null;
 
   @IsEmail()
   @IsOptional()
-  billingContactEmail3?: string;
+  billingContactEmail3?: string | null;
 
   @IsString()
   @IsOptional()
   paymentTerms?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsEmail({}, { each: true })
+  ccEmails?: string[];
+
 }

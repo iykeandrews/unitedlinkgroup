@@ -1,8 +1,10 @@
+
 {
   "expo": {
     "name": "United Link Group",
     "slug": "unitedlinkgroup",
     "version": "1.0.0",
+    "icon": "./assets/logo.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
@@ -10,10 +12,19 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.unitedlinkgroup.mobile"
+      "bundleIdentifier": "com.unitedlinkgroup.mobile",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "United Link Group uses your location while you are clocked in to verify arrival at your assigned work site and to confirm you remain within its approved work-site radius."
+      }
     },
     "android": {
-      "adaptiveIcon": {},
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
       "package": "com.unitedlinkgroup.mobile"
     },
     "web": {

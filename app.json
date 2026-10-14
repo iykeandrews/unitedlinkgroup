@@ -7,6 +7,12 @@
     },
     "android": {
       "package": "com.unitedlinkgroup.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.unitedlinkgroup.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     }
   }
 }

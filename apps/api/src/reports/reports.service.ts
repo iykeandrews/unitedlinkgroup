@@ -1,21 +1,74 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../prisma.service';
-import { invoiceTracking } from '../invoices/invoice-accounting';
+import { validDay } from "../payroll/us-tax";
+import { performanceMetrics, reportHours } from "./performance.util";
+import { effectivePay } from "../employees/employment.util";
+import { Injectable, BadRequestException } from "@nestjs/common";
+import { PrismaService } from "../prisma.service";
+import { invoiceTracking } from "../invoices/invoice-accounting";
 
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
   private async getBusinessId(userId: string): Promise<string> {
-    const employee = await this.prisma.employee.findFirst({ where: { userId } });
-    if (!employee) throw new BadRequestException('User is not associated with a business');
+    const employee = await this.prisma.employee.findFirst({
+      where: { userId },
+    });
+    if (!employee)
+      throw new BadRequestException("User is not associated with a business");
     return employee.businessId;
   }
 
+  private reportRange(startDate?: string, endDate?: string) {
+    for(const day of [startDate,endDate]) if(day && !validDay(day.slice(0,10))) throw new BadRequestException("Invalid date range");
+    const start = startDate ? new Date(startDate) : undefined;
+    const end = endDate ? new Date(endDate) : undefined;
+    if (end && /^\d{4}-\d{2}-\d{2}$/.test(endDate!))
+      end.setUTCHours(23, 59, 59, 999);
+    if (
+      (start && !Number.isFinite(+start)) ||
+      (end && !Number.isFinite(+end)) ||
+      (start && end && end < start)
+    )
+      throw new BadRequestException("Invalid date range");
+    return { gte: start, lte: end };
+  }
+  async resolveBusiness(
+    user: any,
+    header?: string,
+    query?: string,
+  ): Promise<string> {
+    const businessId = query || header || user.businessId;
+    const userId = user.userId || user.sub || user.id;
+    if (!businessId)
+      throw new BadRequestException("Select a business to view reports");
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, ownerId: true },
+    });
+    if (!business) throw new BadRequestException("Business not found");
+    if (user.role === "SUPER_ADMIN" || business.ownerId === userId)
+      return businessId;
+    if (
+      !(await this.prisma.employee.findFirst({
+        where: { userId, businessId, status: "ACTIVE" },
+        select: { id: true },
+      }))
+    )
+      throw new BadRequestException("Access denied for this business");
+    return businessId;
+  }
   async getDashboardStats(businessId: string) {
     const now = new Date();
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const startOfDay = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const endOfDay = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+    );
 
     const [
       activeEmployees,
@@ -24,68 +77,71 @@ export class ReportsService {
       pendingLoanRequests,
       pendingShiftApplications,
       scheduledShiftsRaw,
-      onShiftNow
+      onShiftNow,
     ] = await Promise.all([
       this.prisma.employee.count({
-        where: { businessId, status: 'ACTIVE' },
+        where: { businessId, status: "ACTIVE" },
       }),
       this.prisma.payroll.findFirst({
         where: {
           businessId,
-          status: 'DRAFT',
+          status: "DRAFT",
         },
-        orderBy: { payDate: 'asc' },
+        orderBy: { payDate: "asc" },
       }),
       this.prisma.leaveRequest.count({
         where: {
           employee: { businessId },
-          status: 'PENDING',
+          status: "PENDING",
         },
       }),
       this.prisma.loan.count({
         where: {
           employee: { businessId },
-          status: 'PENDING',
+          status: "PENDING",
         },
       }),
       (this.prisma as any).shiftApplication.count({
         where: {
           shift: { businessId },
-          status: 'PENDING',
+          status: "PENDING",
         },
       }),
       this.prisma.shift.findMany({
         where: {
           businessId,
           startTime: {
-            lte: endOfDay
+            lte: endOfDay,
           },
           endTime: {
-            gte: startOfDay
+            gte: startOfDay,
           },
-          employeeId: { not: null }
+          employeeId: { not: null },
         },
-        distinct: ['employeeId'],
-        select: { employeeId: true }
+        distinct: ["employeeId"],
+        select: { employeeId: true },
       }),
       this.prisma.timesheet.count({
         where: {
           employee: { businessId },
           startTime: { lte: now },
-          endTime: null
-        }
-      })
+          endTime: null,
+        },
+      }),
     ]);
 
     return {
       activeEmployees,
-      nextPayroll: nextPayroll ? {
-        payDate: nextPayroll.payDate,
-        periodEnd: nextPayroll.periodEnd,
-      } : null,
-      pendingRequests: pendingLeaveRequests + pendingLoanRequests + pendingShiftApplications,
+      nextPayroll: nextPayroll
+        ? {
+            payDate: nextPayroll.payDate,
+            periodEnd: nextPayroll.periodEnd,
+          }
+        : null,
+      pendingRequests:
+        pendingLeaveRequests + pendingLoanRequests + pendingShiftApplications,
       scheduledToday: scheduledShiftsRaw.length,
-      onShiftNow
+      onShiftNow,
     };
   }
 
@@ -103,10 +159,25 @@ export class ReportsService {
       return t.toISOString().slice(0, 10);
     };
 
-    const [invoiceAgg, paymentAgg, recentInvoices, recentPayments, invoicesInRange, paymentsInRange] = await Promise.all([
+    const [
+      invoiceAgg,
+      paymentAgg,
+      recentInvoices,
+      recentPayments,
+      invoicesInRange,
+      paymentsInRange,
+    ] = await Promise.all([
       this.prisma.invoice.findMany({
         where: { businessId },
-        select: { status: true, total: true, updatedAt: true, dueDate: true, payments: { select: { amountCents: true, paidAt: true, voidedAt: true } } },
+        select: {
+          status: true,
+          total: true,
+          updatedAt: true,
+          dueDate: true,
+          payments: {
+            select: { amountCents: true, paidAt: true, voidedAt: true },
+          },
+        },
       }),
       this.prisma.payment.findMany({
         where: { businessId },
@@ -114,12 +185,14 @@ export class ReportsService {
       }),
       this.prisma.invoice.findMany({
         where: { businessId },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { updatedAt: "desc" },
         take: 8,
         select: {
           id: true,
           invoiceNumber: true,
-          payments: { select: { amountCents: true, paidAt: true, voidedAt: true } },
+          payments: {
+            select: { amountCents: true, paidAt: true, voidedAt: true },
+          },
           status: true,
           total: true,
           dueDate: true,
@@ -129,7 +202,7 @@ export class ReportsService {
       }),
       this.prisma.payment.findMany({
         where: { businessId },
-        orderBy: { date: 'desc' },
+        orderBy: { date: "desc" },
         take: 8,
         select: {
           id: true,
@@ -145,14 +218,18 @@ export class ReportsService {
         },
       }),
       this.prisma.invoice.findMany({
-        where: { businessId, issueDate: { gte: from }, status: { notIn: ['DRAFT', 'VOID', 'CANCELLED'] } },
+        where: {
+          businessId,
+          issueDate: { gte: from },
+          status: { notIn: ["DRAFT", "VOID", "CANCELLED"] },
+        },
         select: { issueDate: true, total: true, status: true, updatedAt: true },
-        orderBy: { issueDate: 'asc' },
+        orderBy: { issueDate: "asc" },
       }),
       this.prisma.payment.findMany({
         where: { businessId, date: { gte: from } },
         select: { date: true, amount: true, status: true },
-        orderBy: { date: 'asc' },
+        orderBy: { date: "asc" },
       }),
     ]);
 
@@ -169,20 +246,32 @@ export class ReportsService {
       cur.total += inv.total || 0;
       statusCounts.set(s, cur);
 
-      if (!['DRAFT', 'VOID'].includes(s)) outstandingTotal += tracked.balanceDue;
+      if (!["DRAFT", "VOID"].includes(s))
+        outstandingTotal += tracked.balanceDue;
       if (tracked.isOverdue) overdueTotal += tracked.balanceDue;
-      if (tracked.legacyPaid && inv.updatedAt >= from) paidLastTotal += inv.total || 0;
-      else for (const payment of inv.payments) if (!payment.voidedAt && payment.paidAt >= from && payment.paidAt <= now) paidLastTotal += payment.amountCents / 100;
+      if (tracked.legacyPaid && inv.updatedAt >= from)
+        paidLastTotal += inv.total || 0;
+      else
+        for (const payment of inv.payments)
+          if (
+            !payment.voidedAt &&
+            payment.paidAt >= from &&
+            payment.paidAt <= now
+          )
+            paidLastTotal += payment.amountCents / 100;
     }
 
     let expensesLastTotal = 0;
     for (const p of paymentAgg) {
-      if ((p.status || 'COMPLETED') === 'COMPLETED' && p.date >= from) {
+      if ((p.status || "COMPLETED") === "COMPLETED" && p.date >= from) {
         expensesLastTotal += p.amount || 0;
       }
     }
 
-    const cashflowMap = new Map<string, { invoicesTotal: number; paymentsTotal: number }>();
+    const cashflowMap = new Map<
+      string,
+      { invoicesTotal: number; paymentsTotal: number }
+    >();
     for (const inv of invoicesInRange) {
       const k = weekKey(inv.issueDate);
       const cur = cashflowMap.get(k) || { invoicesTotal: 0, paymentsTotal: 0 };
@@ -190,7 +279,7 @@ export class ReportsService {
       cashflowMap.set(k, cur);
     }
     for (const pay of paymentsInRange) {
-      if ((pay.status || 'COMPLETED') !== 'COMPLETED') continue;
+      if ((pay.status || "COMPLETED") !== "COMPLETED") continue;
       const k = weekKey(pay.date);
       const cur = cashflowMap.get(k) || { invoicesTotal: 0, paymentsTotal: 0 };
       cur.paymentsTotal += pay.amount || 0;
@@ -199,11 +288,19 @@ export class ReportsService {
 
     const cashflowWeekly = Array.from(cashflowMap.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([week, v]) => ({ week, invoicesTotal: Math.round(v.invoicesTotal * 100) / 100, paymentsTotal: Math.round(v.paymentsTotal * 100) / 100 }));
+      .map(([week, v]) => ({
+        week,
+        invoicesTotal: Math.round(v.invoicesTotal * 100) / 100,
+        paymentsTotal: Math.round(v.paymentsTotal * 100) / 100,
+      }));
 
     const invoicesByStatus = Array.from(statusCounts.entries())
       .sort((a, b) => b[1].total - a[1].total)
-      .map(([status, v]) => ({ status, count: v.count, total: Math.round(v.total * 100) / 100 }));
+      .map(([status, v]) => ({
+        status,
+        count: v.count,
+        total: Math.round(v.total * 100) / 100,
+      }));
 
     return {
       now,
@@ -219,26 +316,24 @@ export class ReportsService {
         invoicesByStatus,
       },
       recent: {
-        invoices: recentInvoices.map(invoice => invoiceTracking(invoice)),
+        invoices: recentInvoices.map((invoice) => invoiceTracking(invoice)),
         payments: recentPayments,
       },
     };
   }
 
-  async getPayrollSummary(userId: string, startDate?: string, endDate?: string) {
-    const businessId = await this.getBusinessId(userId);
-    
+  async getPayrollSummary(
+    businessId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
     const where: any = {
       businessId,
-      status: 'PROCESSED',
+      status: "PAID",
     };
 
-    if (startDate && endDate) {
-      where.payDate = {
-        gte: new Date(startDate),
-        lte: new Date(endDate),
-      };
-    }
+    if (startDate || endDate)
+      where.payDate = this.reportRange(startDate, endDate);
 
     const payrolls = await this.prisma.payroll.findMany({
       where,
@@ -274,19 +369,28 @@ export class ReportsService {
     };
   }
 
-  async getLaborCostAnalysis(businessId: string, startDate?: string, endDate?: string) {
+  async getLaborCostAnalysis(
+    businessId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const range = this.reportRange(startDate, endDate);
     // This could be complex, involving scheduled hours vs actual hours vs cost
     // For now, let's just return total hours worked vs scheduled cost estimation
-    
+
     // Fetch all timesheets in range
     // We need to join with Employee to filter by businessId
     const timesheets = await this.prisma.timesheet.findMany({
       where: {
         employee: { businessId },
-        startTime: { gte: startDate ? new Date(startDate) : undefined },
-        endTime: { lte: endDate ? new Date(endDate) : undefined },
+        startTime: { lte: range.lte },
+        endTime: { gt: range.gte },
+        status: { notIn: ["DISCARDED", "REJECTED"] },
       },
-      include: { employee: true },
+      include: {
+        employee: { include: { w2Profile: true, contractorProfile: true } },
+        breaks: true,
+      },
     });
 
     let totalHours = 0;
@@ -294,14 +398,22 @@ export class ReportsService {
 
     timesheets.forEach((ts: any) => {
       if (ts.endTime) {
-        const durationHours = (ts.endTime.getTime() - ts.startTime.getTime()) / (1000 * 60 * 60);
+        const durationHours = reportHours(
+          ts,
+          range.gte ? +range.gte : -Infinity,
+          range.lte ? +range.lte : Infinity,
+        );
         totalHours += durationHours;
-        
-        if (ts.employee.hourlyRate) {
-          estimatedCost += durationHours * ts.employee.hourlyRate;
-        } else if (ts.employee.salary) {
+
+        const pay = effectivePay({
+          ...ts.employee,
+          workerType: ts.workerType || ts.employee.workerType,
+        });
+        if (pay.hourlyRate !== null) {
+          estimatedCost += durationHours * pay.hourlyRate;
+        } else if (pay.salary !== null) {
           // Approximate hourly cost for salaried employees
-          const hourlyRate = ts.employee.salary / (52 * 40);
+          const hourlyRate = pay.salary / (52 * 40);
           estimatedCost += durationHours * hourlyRate;
         }
       }
@@ -314,25 +426,75 @@ export class ReportsService {
     };
   }
 
-  async getAttendanceReport(businessId: string, startDate?: string, endDate?: string) {
-    const start = startDate ? new Date(startDate) : undefined;
-    const end = endDate ? new Date(endDate) : undefined;
+  async getPerformanceReport(
+    businessId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const range = this.reportRange(startDate, endDate);
+    const start = range.gte || new Date(Date.now() - 30 * 86400000),
+      end = range.lte || new Date();
+    if (+end - +start > 366 * 86400000)
+      throw new BadRequestException(
+        "Choose a report period of at most one year",
+      );
+    const employee = {
+      select: { id: true, firstName: true, lastName: true, email: true },
+    };
+    const [sheets, shifts] = await Promise.all([
+      this.prisma.timesheet.findMany({
+        where: {
+          employee: { businessId },
+          startTime: { lte: end },
+          OR: [{ endTime: { gt: start } }, { endTime: null }],
+          status: { notIn: ["DISCARDED", "REJECTED"] },
+        },
+        include: { employee, breaks: true },
+      }),
+      this.prisma.shift.findMany({
+        where: {
+          businessId,
+          startTime: { lte: end },
+          endTime: { gt: start },
+          status: { in: ["PUBLISHED", "COMPLETED"] },
+          employeeId: { not: null },
+        },
+        include: { employee },
+      }),
+    ]);
+    return performanceMetrics(sheets, shifts, start, end);
+  }
 
-    if (!businessId || (start && !Number.isFinite(start.getTime())) || (end && !Number.isFinite(end.getTime())) || (start && end && end < start)) throw new BadRequestException('Choose a business and valid date range');
+  async getAttendanceReport(
+    businessId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const { gte: start, lte: end } = this.reportRange(startDate, endDate);
+
+    if (
+      !businessId ||
+      (start && !Number.isFinite(start.getTime())) ||
+      (end && !Number.isFinite(end.getTime())) ||
+      (start && end && end < start)
+    )
+      throw new BadRequestException("Choose a business and valid date range");
     const [timesheets, callouts] = await Promise.all([
       this.prisma.timesheet.findMany({
         where: {
           employee: { businessId },
           startTime: { lte: end },
           OR: [{ endTime: { gt: start } }, { endTime: null }],
-          status: { notIn: ['DISCARDED', 'REJECTED'] },
+          status: { notIn: ["DISCARDED", "REJECTED"] },
         },
         include: {
-          employee: { select: { id: true, firstName: true, lastName: true, email: true } },
+          employee: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
           breaks: true,
           location: true,
         },
-        orderBy: { startTime: 'desc' },
+        orderBy: { startTime: "desc" },
       }),
       (this.prisma as any).shiftCallout.findMany({
         where: {
@@ -366,7 +528,7 @@ export class ReportsService {
             },
           },
         },
-        orderBy: { noticeAt: 'desc' },
+        orderBy: { noticeAt: "desc" },
       }),
     ]);
 
@@ -385,38 +547,73 @@ export class ReportsService {
     };
   }
 
-  async getReliabilityReport(businessId: string, startDate?: string, endDate?: string) {
+  async getReliabilityReport(
+    businessId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
     const end = endDate ? new Date(endDate) : new Date();
-    const start = startDate ? new Date(startDate) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      throw new BadRequestException('Invalid date range');
+      throw new BadRequestException("Invalid date range");
     }
 
     const now = new Date();
     const effectiveEnd = new Date(Math.min(end.getTime(), now.getTime()));
 
-    const [employees, callouts, coverages, shifts, timesheets] = await Promise.all([
-      this.prisma.employee.findMany({
-        where: { businessId, status: 'ACTIVE' },
-        select: { id: true, firstName: true, lastName: true, email: true, role: true }
-      }),
-      (this.prisma as any).shiftCallout.findMany({
-        where: { businessId, noticeAt: { gte: start, lte: end } },
-        include: { shift: { select: { id: true, startTime: true, endTime: true } }, absentEmployee: { select: { id: true } } }
-      }),
-      (this.prisma as any).shiftCoverage.findMany({
-        where: { businessId, reassignedAt: { gte: start, lte: end } },
-        include: { shift: { select: { id: true, startTime: true, endTime: true } }, replacementEmployee: { select: { id: true } } }
-      }),
-      this.prisma.shift.findMany({
-        where: { businessId, startTime: { gte: start, lte: end } },
-        select: { id: true, startTime: true, endTime: true, employeeId: true }
-      }),
-      this.prisma.timesheet.findMany({
-        where: { employee: { businessId }, startTime: { gte: new Date(start.getTime() - 2 * 24 * 60 * 60 * 1000), lte: end } },
-        select: { id: true, employeeId: true, startTime: true, endTime: true }
-      }),
-    ]);
+    const [employees, callouts, coverages, shifts, timesheets] =
+      await Promise.all([
+        this.prisma.employee.findMany({
+          where: { businessId, status: "ACTIVE" },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+          },
+        }),
+        (this.prisma as any).shiftCallout.findMany({
+          where: { businessId, noticeAt: { gte: start, lte: end } },
+          include: {
+            shift: { select: { id: true, startTime: true, endTime: true } },
+            absentEmployee: { select: { id: true } },
+          },
+        }),
+        (this.prisma as any).shiftCoverage.findMany({
+          where: { businessId, reassignedAt: { gte: start, lte: end } },
+          include: {
+            shift: { select: { id: true, startTime: true, endTime: true } },
+            replacementEmployee: { select: { id: true } },
+          },
+        }),
+        this.prisma.shift.findMany({
+          where: { businessId, startTime: { gte: start, lte: end } },
+          select: {
+            id: true,
+            startTime: true,
+            endTime: true,
+            employeeId: true,
+          },
+        }),
+        this.prisma.timesheet.findMany({
+          where: {
+            employee: { businessId },
+            startTime: {
+              gte: new Date(start.getTime() - 2 * 24 * 60 * 60 * 1000),
+              lte: end,
+            },
+          },
+          select: {
+            id: true,
+            employeeId: true,
+            startTime: true,
+            endTime: true,
+          },
+        }),
+      ]);
 
     const perEmp: Record<string, any> = {};
     for (const e of employees) {
@@ -436,7 +633,7 @@ export class ReportsService {
         },
         scoring: {
           reliabilityScore: 100,
-          attendanceConsistency: 'Excellent',
+          attendanceConsistency: "Excellent",
         },
       };
     }
@@ -452,14 +649,18 @@ export class ReportsService {
       const empId = c.absentEmployeeId;
       if (!perEmp[empId]) continue;
       perEmp[empId].totals.callouts += 1;
-      const type = String(c.type || '').toUpperCase();
-      if (type === 'EXCUSED') perEmp[empId].totals.excused += 1;
-      else if (type === 'UNEXCUSED') perEmp[empId].totals.unexcused += 1;
-      else if (type === 'EMERGENCY') perEmp[empId].totals.emergency += 1;
-      const schedStart = c.shift?.startTime ? new Date(c.shift.startTime) : null;
+      const type = String(c.type || "").toUpperCase();
+      if (type === "EXCUSED") perEmp[empId].totals.excused += 1;
+      else if (type === "UNEXCUSED") perEmp[empId].totals.unexcused += 1;
+      else if (type === "EMERGENCY") perEmp[empId].totals.emergency += 1;
+      const schedStart = c.shift?.startTime
+        ? new Date(c.shift.startTime)
+        : null;
       const noticeAt = c.noticeAt ? new Date(c.noticeAt) : null;
       if (schedStart && noticeAt) {
-        const minutesBefore = Math.round((schedStart.getTime() - noticeAt.getTime()) / (1000 * 60));
+        const minutesBefore = Math.round(
+          (schedStart.getTime() - noticeAt.getTime()) / (1000 * 60),
+        );
         if (minutesBefore < 120) perEmp[empId].totals.lateCallouts += 1;
       }
       const k = dayKey(new Date(c.noticeAt));
@@ -474,10 +675,16 @@ export class ReportsService {
       trendCoverage.set(k, (trendCoverage.get(k) || 0) + 1);
     }
 
-    const tsByEmployee: Record<string, Array<{ start: Date; end: Date | null }>> = {};
+    const tsByEmployee: Record<
+      string,
+      Array<{ start: Date; end: Date | null }>
+    > = {};
     for (const ts of timesheets) {
       const list = tsByEmployee[ts.employeeId] || [];
-      list.push({ start: new Date(ts.startTime), end: ts.endTime ? new Date(ts.endTime) : null });
+      list.push({
+        start: new Date(ts.startTime),
+        end: ts.endTime ? new Date(ts.endTime) : null,
+      });
       tsByEmployee[ts.employeeId] = list;
     }
 
@@ -492,23 +699,41 @@ export class ReportsService {
       const windows = tsByEmployee[empId] || [];
       const hit = windows.some((w) => {
         const tsEnd = w.end || now;
-        return w.start.getTime() <= shiftEnd.getTime() && tsEnd.getTime() >= shiftStart.getTime();
+        return (
+          w.start.getTime() <= shiftEnd.getTime() &&
+          tsEnd.getTime() >= shiftStart.getTime()
+        );
       });
       if (!hit) perEmp[empId].totals.noShows += 1;
     }
 
-    const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+    const clamp = (n: number, lo: number, hi: number) =>
+      Math.max(lo, Math.min(hi, n));
     for (const id of Object.keys(perEmp)) {
       const t = perEmp[id].totals;
-      const penalty = t.unexcused * 15 + t.excused * 5 + t.emergency * 3 + t.lateCallouts * 5 + t.noShows * 25;
+      const penalty =
+        t.unexcused * 15 +
+        t.excused * 5 +
+        t.emergency * 3 +
+        t.lateCallouts * 5 +
+        t.noShows * 25;
       const bonus = t.coveredForOthers * 3;
       const score = clamp(100 - penalty + bonus, 0, 100);
       perEmp[id].scoring.reliabilityScore = score;
       perEmp[id].scoring.attendanceConsistency =
-        score >= 90 ? 'Excellent' : score >= 75 ? 'Good' : score >= 60 ? 'Fair' : 'Poor';
+        score >= 90
+          ? "Excellent"
+          : score >= 75
+            ? "Good"
+            : score >= 60
+              ? "Fair"
+              : "Poor";
     }
 
-    const officerRows = Object.values(perEmp).sort((a: any, b: any) => b.scoring.reliabilityScore - a.scoring.reliabilityScore);
+    const officerRows = Object.values(perEmp).sort(
+      (a: any, b: any) =>
+        b.scoring.reliabilityScore - a.scoring.reliabilityScore,
+    );
     const highestCalloutRates = officerRows
       .slice()
       .sort((a: any, b: any) => b.totals.callouts - a.totals.callouts)
@@ -517,14 +742,30 @@ export class ReportsService {
 
     const filledCallouts = coverages.filter((c: any) => !!c.calloutId);
     const avgResponseMinutes = filledCallouts.length
-      ? Math.round((filledCallouts.reduce((acc: number, c: any) => acc + (Number(c.responseMinutes) || 0), 0) / filledCallouts.length) * 10) / 10
+      ? Math.round(
+          (filledCallouts.reduce(
+            (acc: number, c: any) => acc + (Number(c.responseMinutes) || 0),
+            0,
+          ) /
+            filledCallouts.length) *
+            10,
+        ) / 10
       : 0;
-    const fillRate = callouts.length ? Math.round(((filledCallouts.length / callouts.length) * 100) * 10) / 10 : 0;
+    const fillRate = callouts.length
+      ? Math.round((filledCallouts.length / callouts.length) * 100 * 10) / 10
+      : 0;
 
     const trendSeries = (() => {
-      const keys = new Set<string>([...trendCallouts.keys(), ...trendCoverage.keys()]);
+      const keys = new Set<string>([
+        ...trendCallouts.keys(),
+        ...trendCoverage.keys(),
+      ]);
       const days = Array.from(keys).sort((a, b) => a.localeCompare(b));
-      return days.map((d) => ({ date: d, callouts: trendCallouts.get(d) || 0, coverages: trendCoverage.get(d) || 0 }));
+      return days.map((d) => ({
+        date: d,
+        callouts: trendCallouts.get(d) || 0,
+        coverages: trendCoverage.get(d) || 0,
+      }));
     })();
 
     return {
@@ -533,9 +774,9 @@ export class ReportsService {
       insights: {
         highestCalloutRates,
         mostReliable,
-        coverageEfficiency: { avgResponseMinutes, fillRate }
+        coverageEfficiency: { avgResponseMinutes, fillRate },
       },
-      trends: trendSeries
+      trends: trendSeries,
     };
   }
 
@@ -559,27 +800,36 @@ export class ReportsService {
       expiringQualifications,
       recentBusinesses,
     ] = await Promise.all([
-      this.prisma.business.count({ where: { status: { not: 'DELETED' } } }),
-      this.prisma.business.count({ where: { status: { not: 'DELETED' }, createdAt: { gte: from } } }),
+      this.prisma.business.count({ where: { status: { not: "DELETED" } } }),
+      this.prisma.business.count({
+        where: { status: { not: "DELETED" }, createdAt: { gte: from } },
+      }),
       this.prisma.employee.count(),
-      this.prisma.employee.count({ where: { status: 'ACTIVE' } }),
+      this.prisma.employee.count({ where: { status: "ACTIVE" } }),
       this.prisma.user.count(),
-      this.prisma.incidentReport.count({ where: { status: { not: 'CLOSED' } } }),
+      this.prisma.incidentReport.count({
+        where: { status: { not: "CLOSED" } },
+      }),
       this.prisma.timesheet.count({ where: { endTime: null } }),
-      this.prisma.loan.count({ where: { status: 'PENDING' } }),
-      this.prisma.leaveRequest.count({ where: { status: 'PENDING' } }),
+      this.prisma.loan.count({ where: { status: "PENDING" } }),
+      this.prisma.leaveRequest.count({ where: { status: "PENDING" } }),
       this.prisma.qualification.count({
         where: {
           OR: [
-            { status: 'EXPIRED' },
-            { status: 'ACTIVE', expiryDate: { lte: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000) } },
+            { status: "EXPIRED" },
+            {
+              status: "ACTIVE",
+              expiryDate: {
+                lte: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
+              },
+            },
           ],
         },
       }),
       this.prisma.business.findMany({
-        where: { status: { not: 'DELETED' } },
+        where: { status: { not: "DELETED" } },
         take: 20,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         select: {
           id: true,
           name: true,
@@ -589,22 +839,26 @@ export class ReportsService {
           country: true,
           modules: true,
           createdAt: true,
-          owner: { select: { id: true, email: true, firstName: true, lastName: true } },
-          _count: { select: { employees: true, locations: true, incidentReports: true } },
+          owner: {
+            select: { id: true, email: true, firstName: true, lastName: true },
+          },
+          _count: {
+            select: { employees: true, locations: true, incidentReports: true },
+          },
         },
       }),
     ]);
 
     const businessesInRange = await this.prisma.business.findMany({
-      where: { status: { not: 'DELETED' }, createdAt: { gte: from } },
+      where: { status: { not: "DELETED" }, createdAt: { gte: from } },
       select: { createdAt: true, modules: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
 
     const employeesInRange = await this.prisma.employee.findMany({
       where: { createdAt: { gte: from } },
       select: { createdAt: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     });
 
     const businessTrendMap = new Map<string, number>();
@@ -615,9 +869,12 @@ export class ReportsService {
       const k = toDayKey(b.createdAt);
       businessTrendMap.set(k, (businessTrendMap.get(k) || 0) + 1);
 
-      const raw = (b.modules || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const raw = (b.modules || "")
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
       if (raw.length === 0) {
-        moduleCounts.set('None', (moduleCounts.get('None') || 0) + 1);
+        moduleCounts.set("None", (moduleCounts.get("None") || 0) + 1);
       } else {
         for (const m of raw) {
           moduleCounts.set(m, (moduleCounts.get(m) || 0) + 1);
@@ -644,7 +901,13 @@ export class ReportsService {
       const eInc = employeeTrendMap.get(d) || 0;
       businessCum += bInc;
       employeeCum += eInc;
-      return { date: d, newBusinesses: bInc, totalBusinesses: businessCum, newEmployees: eInc, totalEmployees: employeeCum };
+      return {
+        date: d,
+        newBusinesses: bInc,
+        totalBusinesses: businessCum,
+        newEmployees: eInc,
+        totalEmployees: employeeCum,
+      };
     });
 
     const modulesTop = Array.from(moduleCounts.entries())
@@ -678,29 +941,65 @@ export class ReportsService {
   async getEmployeeDashboard(userId: string, days = 30, businessId?: string) {
     const employee = await this.prisma.employee.findFirst({
       where: { userId, ...(businessId ? { businessId } : {}) },
-      select: { id: true, firstName: true, lastName: true, role: true, businessId: true, userId: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        businessId: true,
+        userId: true,
+      },
     });
     const fallback = employee
       ? null
       : await this.prisma.employee.findFirst({
           where: { userId },
-          select: { id: true, firstName: true, lastName: true, role: true, businessId: true, userId: true },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            businessId: true,
+            userId: true,
+          },
         });
     const resolved = employee || fallback;
-    if (!resolved) throw new BadRequestException('Employee record not found');
-    if (!resolved.userId) throw new BadRequestException('Employee record is not linked to a user');
+    if (!resolved) throw new BadRequestException("Employee record not found");
+    if (!resolved.userId)
+      throw new BadRequestException("Employee record is not linked to a user");
 
     const now = new Date();
     const from = new Date(now);
     from.setDate(from.getDate() - days);
 
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const startOfToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+    const endOfToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+    );
 
     const employeeUserId = resolved.userId;
-    const [todayShifts, recentShifts, recentTimesheets, activeTimesheet, activeBreak, incidentReports, patrolLogs] = await Promise.all([
+    const [
+      todayShifts,
+      recentShifts,
+      recentTimesheets,
+      activeTimesheet,
+      activeBreak,
+      incidentReports,
+      patrolLogs,
+    ] = await Promise.all([
       this.prisma.shift.findMany({
-        where: { employeeId: resolved.id, status: 'PUBLISHED', startTime: { lt: endOfToday }, endTime: { gt: startOfToday } },
+        where: {
+          employeeId: resolved.id,
+          status: "PUBLISHED",
+          startTime: { lt: endOfToday },
+          endTime: { gt: startOfToday },
+        },
         select: {
           id: true,
           startTime: true,
@@ -717,46 +1016,78 @@ export class ReportsService {
             },
           },
         },
-        orderBy: { startTime: 'asc' },
+        orderBy: { startTime: "asc" },
       }),
       this.prisma.shift.findMany({
-        where: { employeeId: resolved.id, status: 'PUBLISHED', startTime: { gte: from, lte: now } },
+        where: {
+          employeeId: resolved.id,
+          status: "PUBLISHED",
+          startTime: { gte: from, lte: now },
+        },
         select: { id: true, startTime: true, endTime: true },
-        orderBy: { startTime: 'asc' },
+        orderBy: { startTime: "asc" },
       }),
       this.prisma.timesheet.findMany({
-        where: { employeeId: resolved.id, startTime: { gte: new Date(from.getTime() - 2 * 24 * 60 * 60 * 1000), lte: now } },
+        where: {
+          employeeId: resolved.id,
+          startTime: {
+            gte: new Date(from.getTime() - 2 * 24 * 60 * 60 * 1000),
+            lte: now,
+          },
+        },
         select: { id: true, startTime: true, endTime: true },
-        orderBy: { startTime: 'asc' },
+        orderBy: { startTime: "asc" },
       }),
       this.prisma.timesheet.findFirst({
         where: { employeeId: resolved.id, endTime: null },
         select: { id: true, startTime: true, endTime: true, locationId: true },
-        orderBy: { startTime: 'desc' },
+        orderBy: { startTime: "desc" },
       }),
       this.prisma.break.findFirst({
-        where: { timesheet: { employeeId: resolved.id, endTime: null }, endTime: null },
-        select: { id: true, startTime: true, endTime: true, type: true, timesheetId: true },
+        where: {
+          timesheet: { employeeId: resolved.id, endTime: null },
+          endTime: null,
+        },
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          type: true,
+          timesheetId: true,
+        },
       }),
       this.prisma.incidentReport.findMany({
         where: {
           businessId: resolved.businessId,
           createdAt: { gte: from },
-          OR: [{ reportingOfficerEmployeeId: resolved.id }, { submittedById: employeeUserId }],
+          OR: [
+            { reportingOfficerEmployeeId: resolved.id },
+            { submittedById: employeeUserId },
+          ],
         },
-        select: { id: true, title: true, createdAt: true, severity: true, status: true },
-        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+          severity: true,
+          status: true,
+        },
+        orderBy: { createdAt: "desc" },
         take: 10,
       }),
       this.prisma.patrolLog.findMany({
         where: { userId: employeeUserId, createdAt: { gte: from } },
         select: { id: true, type: true, message: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: 10,
       }),
     ]);
 
-    const punctualityDaily: Array<{ date: string; lateMinutes: number | null; status: 'ON_TIME' | 'LATE' | 'MISSED' }> = [];
+    const punctualityDaily: Array<{
+      date: string;
+      lateMinutes: number | null;
+      status: "ON_TIME" | "LATE" | "MISSED";
+    }> = [];
     let onTime = 0;
     let late = 0;
     let missed = 0;
@@ -765,7 +1096,9 @@ export class ReportsService {
     const matchTimesheetForShift = (shiftStart: Date, shiftEnd: Date) => {
       const windowStart = new Date(shiftStart.getTime() - 2 * 60 * 60 * 1000);
       const windowEnd = new Date(shiftEnd.getTime() + 60 * 60 * 1000);
-      const matches = recentTimesheets.filter((t) => t.startTime >= windowStart && t.startTime <= windowEnd);
+      const matches = recentTimesheets.filter(
+        (t) => t.startTime >= windowStart && t.startTime <= windowEnd,
+      );
       if (matches.length === 0) return null;
       return matches[0];
     };
@@ -775,23 +1108,30 @@ export class ReportsService {
       const date = s.startTime.toISOString().slice(0, 10);
       if (!ts) {
         missed += 1;
-        punctualityDaily.push({ date, lateMinutes: null, status: 'MISSED' });
+        punctualityDaily.push({ date, lateMinutes: null, status: "MISSED" });
         continue;
       }
-      const diffMin = Math.round((ts.startTime.getTime() - s.startTime.getTime()) / (1000 * 60));
+      const diffMin = Math.round(
+        (ts.startTime.getTime() - s.startTime.getTime()) / (1000 * 60),
+      );
       const lateMin = Math.max(0, diffMin);
       if (lateMin <= 5) {
         onTime += 1;
-        punctualityDaily.push({ date, lateMinutes: lateMin, status: 'ON_TIME' });
+        punctualityDaily.push({
+          date,
+          lateMinutes: lateMin,
+          status: "ON_TIME",
+        });
       } else {
         late += 1;
         lateMinutesTotal += lateMin;
-        punctualityDaily.push({ date, lateMinutes: lateMin, status: 'LATE' });
+        punctualityDaily.push({ date, lateMinutes: lateMin, status: "LATE" });
       }
     }
 
     const totalShifts = onTime + late + missed;
-    const onTimeRate = totalShifts === 0 ? 0 : Math.round((onTime / totalShifts) * 100);
+    const onTimeRate =
+      totalShifts === 0 ? 0 : Math.round((onTime / totalShifts) * 100);
     const avgLateMinutes = late === 0 ? 0 : Math.round(lateMinutesTotal / late);
 
     const sortedForStreak = punctualityDaily
@@ -800,11 +1140,14 @@ export class ReportsService {
       .filter((p, i, arr) => i === 0 || p.date !== arr[i - 1].date);
     let streakOnTimeDays = 0;
     for (const p of sortedForStreak) {
-      if (p.status !== 'ON_TIME') break;
+      if (p.status !== "ON_TIME") break;
       streakOnTimeDays += 1;
     }
 
-    const reportCountsByWeek = new Map<string, { incident: number; patrol: number }>();
+    const reportCountsByWeek = new Map<
+      string,
+      { incident: number; patrol: number }
+    >();
     const weekKey = (d: Date) => {
       const t = new Date(d);
       const day = t.getDay();
@@ -818,7 +1161,10 @@ export class ReportsService {
       where: {
         businessId: resolved.businessId,
         createdAt: { gte: from },
-        OR: [{ reportingOfficerEmployeeId: resolved.id }, { submittedById: employeeUserId }],
+        OR: [
+          { reportingOfficerEmployeeId: resolved.id },
+          { submittedById: employeeUserId },
+        ],
       },
     });
     const patrolCount = await this.prisma.patrolLog.count({
@@ -829,7 +1175,10 @@ export class ReportsService {
       where: {
         businessId: resolved.businessId,
         createdAt: { gte: from },
-        OR: [{ reportingOfficerEmployeeId: resolved.id }, { submittedById: employeeUserId }],
+        OR: [
+          { reportingOfficerEmployeeId: resolved.id },
+          { submittedById: employeeUserId },
+        ],
       },
       select: { createdAt: true },
     });
@@ -853,24 +1202,52 @@ export class ReportsService {
 
     const reportsWeekly = Array.from(reportCountsByWeek.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([week, counts]) => ({ week, count: counts.incident + counts.patrol, incidentCount: counts.incident, patrolCount: counts.patrol }));
+      .map(([week, counts]) => ({
+        week,
+        count: counts.incident + counts.patrol,
+        incidentCount: counts.incident,
+        patrolCount: counts.patrol,
+      }));
 
     const currentShift =
       todayShifts.find((s) => s.startTime <= now && s.endTime >= now) ||
-      todayShifts.find((s) => s.startTime.getTime() - now.getTime() <= 15 * 60 * 1000 && s.startTime >= now) ||
+      todayShifts.find(
+        (s) =>
+          s.startTime.getTime() - now.getTime() <= 15 * 60 * 1000 &&
+          s.startTime >= now,
+      ) ||
       null;
     const nextShift = todayShifts.find((s) => s.startTime > now) || null;
     const clockInShift = currentShift || nextShift;
-    const canClockIn = !!clockInShift && !activeTimesheet && clockInShift.endTime > now;
+    const canClockIn =
+      !!clockInShift && !activeTimesheet && clockInShift.endTime > now;
 
     const activity = [
-      ...incidentReports.map((r) => ({ id: r.id, kind: 'INCIDENT', title: r.title, createdAt: r.createdAt })),
-      ...patrolLogs.map((p) => ({ id: p.id, kind: 'PATROL', title: p.message, createdAt: p.createdAt })),
-    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 50);
+      ...incidentReports.map((r) => ({
+        id: r.id,
+        kind: "INCIDENT",
+        title: r.title,
+        createdAt: r.createdAt,
+      })),
+      ...patrolLogs.map((p) => ({
+        id: p.id,
+        kind: "PATROL",
+        title: p.message,
+        createdAt: p.createdAt,
+      })),
+    ]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 50);
 
     return {
       now,
-      employee: { id: resolved.id, firstName: resolved.firstName, lastName: resolved.lastName, role: resolved.role, businessId: resolved.businessId },
+      employee: {
+        id: resolved.id,
+        firstName: resolved.firstName,
+        lastName: resolved.lastName,
+        role: resolved.role,
+        businessId: resolved.businessId,
+      },
       timeTracking: {
         activeTimesheet: activeTimesheet ? { ...activeTimesheet } : null,
         activeBreak: activeBreak ? { ...activeBreak } : null,
@@ -897,7 +1274,8 @@ export class ReportsService {
               locationAddress: (currentShift as any).location?.address || null,
               locationLat: (currentShift as any).location?.geoLat ?? null,
               locationLng: (currentShift as any).location?.geoLng ?? null,
-              locationRadiusMeters: (currentShift as any).location?.radius ?? null,
+              locationRadiusMeters:
+                (currentShift as any).location?.radius ?? null,
             }
           : null,
         nextShift: nextShift
@@ -917,7 +1295,11 @@ export class ReportsService {
       },
       metrics: {
         punctuality: { onTimeRate, onTime, late, missed, avgLateMinutes },
-        reports: { incidentCount, patrolCount, total: incidentCount + patrolCount },
+        reports: {
+          incidentCount,
+          patrolCount,
+          total: incidentCount + patrolCount,
+        },
         streakOnTimeDays,
       },
       charts: {

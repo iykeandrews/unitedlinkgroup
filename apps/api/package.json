@@ -18,7 +18,10 @@
     "test:people": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/people_regression.ts",
     "test:time-sites": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/time_sites_regression.ts",
     "test:payroll": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/payroll_regression.ts",
-    "test:invoices": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/invoice_regression.ts"
+    "test:invoices": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/invoice_regression.ts",
+    "test:employment": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/employment_integration.ts",
+    "test:workforce": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/workforce_regression.ts",
+    "test:client-billing": "TS_NODE_PREFER_TS_EXTS=true ts-node --project tsconfig.json tests/client_billing_integration.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1011.0",

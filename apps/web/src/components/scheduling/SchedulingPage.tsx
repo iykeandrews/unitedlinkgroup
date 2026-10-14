@@ -34,7 +34,7 @@ export default function SchedulingPage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EMPTY' | 'UNPUBLISHED' | 'PUBLISHED' | 'OPEN'>('ALL');
   const [userRole, setUserRole] = useState<string | null>(null);
   const [myData, setMyData] = useState<{
-    employee: { id: string; firstName: string; lastName: string; hourlyRate: number };
+    employee: { id: string; firstName: string; lastName: string; hourlyRate: number; payType?: string; salary?: number | null };
     shifts: Shift[];
     summary: { totalHours: number; totalBreakMinutes: number; payableHours: number; estimatedEarnings: number };
   } | null>(null);
@@ -868,7 +868,7 @@ export default function SchedulingPage() {
               Hours: <span className="font-semibold">{myData?.summary.payableHours?.toFixed(2) || '0.00'}</span>
             </div>
             <div className="text-sm text-slate-700 dark:text-slate-300">
-              Earnings: <span className="font-semibold">{currencyFormatter.format(myData?.summary.estimatedEarnings || 0)}</span>
+              {myData?.employee.payType === "SALARY" ? "Annual salary:" : "Estimated earnings:"} <span className="font-semibold">{currencyFormatter.format(myData?.employee.payType === "SALARY" ? myData.employee.salary ?? 0 : myData?.summary.estimatedEarnings || 0)}{myData?.employee.payType === "SALARY" ? "/year" : ""}</span>
             </div>
           </div>
         </div>

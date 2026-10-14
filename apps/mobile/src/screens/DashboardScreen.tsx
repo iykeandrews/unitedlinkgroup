@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, Alert, StatusBar, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, Alert, StatusBar, Image, Linking, Platform } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../services/api';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import * as IntentLauncher from 'expo-intent-launcher';
 
 type EmployeeDashboardData = {
   now: string;
@@ -127,21 +128,78 @@ export default function DashboardScreen() {
     }, [fetchData])
   );
 
+  // Derived schedule state (kept above callbacks that depend on them)
+  const activeTimesheet = dashboard?.timeTracking?.activeTimesheet || null;
+  const activeBreak = dashboard?.timeTracking?.activeBreak || null;
+  const isClockedIn = !!activeTimesheet;
+  const isOnBreak = !!activeBreak && !activeBreak.endTime;
+  const todayShifts = dashboard?.schedule?.today || [];
+  const currentShift = dashboard?.schedule?.currentShift || null;
+  const nextShift = dashboard?.schedule?.nextShift || null;
+  const targetClockInShift = currentShift || nextShift;
+  const onScheduleToday = todayShifts.length > 0;
+  const canClockIn = !!dashboard?.schedule?.canClockIn && !isClockedIn;
+  const canClockOut = isClockedIn;
+
   const mapGeoError = (err: any) => {
     const code = err?.code;
-    if (code === 1) return 'Location permission denied. Enable location access to clock in.';
-    if (code === 2) return 'Location unavailable. Check GPS and try again.';
+    if (code === 1) return 'Location access was not granted. You can continue using the app; it is needed only to verify time tracking at your assigned site.';
+    if (code === 2) return 'Location Services are off or unavailable. You can continue using the app; turn them on only to verify time tracking at your assigned site.';
     if (code === 3) return 'Location request timed out. Move to an open area and try again.';
     return extractErrorMessage(err, 'Unable to get your location. Enable GPS to clock in.');
   };
 
+  // Opens device location settings screen: Android goes directly to Location settings, iOS to App Settings
+  const openLocationSettings = useCallback(async () => {
+    if (Platform.OS === 'ios') {
+      Linking.openSettings();
+    } else {
+      try {
+        // Android: opens the system Location settings screen
+        await IntentLauncher.startActivityAsync('android.settings.LOCATION_SOURCE_SETTINGS');
+      } catch {
+        // Fallback: opens the App info settings if Location settings intent fails
+        Linking.openSettings();
+      }
+    }
+  }, []);
+
+  // Shows an Alert with a "Go to Settings" button when location is off/denied and user is on schedule
+  const showLocationBlockedAlert = useCallback(
+    (title: string, err: any, fallbackMsg: string) => {
+      const code = err?.code;
+      // Only show enhanced modal for permission/code 2 (services off) or code 1 (permission denied)
+      const isLocationBlocked = code === 1 || code === 2;
+      if (isLocationBlocked && onScheduleToday) {
+        const message =
+          code === 2
+            ? 'Location Services are turned off. To clock in, please enable Location Services on your device.'
+            : 'Location permission has not been granted. To clock in, please allow location access in your app settings.';
+        Alert.alert(title, message, [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: code === 2 ? 'Turn On Location' : 'Open App Settings',
+            onPress: openLocationSettings,
+          },
+        ]);
+      } else {
+        Alert.alert(title, mapGeoError(err) || fallbackMsg);
+      }
+    },
+    [onScheduleToday, openLocationSettings]
+  );
+
   const getCoords = useCallback(
-    () =>
+    ({ requestPermission = false }: { requestPermission?: boolean } = {}) =>
       new Promise<{ lat: number; lng: number }>((resolve, reject) => {
       (async () => {
         try {
           const perm = await Location.getForegroundPermissionsAsync();
           if (!perm.granted) {
+            if (!requestPermission) {
+              reject({ code: 1, message: 'Location permission denied' });
+              return;
+            }
             const req = await Location.requestForegroundPermissionsAsync();
             if (!req.granted) {
               reject({ code: 1, message: 'Location permission denied' });
@@ -172,13 +230,16 @@ export default function DashboardScreen() {
 
   const handleClockIn = async () => {
     try {
-      const coords = await getCoords();
+      const coords = await getCoords({ requestPermission: true });
       await api.post('/time-tracking/clock-in', coords);
       Alert.alert('Success', 'You are clocked in!');
       fetchData();
     } catch (e: any) {
-      const msg = e?.response ? extractErrorMessage(e, 'Failed to clock in') : mapGeoError(e);
-      Alert.alert('Clock in blocked', msg);
+      if (e?.response) {
+        Alert.alert('Clock in blocked', extractErrorMessage(e, 'Failed to clock in'));
+      } else {
+        showLocationBlockedAlert('Clock in blocked', e, 'Failed to clock in');
+      }
     }
   };
 
@@ -186,7 +247,7 @@ export default function DashboardScreen() {
     try {
       let coords: { lat: number; lng: number } | null = null;
       try {
-        coords = await getCoords();
+        coords = await getCoords({ requestPermission: false });
       } catch {}
       await api.post('/time-tracking/clock-out', coords || {});
       Alert.alert('Success', 'You are clocked out!');
@@ -198,23 +259,29 @@ export default function DashboardScreen() {
 
   const handleStartBreak = async () => {
     try {
-      const coords = await getCoords();
+      const coords = await getCoords({ requestPermission: true });
       await api.post('/time-tracking/break/start', { type: 'UNPAID', ...coords });
       fetchData();
     } catch (e: any) {
-      const msg = e?.response ? extractErrorMessage(e, 'Failed to start break') : mapGeoError(e);
-      Alert.alert('Break blocked', msg);
+      if (e?.response) {
+        Alert.alert('Break blocked', extractErrorMessage(e, 'Failed to start break'));
+      } else {
+        showLocationBlockedAlert('Break blocked', e, 'Failed to start break');
+      }
     }
   };
 
   const handleResumeShift = async () => {
     try {
-      const coords = await getCoords();
+      const coords = await getCoords({ requestPermission: true });
       await api.post('/time-tracking/break/end', coords);
       fetchData();
     } catch (e: any) {
-      const msg = e?.response ? extractErrorMessage(e, 'Failed to resume shift') : mapGeoError(e);
-      Alert.alert('Resume blocked', msg);
+      if (e?.response) {
+        Alert.alert('Resume blocked', extractErrorMessage(e, 'Failed to resume shift'));
+      } else {
+        showLocationBlockedAlert('Resume blocked', e, 'Failed to resume shift');
+      }
     }
   };
 
@@ -243,19 +310,6 @@ export default function DashboardScreen() {
   }, [dashboard?.now]);
 
   const name = displayName;
-
-  const activeTimesheet = dashboard?.timeTracking?.activeTimesheet || null;
-  const activeBreak = dashboard?.timeTracking?.activeBreak || null;
-  const isClockedIn = !!activeTimesheet;
-  const isOnBreak = !!activeBreak && !activeBreak.endTime;
-  const todayShifts = dashboard?.schedule?.today || [];
-  const currentShift = dashboard?.schedule?.currentShift || null;
-  const nextShift = dashboard?.schedule?.nextShift || null;
-  const targetClockInShift = currentShift || nextShift;
-  const onScheduleToday = todayShifts.length > 0;
-
-  const canClockIn = !!dashboard?.schedule?.canClockIn && !isClockedIn && clockInGeo.withinRadius;
-  const canClockOut = isClockedIn;
 
   const palette = {
     bg: '#050816',
@@ -344,7 +398,7 @@ export default function DashboardScreen() {
       }
 
       try {
-        const coords = await getCoords();
+        const coords = await getCoords({ requestPermission: false });
         if (cancelled) return;
         const distanceMeters = Math.round(calculateDistanceMeters(coords.lat, coords.lng, siteLat, siteLng));
         const withinRadius = distanceMeters <= radiusMeters;
@@ -390,7 +444,7 @@ export default function DashboardScreen() {
     const id = setInterval(() => {
       (async () => {
         try {
-          const coords = await getCoords();
+          const coords = await getCoords({ requestPermission: false });
           if (cancelled) return;
           await api.post('/time-tracking/location/ping', coords);
         } catch {}

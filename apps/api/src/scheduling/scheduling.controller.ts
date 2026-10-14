@@ -50,7 +50,7 @@ export class SchedulingController {
     @Query('end') end: string,
     @Request() req: any
   ) {
-    return this.schedulingService.getMyShifts(req.user.userId, new Date(start), new Date(end));
+    return this.schedulingService.getMyShifts(req.user.userId, new Date(start), new Date(end), req.headers['x-business-id']);
   }
 
   @Get('my-callouts')
@@ -66,7 +66,7 @@ export class SchedulingController {
     @Query('end') end: string,
     @Request() req: any
   ) {
-    return this.schedulingService.getMyPeerShifts(req.user.userId, new Date(start), new Date(end));
+    return this.schedulingService.getMyPeerShifts(req.user.userId, new Date(start), new Date(end), req.headers['x-business-id']);
   }
 
   @Post('shifts/:id/apply')

@@ -1,3 +1,4 @@
+import { billingAddress, billingList } from "./invoice-billing";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { invoiceTracking } from "./invoice-accounting";
@@ -58,20 +59,20 @@ export async function generateInvoicePdf({
   y += 7;
   for (const line of [
     invoice.client?.name,
-    invoice.client?.billingAddressSameAsOffice === false
-      ? invoice.client?.billingAddress
-      : invoice.client?.address,
-    invoice.client?.billingAddressSameAsOffice === false
-      ? null
-      : [invoice.client?.city, invoice.client?.state, invoice.client?.zip]
-          .filter(Boolean)
-          .join(", "),
+    billingAddress(invoice.client),
     invoice.client?.billingContactEmail || invoice.client?.email,
     invoice.location?.name ? `Site: ${invoice.location.name}` : null,
   ].filter(Boolean)) {
     const lines = text(line, 180);
+    if (y + lines.length * 5 > 260) { doc.addPage(); y = 24; }
     doc.text(lines, 14, y);
     y += lines.length * 5;
+  }
+  const location = invoice.location;
+  if (location) {
+    const rows = [["Service location", [location.name, location.address].filter(Boolean).join("\n")], ["Work order", location.workOrder || "Not entered"], ...(billingList(location.billingPins).length ? [["Billing pins", billingList(location.billingPins).join(", ")]] : [])];
+    autoTable(doc, { startY: y + 5, body: rows, theme: "plain", styles: { fontSize: 9, overflow: "linebreak" }, columnStyles: { 0: { cellWidth: 32, fontStyle: "bold" } }, margin: { top: 18, bottom: 20 } });
+    y = (doc as any).lastAutoTable.finalY;
   }
   autoTable(doc, {
     startY: y + 7,

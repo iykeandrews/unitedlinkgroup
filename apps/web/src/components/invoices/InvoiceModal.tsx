@@ -1,4 +1,5 @@
 "use client";
+import { InvoiceBillingDetails } from "@/components/billing/BillingReferences";
 import AmericanDateInput from "./AmericanDateInput";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -517,6 +518,7 @@ export default function InvoiceModal({
                   </select>
                 </label>
               </div>
+              <InvoiceBillingDetails client={client} location={site} />
               <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
                 <h3 className="mb-4 font-semibold">Line items</h3>
                 <div className="space-y-4">
@@ -677,30 +679,7 @@ export default function InvoiceModal({
                     </p>
                   </div>
                 </div>
-                <div className="my-6">
-                  <p className="text-xs uppercase tracking-wider text-slate-500">
-                    Bill to
-                  </p>
-                  <p className="mt-2 font-semibold">{saved.client?.name}</p>
-                  {saved.client?.address && (
-                    <p className="text-sm text-slate-500">
-                      {saved.client.billingAddressSameAsOffice === false
-                        ? saved.client.billingAddress
-                        : saved.client.address}
-                    </p>
-                  )}
-                  {(saved.client?.billingContactEmail ||
-                    saved.client?.email) && (
-                    <p className="text-sm text-slate-500">
-                      {saved.client.billingContactEmail || saved.client.email}
-                    </p>
-                  )}
-                  {saved.location && (
-                    <p className="mt-2 text-sm text-slate-500">
-                      Site: {saved.location.name}
-                    </p>
-                  )}
-                </div>
+                <div className="my-6"><InvoiceBillingDetails client={saved.client} location={saved.location} /></div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[450px] text-sm">
                     <thead>

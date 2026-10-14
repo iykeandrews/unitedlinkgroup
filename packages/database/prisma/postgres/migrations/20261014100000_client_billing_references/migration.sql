@@ -1,0 +1,2 @@
+ALTER TABLE "Client" ADD COLUMN "ccEmails" TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE "Location" ADD COLUMN "billingPins" TEXT NOT NULL DEFAULT '[]';

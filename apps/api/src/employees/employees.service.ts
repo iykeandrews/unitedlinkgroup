@@ -1,3 +1,4 @@
+import { normalizeEmployment, effectivePay } from "./employment.util";
 import { Injectable, BadRequestException, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { EncryptionService } from '../common/security/encryption.service';
@@ -71,7 +72,7 @@ export class EmployeesService {
       });
       
       // Tax identifiers belong in an individual profile, never in the team directory.
-      return employees.map(({ ssn, ...employee }) => employee);
+      return employees.map(({ ssn, ...employee }) => ({ ...employee, ...effectivePay(employee) }));
     } catch (error) {
       console.error('Error in EmployeesService.findAll:', error);
       throw error;
@@ -487,7 +488,13 @@ export class EmployeesService {
 
     if (existing) throw new BadRequestException('Employee with this email already exists in this business');
 
+    if (data.ssn !== undefined && data.ssn !== null) {
+      const ssn = String(data.ssn).trim();
+      if (ssn && !/^\d{3}-?\d{2}-?\d{4}$/.test(ssn)) throw new BadRequestException('SSN / ITIN must contain nine digits when provided');
+      data.ssn = ssn || null;
+    }
     // Encrypt sensitive data
+    data = normalizeEmployment(data);
     const { w2Profile, contractorProfile, ...restData } = data;
     const empData = { ...restData };
     if (empData.ssn) {
@@ -650,13 +657,14 @@ export class EmployeesService {
     let employee: any;
 
     if (user.role === UserRole.SUPER_ADMIN && !businessIdHeader) {
-      employee = await this.prisma.employee.findUnique({ where: { id } });
+      employee = await this.prisma.employee.findUnique({ where: { id }, include: { w2Profile: true, contractorProfile: true } });
       if (!employee) throw new NotFoundException('Employee not found');
       businessId = employee.businessId;
     } else {
       businessId = await this.getBusinessId(user, businessIdHeader);
       employee = await this.prisma.employee.findFirst({
         where: { id, businessId },
+        include: { w2Profile: true, contractorProfile: true },
       });
       if (!employee) throw new NotFoundException('Employee not found');
     }
@@ -705,6 +713,8 @@ export class EmployeesService {
       }
       data.type = requestedType;
     }
+
+    data = normalizeEmployment(data, employee);
 
     // Handle password update
     if (data.password) {

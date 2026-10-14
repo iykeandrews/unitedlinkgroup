@@ -198,7 +198,8 @@ export function ShiftModal({
     return {
       paidHours: paidHours.toFixed(2),
       estimatedPay: estimatedPay.toFixed(2),
-      hasRate: !!employee?.hourlyRate
+      hasRate: employee?.hourlyRate != null && Number.isFinite(employee.hourlyRate),
+      salary: employee?.payType === "SALARY" ? employee.salary : null
     };
   };
 
@@ -608,6 +609,7 @@ export function ShiftModal({
                         <span className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide">Total Hours</span>
                         <span className="font-semibold text-slate-900 dark:text-white">{stats.paidHours} hrs</span>
                     </div>
+                    {stats.salary != null && <p className="text-sm text-slate-500">Annual salary: {formatCurrency(stats.salary, selectedBusiness?.currencyCode)}/year · calculated in payroll</p>}
                     {stats.hasRate && (
                         <div className="flex flex-col items-end">
                             <span className="text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide">Est. Pay</span>

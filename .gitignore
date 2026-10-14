@@ -35,3 +35,6 @@ android/app/build/
 
 # macOS
 .DS_Store
+
+# Local recovery copies contain private data
+packages/database/backups/

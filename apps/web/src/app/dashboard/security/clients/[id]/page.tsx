@@ -1,4 +1,5 @@
 'use client';
+import { ReferenceList, stringList } from '@/components/billing/BillingReferences';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
@@ -54,6 +55,7 @@ export default function ClientDetailsPage() {
     billingContactEmail: '',
     billingContactEmail2: '',
     billingContactEmail3: '',
+    ccEmails: [] as string[],
     paymentTerms: '',
   });
 
@@ -82,6 +84,7 @@ export default function ClientDetailsPage() {
           billingContactEmail: res.data.billingContactEmail || '',
           billingContactEmail2: res.data.billingContactEmail2 || '',
           billingContactEmail3: res.data.billingContactEmail3 || '',
+          ccEmails: stringList(res.data.ccEmails),
           paymentTerms: res.data.paymentTerms || '',
         });
       }
@@ -155,8 +158,8 @@ export default function ClientDetailsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.patch(`/clients/${id}`, formData);
-      alert('Client updated successfully');
+      await api.patch(`/clients/${id}`, { ...formData, email: formData.email || null, billingContactEmail: formData.billingContactEmail || null, billingContactEmail2: formData.billingContactEmail2 || null, billingContactEmail3: formData.billingContactEmail3 || null });
+      toast.success('Client updated successfully');
       fetchClient();
     } catch (error) {
       console.error('Failed to update client', error);
@@ -275,7 +278,6 @@ export default function ClientDetailsPage() {
                 <option value="CORPORATE">Corporate</option>
                 <option value="GOVERNMENT">Government</option>
                 <option value="INDIVIDUAL">Individual</option>
-                <option value="RESIDENTIAL">Residential</option>
               </select>
             </div>
 
@@ -300,7 +302,6 @@ export default function ClientDetailsPage() {
               >
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
-                <option value="PROSPECT">Prospect</option>
               </select>
             </div>
           </div>
@@ -497,6 +498,7 @@ export default function ClientDetailsPage() {
               />
             </div>
 
+            <ReferenceList label="Additional invoice CC emails" email values={formData.ccEmails} onChange={ccEmails => setFormData(prev => ({...prev, ccEmails}))} />
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Payment Terms</label>
               <select
@@ -652,7 +654,7 @@ export default function ClientDetailsPage() {
                     
                     <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-700">
                       <div className="text-xs text-slate-500">
-                        {loc.servicePins?.length || 0} Service Pins
+                        {stringList(loc.billingPins).length} Billing pins
                       </div>
                       <div className="flex gap-2">
                         <button 

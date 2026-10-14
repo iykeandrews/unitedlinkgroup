@@ -42,12 +42,14 @@ export function savedPay(
 ): { amount: number; unit: string } | null {
   let amount: number | null | undefined;
   let unit = "hour";
-  if (employee.workerType === "CONTRACTOR_1099" && employee.contractorProfile) {
-    amount = employee.contractorProfile.rate;
+  if (employee.workerType === "CONTRACTOR_1099") {
+    amount = employee.contractorProfile?.rate ?? employee.hourlyRate;
   } else if (employee.w2Profile) {
     amount = employee.w2Profile.rate;
-    unit = employee.w2Profile.payType === "SALARY" ? "year" : "hour";
-  } else if (employee.payType === "SALARY") {
+    unit = ["SALARY", "SALARIED"].includes(employee.w2Profile.payType)
+      ? "year"
+      : "hour";
+  } else if (["SALARY", "SALARIED"].includes(employee.payType)) {
     amount = employee.salary;
     unit = "year";
   } else amount = employee.hourlyRate;

@@ -51,6 +51,7 @@ interface Employee {
   firstName: string;
   lastName: string;
   hourlyRate?: number;
+  salary?: number;
   role?: string;
   workerType?: string;
 }
@@ -202,10 +203,14 @@ export default function TimeTrackingPage() {
       );
       setEmployees(
         team.map((e: Employee) => {
-          const pay = savedPay(e as DirectoryEmployee);
+          const pay = savedPay({
+            ...e,
+            workerType: roleTab,
+          } as DirectoryEmployee);
           return {
             ...e,
             hourlyRate: pay?.unit === "hour" ? pay.amount : undefined,
+            salary: pay?.unit === "year" ? pay.amount : undefined,
           };
         }),
       );
@@ -970,6 +975,16 @@ export default function TimeTrackingPage() {
                         </span>
                       )}
                     </div>
+                    {emp.salary != null && (
+                      <div className="text-xs text-slate-500">
+                        Annual salary:{" "}
+                        {formatCurrency(
+                          emp.salary,
+                          selectedBusiness?.currencyCode,
+                        )}
+                        /year
+                      </div>
+                    )}
                     {stats && (
                       <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                         {stats.count} | {stats.hours.toFixed(1)}h ·{" "}
@@ -1073,7 +1088,8 @@ export default function TimeTrackingPage() {
                     {formatCurrency(
                       totalStats.pay,
                       selectedBusiness?.currencyCode,
-                    )}
+                    )}{" "}
+                    hourly estimate · salaries calculated in payroll
                   </span>
                 </div>
               </div>
@@ -1281,10 +1297,14 @@ export default function TimeTrackingPage() {
 
                                   {/* Pay */}
                                   <div className="col-span-1 md:col-span-1 text-sm font-medium text-slate-900 dark:text-white text-right">
-                                    {formatCurrency(
-                                      pay,
-                                      selectedBusiness?.currencyCode,
-                                    )}
+                                    {employees.find(
+                                      (e) => e.id === timesheet.employeeId,
+                                    )?.salary != null
+                                      ? "Salary"
+                                      : formatCurrency(
+                                          pay,
+                                          selectedBusiness?.currencyCode,
+                                        )}
                                   </div>
                                 </div>
 

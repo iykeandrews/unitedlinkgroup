@@ -1,3 +1,4 @@
+import { IsArray, ArrayMaxSize, MaxLength } from 'class-validator';
 import { IsString, IsOptional, IsEnum, IsBoolean, IsEmail, IsNotEmpty } from 'class-validator';
 
 export class CreateClientDto {
@@ -84,4 +85,10 @@ export class CreateClientDto {
   @IsString()
   @IsOptional()
   paymentTerms?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsEmail({}, { each: true })
+  ccEmails?: string[];
+
 }

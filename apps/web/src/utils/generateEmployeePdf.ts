@@ -1,3 +1,4 @@
+import { savedPay } from "../components/people/directory";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
@@ -166,11 +167,8 @@ export const generateEmployeePdf = async (employee: Employee, business?: Busines
   ]);
 
   // Employment Details
-  const payRate = employee.hourlyRate 
-    ? `$${employee.hourlyRate}/hr` 
-    : employee.salary 
-      ? `$${employee.salary.toLocaleString()}/yr` 
-      : '-';
+  const currentPay = savedPay(employee as any);
+  const payRate = currentPay ? `$${currentPay.amount.toFixed(2)}/${currentPay.unit === 'year' ? 'yr' : 'hr'}` : 'Not set';
 
   addSection('Employment Details', [
     ['Employee ID', employee.payrollId || employee.id.substring(0, 8).toUpperCase()],

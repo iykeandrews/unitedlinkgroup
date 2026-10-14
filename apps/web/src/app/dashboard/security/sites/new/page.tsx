@@ -1,4 +1,6 @@
 'use client';
+import AmericanDateInput from '@/components/invoices/AmericanDateInput';
+import { ReferenceList, stringList } from '@/components/billing/BillingReferences';
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -18,6 +20,7 @@ function NewSiteForm() {
     name: '',
     code: '',
     workOrder: '',
+    billingPins: [] as string[],
     startDate: '',
     endDate: '',
     clientId: preSelectedClientId || '',
@@ -25,7 +28,7 @@ function NewSiteForm() {
     geoLat: '',
     geoLng: '',
     radius: 100,
-    status: 'INACTIVE'
+    status: 'ACTIVE'
   });
 
   useEffect(() => {
@@ -177,27 +180,16 @@ function NewSiteForm() {
                 placeholder="e.g. WO-2024-001"
               />
             </div>
+<ReferenceList label="Billing reference pins" values={formData.billingPins} onChange={billingPins => setFormData(prev => ({...prev, billingPins}))} />
 
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Start Date</label>
-              <input
-                type="date"
-                name="startDate"
-                value={formData.startDate}
-                onChange={handleChange}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+              <AmericanDateInput aria-label="Location startDate" value={formData.startDate} onChange={startDate => setFormData(prev => ({...prev, startDate}))} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg" />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">End Date</label>
-              <input
-                type="date"
-                name="endDate"
-                value={formData.endDate}
-                onChange={handleChange}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+              <AmericanDateInput aria-label="Location endDate" value={formData.endDate} onChange={endDate => setFormData(prev => ({...prev, endDate}))} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg" />
             </div>
 
             <div className="col-span-2">
@@ -208,11 +200,11 @@ function NewSiteForm() {
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               >
-                <option value="INACTIVE">Inactive (Setup Mode)</option>
-                <option value="ACTIVE" disabled>Active (Requires Service Pins)</option>
+                <option value="INACTIVE">Inactive</option>
+                <option value="ACTIVE">Active</option>
               </select>
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                You must add service pins before activating this site.
+                Billing pins are optional and do not affect location activation.
               </p>
             </div>
 

@@ -1,3 +1,4 @@
+import { invoiceRecipients } from "./invoice-billing";
 import {
   Injectable,
   BadRequestException,
@@ -550,16 +551,9 @@ export class InvoicesService {
     (invoice as any).business = await this.prisma.business.findUnique({
       where: { id: invoice.businessId },
     });
-    const clientEmail =
-      invoice.client?.billingContactEmail || invoice.client?.email;
-    if (!clientEmail)
-      throw new BadRequestException(
-        "Add a client billing email before sending.",
-      );
-    const ccFromClient = [
-      invoice.client?.billingContactEmail2,
-      invoice.client?.billingContactEmail3,
-    ].filter(Boolean) as string[];
+    const { to: clientEmail, cc: ccFromClient } = invoiceRecipients(invoice.client);
+    if (!clientEmail) throw new BadRequestException("Add a client billing email before sending.");
+    if ([clientEmail, ...ccFromClient].some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new BadRequestException("Correct the client invoice email addresses before sending.");
     const extractEmail = (val: string) => {
       const v = String(val || "").trim();
       if (!v) return "";
@@ -647,33 +641,7 @@ export class InvoicesService {
       .filter(Boolean)
       .join("\n");
 
-    const parseCc = (val: string) =>
-      String(val || "")
-        .split(/[;,]/g)
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-    const uniqEmails = (emails: string[]) => {
-      const seen = new Set<string>();
-      const out: string[] = [];
-      for (const e of emails) {
-        const k = String(e || "")
-          .trim()
-          .toLowerCase();
-        if (!k) continue;
-        if (k === String(clientEmail).trim().toLowerCase()) continue;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push(String(e).trim());
-      }
-      return out;
-    };
-
-    const ccList = uniqEmails([
-      ...ccFromClient,
-      ...parseCc(process.env.INVOICE_CC || ""),
-    ]);
-    const cc = ccList.length ? ccList : undefined;
+    const cc = ccFromClient.length ? ccFromClient : undefined;
 
     const toErrorText = (val: any) => {
       if (!val) return "";

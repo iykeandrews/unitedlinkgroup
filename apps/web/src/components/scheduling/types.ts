@@ -5,6 +5,8 @@ export interface Employee {
   email: string;
   role: string;
   hourlyRate?: number;
+  salary?: number | null;
+  payType?: string;
 }
 
 export type EmployeeClockStatusType = 'CLOCKED_IN' | 'ON_BREAK' | 'CLOCKED_OUT';

@@ -1,16 +1,28 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import api from '../../../../lib/api';
-import { useBusiness } from '../../../../context/business-context';
-import { UserRole } from '@unitedlinkgroup/types';
-import { toast } from 'sonner';
-import { format, isValid, parseISO, addDays } from 'date-fns';
-import { motion } from 'framer-motion';
-import { SideModal } from '@/components/SideModal';
-import { RefreshCw, Plus, Search, Filter, ArrowLeftRight, Clock, CheckCircle, XCircle, Calendar, MapPin, User } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from "react";
+import api from "../../../../lib/api";
+import { useBusiness } from "../../../../context/business-context";
+import { UserRole } from "@unitedlinkgroup/types";
+import { toast } from "sonner";
+import { format, isValid, parseISO, addDays } from "date-fns";
+import { motion } from "framer-motion";
+import { SideModal } from "@/components/SideModal";
+import {
+  RefreshCw,
+  Plus,
+  Search,
+  Filter,
+  ArrowLeftRight,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Calendar,
+  MapPin,
+  User,
+} from "lucide-react";
 
-type SwapStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+type SwapStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
 type Shift = {
   id: string;
@@ -19,7 +31,12 @@ type Shift = {
   startTime: string;
   endTime: string;
   status?: string;
-  employee?: { id: string; firstName: string; lastName: string; email: string } | null;
+  employee?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  } | null;
   location?: { id: string; name: string } | null;
 };
 
@@ -37,11 +54,16 @@ type Swap = {
   createdAt: string;
   offeredShift?: Shift | null;
   requestedShift?: Shift | null;
-  requesterEmployee?: { id: string; firstName: string; lastName: string; email: string } | null;
+  requesterEmployee?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  } | null;
 };
 
 function safeDateTimeLabel(isoLike: string | null | undefined) {
-  if (!isoLike) return '';
+  if (!isoLike) return "";
   const d = (() => {
     try {
       return parseISO(isoLike);
@@ -49,28 +71,47 @@ function safeDateTimeLabel(isoLike: string | null | undefined) {
       return new Date(isoLike);
     }
   })();
-  if (!isValid(d)) return '';
-  return format(d, 'EEE, MMM d • h:mm a');
+  if (!isValid(d)) return "";
+  return format(d, "MM/dd/yyyy • h:mm a");
 }
 
 function statusPill(status: SwapStatus) {
-  if (status === 'APPROVED') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300';
-  if (status === 'REJECTED') return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300';
-  if (status === 'CANCELLED') return 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
-  return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+  if (status === "APPROVED")
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
+  if (status === "REJECTED")
+    return "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300";
+  if (status === "CANCELLED")
+    return "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
+  return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
 }
 
-const StatCard = ({ title, value, icon: Icon, accent }: { title: string; value: string; icon: any; accent: string }) => (
+const StatCard = ({
+  title,
+  value,
+  icon: Icon,
+  accent,
+}: {
+  title: string;
+  value: string;
+  icon: any;
+  accent: string;
+}) => (
   <motion.div
     initial={{ opacity: 0, y: 12 }}
     animate={{ opacity: 1, y: 0 }}
     className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-100 dark:border-slate-700 shadow-sm relative overflow-hidden"
   >
-    <div className={`absolute -right-10 -top-10 w-28 h-28 rounded-full opacity-10 blur-2xl ${accent}`} />
+    <div
+      className={`absolute -right-10 -top-10 w-28 h-28 rounded-full opacity-10 blur-2xl ${accent}`}
+    />
     <div className="flex items-start justify-between relative z-10">
       <div>
-        <div className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</div>
-        <div className="mt-2 text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{value}</div>
+        <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+          {title}
+        </div>
+        <div className="mt-2 text-3xl font-bold text-gray-900 dark:text-white tracking-tight">
+          {value}
+        </div>
       </div>
       <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900/40 text-slate-700 dark:text-slate-200">
         <Icon className="w-6 h-6" />
@@ -80,9 +121,13 @@ const StatCard = ({ title, value, icon: Icon, accent }: { title: string; value: 
 );
 
 function shiftLabel(s: Shift | null | undefined) {
-  if (!s) return '';
-  const emp = s.employee ? `${s.employee.firstName} ${s.employee.lastName}` : s.employeeId ? s.employeeId : 'Unassigned';
-  const loc = s.location?.name || 'No location';
+  if (!s) return "";
+  const emp = s.employee
+    ? `${s.employee.firstName} ${s.employee.lastName}`
+    : s.employeeId
+      ? s.employeeId
+      : "Unassigned";
+  const loc = s.location?.name || "No location";
   return `${safeDateTimeLabel(s.startTime)} → ${safeDateTimeLabel(s.endTime)} • ${loc} • ${emp}`;
 }
 
@@ -100,89 +145,139 @@ export default function ShiftSwapsPage() {
   const [peerShifts, setPeerShifts] = useState<Shift[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
 
-  const [query, setQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | SwapStatus>('ALL');
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | SwapStatus>("ALL");
 
-  const isAdmin = role === UserRole.BUSINESS_ADMIN || role === UserRole.SUPER_ADMIN;
+  const isAdmin =
+    role === UserRole.BUSINESS_ADMIN || role === UserRole.SUPER_ADMIN;
   const isManager = role === UserRole.MANAGER;
   const canApprove = isAdmin || isManager;
   const viewAll = isAdmin || isManager;
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [draftOfferedShiftId, setDraftOfferedShiftId] = useState('');
-  const [draftRequestedShiftId, setDraftRequestedShiftId] = useState('');
-  const [draftMessage, setDraftMessage] = useState('');
+  const [draftOfferedShiftId, setDraftOfferedShiftId] = useState("");
+  const [draftRequestedShiftId, setDraftRequestedShiftId] = useState("");
+  const [draftMessage, setDraftMessage] = useState("");
 
-  const [approveModal, setApproveModal] = useState<{ open: boolean; id: string | null; isLoading: boolean }>({
+  const [approveModal, setApproveModal] = useState<{
+    open: boolean;
+    id: string | null;
+    isLoading: boolean;
+  }>({
     open: false,
     id: null,
     isLoading: false,
   });
-  const [rejectModal, setRejectModal] = useState<{ open: boolean; id: string | null; reason: string; isLoading: boolean }>({
+  const [rejectModal, setRejectModal] = useState<{
+    open: boolean;
+    id: string | null;
+    reason: string;
+    isLoading: boolean;
+  }>({
     open: false,
     id: null,
-    reason: '',
+    reason: "",
     isLoading: false,
   });
 
   const dateStart = useMemo(() => new Date(), []);
   const dateEnd = useMemo(() => addDays(new Date(), 30), []);
 
+  useEffect(() => {
+    setCreateOpen(false);
+    setSwaps([]);
+    setAllShifts([]);
+    setMyShifts([]);
+    setPeerShifts([]);
+  }, [businessId]);
+  const loadVersion = useRef(0);
+  const [loadError, setLoadError] = useState("");
   const load = async (opts?: { silent?: boolean }) => {
+    const current = ++loadVersion.current;
+    setLoadError("");
     const silent = !!opts?.silent;
     if (!silent) setLoading(true);
     try {
-      const profileRes = await api.get('/auth/profile');
+      const profileRes = await api.get("/auth/profile");
       const r = profileRes.data?.role || null;
-      const eid = profileRes.data?.employeeId || null;
-      setRole(r);
-      setEmployeeId(eid);
-      const viewAllLocal = r === UserRole.BUSINESS_ADMIN || r === UserRole.SUPER_ADMIN || r === UserRole.MANAGER;
+      let eid = profileRes.data?.employeeId || null;
+      if(r === UserRole.EMPLOYEE && businessId){const me=await api.get("/employees/me",{headers:{"x-business-id":businessId}});eid=me.data.id;}
+      if (current === loadVersion.current) setRole(r);
+      if (current === loadVersion.current) setEmployeeId(eid);
+      const viewAllLocal =
+        r === UserRole.BUSINESS_ADMIN ||
+        r === UserRole.SUPER_ADMIN ||
+        r === UserRole.MANAGER;
 
-      const status = statusFilter === 'ALL' ? undefined : statusFilter;
-      const swapsRes = await api.get(viewAllLocal ? '/swaps' : '/swaps/my', { params: status ? { status } : undefined });
-      setSwaps(Array.isArray(swapsRes.data) ? (swapsRes.data as Swap[]) : []);
+      const status = statusFilter === "ALL" ? undefined : statusFilter;
+      const swapsRes = await api.get(viewAllLocal ? "/swaps" : "/swaps/my", {
+        params: status ? { status } : undefined,
+      });
+      if (current === loadVersion.current)
+        setSwaps(Array.isArray(swapsRes.data) ? (swapsRes.data as Swap[]) : []);
 
       if (r === UserRole.EMPLOYEE) {
         const [mineRes, peersRes] = await Promise.all([
-          api.get('/scheduling/my', { params: { start: dateStart.toISOString(), end: dateEnd.toISOString() } }),
-          api.get('/scheduling/my-peers', { params: { start: dateStart.toISOString(), end: dateEnd.toISOString() } }),
+          api.get("/scheduling/my", {
+            params: {
+              start: dateStart.toISOString(),
+              end: dateEnd.toISOString(),
+            },
+          }),
+          api.get("/scheduling/my-peers", {
+            params: {
+              start: dateStart.toISOString(),
+              end: dateEnd.toISOString(),
+            },
+          }),
         ]);
-        const mine = Array.isArray(mineRes.data) ? (mineRes.data as Shift[]) : [];
-        const peers = Array.isArray(peersRes.data) ? (peersRes.data as Shift[]) : [];
-        setMyShifts(mine.filter((s) => s.status === 'PUBLISHED'));
-        setPeerShifts(peers.filter((s) => s.status === 'PUBLISHED' && s.employeeId));
-        setAllShifts([]);
+        const mine: Shift[] = Array.isArray(mineRes.data)
+          ? (mineRes.data as Shift[])
+          : mineRes.data?.shifts || [];
+        const peers = Array.isArray(peersRes.data)
+          ? (peersRes.data as Shift[])
+          : [];
+        if (current === loadVersion.current)
+          setMyShifts(mine.filter((s) => s.status === "PUBLISHED"));
+        if (current === loadVersion.current)
+          setPeerShifts(
+            peers.filter((s) => s.status === "PUBLISHED" && s.employeeId),
+          );
+        if (current === loadVersion.current) setAllShifts([]);
       } else if (businessId) {
-        const res = await api.get('/scheduling/shifts', {
+        const res = await api.get("/scheduling/shifts", {
           params: {
             businessId,
             start: dateStart.toISOString(),
             end: dateEnd.toISOString(),
-            employeeId: '',
+            employeeId: "",
           },
         });
         const list = Array.isArray(res.data) ? (res.data as Shift[]) : [];
-        const publishedAssigned = list.filter((s) => s.status === 'PUBLISHED' && s.employeeId);
-        setAllShifts(publishedAssigned);
-        setMyShifts([]);
-        setPeerShifts([]);
+        const publishedAssigned = list.filter(
+          (s) => s.status === "PUBLISHED" && s.employeeId,
+        );
+        if (current === loadVersion.current) setAllShifts(publishedAssigned);
+        if (current === loadVersion.current) setMyShifts([]);
+        if (current === loadVersion.current) setPeerShifts([]);
       }
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to load shift swaps');
+      if (current !== loadVersion.current) return;
+      setLoadError(
+        e?.response?.data?.message || "Unable to load this page. Please retry.",
+      );
+      toast.error(e?.response?.data?.message || "Failed to load shift swaps");
     } finally {
-      if (!silent) setLoading(false);
+      if (current === loadVersion.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     load();
-  }, []);
-
-  useEffect(() => {
-    if (!viewAll) return;
-    load({ silent: true });
-  }, [statusFilter]);
+    return () => {
+      loadVersion.current++;
+    };
+  }, [businessId, statusFilter]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -191,16 +286,21 @@ export default function ShiftSwapsPage() {
     return list.filter((s) => {
       const offered = shiftLabel(s.offeredShift).toLowerCase();
       const requested = shiftLabel(s.requestedShift).toLowerCase();
-      const msg = (s.message || '').toLowerCase();
-      const status = (s.status || '').toLowerCase();
-      return offered.includes(q) || requested.includes(q) || msg.includes(q) || status.includes(q);
+      const msg = (s.message || "").toLowerCase();
+      const status = (s.status || "").toLowerCase();
+      return (
+        offered.includes(q) ||
+        requested.includes(q) ||
+        msg.includes(q) ||
+        status.includes(q)
+      );
     });
   }, [swaps, query]);
 
   const stats = useMemo(() => {
-    const pending = filtered.filter((s) => s.status === 'PENDING').length;
-    const approved = filtered.filter((s) => s.status === 'APPROVED').length;
-    const rejected = filtered.filter((s) => s.status === 'REJECTED').length;
+    const pending = filtered.filter((s) => s.status === "PENDING").length;
+    const approved = filtered.filter((s) => s.status === "APPROVED").length;
+    const rejected = filtered.filter((s) => s.status === "REJECTED").length;
     return { pending, approved, rejected };
   }, [filtered]);
 
@@ -215,58 +315,62 @@ export default function ShiftSwapsPage() {
   }, [role, peerShifts, allShifts]);
 
   const openCreate = () => {
-    setDraftOfferedShiftId('');
-    setDraftRequestedShiftId('');
-    setDraftMessage('');
+    setDraftOfferedShiftId("");
+    setDraftRequestedShiftId("");
+    setDraftMessage("");
     setCreateOpen(true);
   };
 
   const submitCreate = async () => {
     if (!draftOfferedShiftId) {
-      toast.error('Select your shift to offer');
+      toast.error("Select your shift to offer");
       return;
     }
     if (!draftRequestedShiftId) {
-      toast.error('Select the shift you want');
+      toast.error("Select the shift you want");
       return;
     }
     try {
-      await api.post('/swaps', {
+      await api.post("/swaps", {
         offeredShiftId: draftOfferedShiftId,
         requestedShiftId: draftRequestedShiftId,
         message: draftMessage || undefined,
       });
-      toast.success('Swap request submitted');
+      toast.success("Swap request submitted");
       setCreateOpen(false);
       await load({ silent: true });
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to create swap request');
+      toast.error(
+        e?.response?.data?.message || "Failed to create swap request",
+      );
     }
   };
 
   const cancelSwap = async (id: string) => {
     try {
       await api.put(`/swaps/${id}/cancel`);
-      toast.success('Cancelled');
+      toast.success("Cancelled");
       await load({ silent: true });
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to cancel');
+      toast.error(e?.response?.data?.message || "Failed to cancel");
     }
   };
 
-  const approveSwap = (id: string) => setApproveModal({ open: true, id, isLoading: false });
-  const rejectSwap = (id: string) => setRejectModal({ open: true, id, reason: '', isLoading: false });
+  const approveSwap = (id: string) =>
+    setApproveModal({ open: true, id, isLoading: false });
+  const rejectSwap = (id: string) =>
+    setRejectModal({ open: true, id, reason: "", isLoading: false });
 
   const doApprove = async () => {
     if (!approveModal.id) return;
     setApproveModal((p) => ({ ...p, isLoading: true }));
     try {
       await api.put(`/swaps/${approveModal.id}/approve`);
-      toast.success('Approved and shifts swapped');
+      toast.success("Approved and shifts swapped");
       setApproveModal({ open: false, id: null, isLoading: false });
       await load({ silent: true });
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to approve');
+      toast.error(e?.response?.data?.message || "Failed to approve");
       setApproveModal((p) => ({ ...p, isLoading: false }));
     }
   };
@@ -275,12 +379,14 @@ export default function ShiftSwapsPage() {
     if (!rejectModal.id) return;
     setRejectModal((p) => ({ ...p, isLoading: true }));
     try {
-      await api.put(`/swaps/${rejectModal.id}/reject`, { rejectionReason: rejectModal.reason || undefined });
-      toast.success('Rejected');
-      setRejectModal({ open: false, id: null, reason: '', isLoading: false });
+      await api.put(`/swaps/${rejectModal.id}/reject`, {
+        rejectionReason: rejectModal.reason || undefined,
+      });
+      toast.success("Rejected");
+      setRejectModal({ open: false, id: null, reason: "", isLoading: false });
       await load({ silent: true });
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to reject');
+      toast.error(e?.response?.data?.message || "Failed to reject");
       setRejectModal((p) => ({ ...p, isLoading: false }));
     }
   };
@@ -289,12 +395,28 @@ export default function ShiftSwapsPage() {
     try {
       setRefreshing(true);
       await load({ silent: true });
-      toast.success('Refreshed');
+      toast.success("Refreshed");
     } finally {
       setRefreshing(false);
     }
   };
 
+  if (!selectedBusiness)
+    return (
+      <p className="p-8 text-slate-500">Select a business to view this page.</p>
+    );
+  if (loadError)
+    return (
+      <div
+        role="alert"
+        className="m-8 rounded-xl border border-rose-200 bg-rose-50 p-6 text-rose-800"
+      >
+        {loadError}
+        <button onClick={() => load()} className="ml-4 font-semibold underline">
+          Retry
+        </button>
+      </div>
+    );
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50 dark:bg-slate-900">
@@ -307,9 +429,12 @@ export default function ShiftSwapsPage() {
     return (
       <div className="p-8">
         <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 p-6">
-          <div className="text-lg font-bold text-gray-900 dark:text-white">Select a business context</div>
+          <div className="text-lg font-bold text-gray-900 dark:text-white">
+            Select a business context
+          </div>
           <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-            Shift swaps are scoped to a business. Select a business from the dashboard first.
+            Shift swaps are scoped to a business. Select a business from the
+            dashboard first.
           </div>
         </div>
       </div>
@@ -324,7 +449,9 @@ export default function ShiftSwapsPage() {
             Shift Swaps
           </h1>
           <div className="mt-1 text-gray-500 dark:text-gray-400">
-            {canApprove ? 'Review and approve shift swap requests' : 'Request to swap shifts with colleagues'}
+            {canApprove
+              ? "Review and approve shift swap requests"
+              : "Request to swap shifts with colleagues"}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -334,7 +461,9 @@ export default function ShiftSwapsPage() {
             disabled={refreshing}
             className="px-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 text-sm font-semibold flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700/40 disabled:opacity-60"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
+            />
             Refresh
           </button>
           <button
@@ -349,16 +478,33 @@ export default function ShiftSwapsPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Pending" value={`${stats.pending}`} icon={Clock} accent="bg-amber-500" />
-        <StatCard title="Approved" value={`${stats.approved}`} icon={CheckCircle} accent="bg-emerald-500" />
-        <StatCard title="Rejected" value={`${stats.rejected}`} icon={XCircle} accent="bg-rose-500" />
+        <StatCard
+          title="Pending"
+          value={`${stats.pending}`}
+          icon={Clock}
+          accent="bg-amber-500"
+        />
+        <StatCard
+          title="Approved"
+          value={`${stats.approved}`}
+          icon={CheckCircle}
+          accent="bg-emerald-500"
+        />
+        <StatCard
+          title="Rejected"
+          value={`${stats.rejected}`}
+          icon={XCircle}
+          accent="bg-rose-500"
+        />
       </div>
 
       <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
         <div className="p-5 border-b border-gray-200/60 dark:border-slate-700/60 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <ArrowLeftRight className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <div className="font-bold text-gray-900 dark:text-white">Swap requests</div>
+            <div className="font-bold text-gray-900 dark:text-white">
+              Swap requests
+            </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
             {viewAll && (
@@ -403,18 +549,30 @@ export default function ShiftSwapsPage() {
             <tbody className="divide-y divide-gray-200/60 dark:divide-slate-700/60">
               {filtered.length === 0 ? (
                 <tr>
-                  <td className="px-5 py-6 text-sm text-gray-500 dark:text-gray-400" colSpan={5}>
+                  <td
+                    className="px-5 py-6 text-sm text-gray-500 dark:text-gray-400"
+                    colSpan={5}
+                  >
                     No shift swap requests found.
                   </td>
                 </tr>
               ) : (
                 filtered.map((s) => {
-                  const isPending = s.status === 'PENDING';
-                  const canCancel = isPending && !canApprove && employeeId && s.requesterEmployeeId === employeeId;
+                  const isPending = s.status === "PENDING";
+                  const canCancel =
+                    isPending &&
+                    !canApprove &&
+                    employeeId &&
+                    s.requesterEmployeeId === employeeId;
                   return (
-                    <tr key={s.id} className="hover:bg-gray-50/70 dark:hover:bg-slate-900/40">
+                    <tr
+                      key={s.id}
+                      className="hover:bg-gray-50/70 dark:hover:bg-slate-900/40"
+                    >
                       <td className="px-5 py-4">
-                        <div className="text-sm font-semibold text-gray-900 dark:text-white">{safeDateTimeLabel(s.offeredShift?.startTime)}</div>
+                        <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {safeDateTimeLabel(s.offeredShift?.startTime)}
+                        </div>
                         <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                           <span className="inline-flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5" />
@@ -422,16 +580,20 @@ export default function ShiftSwapsPage() {
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <MapPin className="w-3.5 h-3.5" />
-                            {s.offeredShift?.location?.name || 'No location'}
+                            {s.offeredShift?.location?.name || "No location"}
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <User className="w-3.5 h-3.5" />
-                            {s.offeredShift?.employee ? `${s.offeredShift.employee.firstName} ${s.offeredShift.employee.lastName}` : 'Unassigned'}
+                            {s.offeredShift?.employee
+                              ? `${s.offeredShift.employee.firstName} ${s.offeredShift.employee.lastName}`
+                              : "Unassigned"}
                           </span>
                         </div>
                       </td>
                       <td className="px-5 py-4">
-                        <div className="text-sm font-semibold text-gray-900 dark:text-white">{safeDateTimeLabel(s.requestedShift?.startTime)}</div>
+                        <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {safeDateTimeLabel(s.requestedShift?.startTime)}
+                        </div>
                         <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                           <span className="inline-flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5" />
@@ -439,21 +601,31 @@ export default function ShiftSwapsPage() {
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <MapPin className="w-3.5 h-3.5" />
-                            {s.requestedShift?.location?.name || 'No location'}
+                            {s.requestedShift?.location?.name || "No location"}
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <User className="w-3.5 h-3.5" />
-                            {s.requestedShift?.employee ? `${s.requestedShift.employee.firstName} ${s.requestedShift.employee.lastName}` : 'Unassigned'}
+                            {s.requestedShift?.employee
+                              ? `${s.requestedShift.employee.firstName} ${s.requestedShift.employee.lastName}`
+                              : "Unassigned"}
                           </span>
                         </div>
                       </td>
                       <td className="px-5 py-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusPill(s.status)}`}>{s.status}</span>
-                        {s.status === 'REJECTED' && s.rejectionReason && (
-                          <div className="mt-1 text-xs text-rose-600 dark:text-rose-300">{s.rejectionReason}</div>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-bold ${statusPill(s.status)}`}
+                        >
+                          {s.status}
+                        </span>
+                        {s.status === "REJECTED" && s.rejectionReason && (
+                          <div className="mt-1 text-xs text-rose-600 dark:text-rose-300">
+                            {s.rejectionReason}
+                          </div>
                         )}
                       </td>
-                      <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300 max-w-[320px] truncate">{s.message || '—'}</td>
+                      <td className="px-5 py-4 text-sm text-gray-600 dark:text-gray-300 max-w-[320px] truncate">
+                        {s.message || "—"}
+                      </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-end gap-2">
                           {canApprove && isPending && (
@@ -494,14 +666,23 @@ export default function ShiftSwapsPage() {
         </div>
       </div>
 
-      <SideModal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="New shift swap request" widthClassName="w-full max-w-2xl">
+      <SideModal
+        isOpen={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="New shift swap request"
+        widthClassName="w-full max-w-2xl"
+      >
         <div className="space-y-5">
           <div className="rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 p-4 text-sm text-gray-600 dark:text-gray-300">
-            Select the shift you&apos;re offering and the shift you want to swap with. Only published, assigned shifts are shown for the next 30 days.
+            Select the shift you&apos;re offering and the shift you want to swap
+            with. Only published, assigned shifts are shown for the next 30
+            days.
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Offered shift</label>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+              Offered shift
+            </label>
             <select
               value={draftOfferedShiftId}
               onChange={(e) => setDraftOfferedShiftId(e.target.value)}
@@ -517,7 +698,9 @@ export default function ShiftSwapsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Requested shift</label>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+              Requested shift
+            </label>
             <select
               value={draftRequestedShiftId}
               onChange={(e) => setDraftRequestedShiftId(e.target.value)}
@@ -535,7 +718,9 @@ export default function ShiftSwapsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Message (optional)</label>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+              Message (optional)
+            </label>
             <textarea
               value={draftMessage}
               onChange={(e) => setDraftMessage(e.target.value)}
@@ -566,18 +751,23 @@ export default function ShiftSwapsPage() {
 
       <SideModal
         isOpen={approveModal.open}
-        onClose={() => setApproveModal({ open: false, id: null, isLoading: false })}
+        onClose={() =>
+          setApproveModal({ open: false, id: null, isLoading: false })
+        }
         title="Approve swap request"
         widthClassName="w-full max-w-md"
       >
         <div className="space-y-4">
           <div className="text-sm text-gray-600 dark:text-gray-300">
-            Approving will immediately swap the assigned employees for the two shifts.
+            Approving will immediately swap the assigned employees for the two
+            shifts.
           </div>
           <div className="flex items-center justify-end gap-3">
             <button
               type="button"
-              onClick={() => setApproveModal({ open: false, id: null, isLoading: false })}
+              onClick={() =>
+                setApproveModal({ open: false, id: null, isLoading: false })
+              }
               className="px-4 py-2 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 text-sm font-semibold"
               disabled={approveModal.isLoading}
             >
@@ -589,7 +779,7 @@ export default function ShiftSwapsPage() {
               className="px-4 py-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-60"
               disabled={approveModal.isLoading}
             >
-              {approveModal.isLoading ? 'Approving…' : 'Approve'}
+              {approveModal.isLoading ? "Approving…" : "Approve"}
             </button>
           </div>
         </div>
@@ -597,15 +787,26 @@ export default function ShiftSwapsPage() {
 
       <SideModal
         isOpen={rejectModal.open}
-        onClose={() => setRejectModal({ open: false, id: null, reason: '', isLoading: false })}
+        onClose={() =>
+          setRejectModal({
+            open: false,
+            id: null,
+            reason: "",
+            isLoading: false,
+          })
+        }
         title="Reject swap request"
         widthClassName="w-full max-w-md"
       >
         <div className="space-y-4">
-          <div className="text-sm text-gray-600 dark:text-gray-300">Add an optional rejection reason.</div>
+          <div className="text-sm text-gray-600 dark:text-gray-300">
+            Add an optional rejection reason.
+          </div>
           <textarea
             value={rejectModal.reason}
-            onChange={(e) => setRejectModal((p) => ({ ...p, reason: e.target.value }))}
+            onChange={(e) =>
+              setRejectModal((p) => ({ ...p, reason: e.target.value }))
+            }
             rows={4}
             className="w-full rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-900 dark:text-white px-4 py-3 text-sm"
             placeholder="Reason…"
@@ -613,7 +814,14 @@ export default function ShiftSwapsPage() {
           <div className="flex items-center justify-end gap-3">
             <button
               type="button"
-              onClick={() => setRejectModal({ open: false, id: null, reason: '', isLoading: false })}
+              onClick={() =>
+                setRejectModal({
+                  open: false,
+                  id: null,
+                  reason: "",
+                  isLoading: false,
+                })
+              }
               className="px-4 py-2 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 text-sm font-semibold"
               disabled={rejectModal.isLoading}
             >
@@ -625,7 +833,7 @@ export default function ShiftSwapsPage() {
               className="px-4 py-2 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold disabled:opacity-60"
               disabled={rejectModal.isLoading}
             >
-              {rejectModal.isLoading ? 'Rejecting…' : 'Reject'}
+              {rejectModal.isLoading ? "Rejecting…" : "Reject"}
             </button>
           </div>
         </div>

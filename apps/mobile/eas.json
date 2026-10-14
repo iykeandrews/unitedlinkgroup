@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 18.6.0",
-    "appVersionSource": "remote"
+    "appVersionSource": "remote",
+    "promptToConfigurePushNotifications": false
   },
   "build": {
     "development": {
@@ -12,10 +13,18 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "credentialsSource": "remote"
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6811577530",
+        "ascApiKeyPath": "ios/certs/AuthKey_27ULRV4RHT.p8",
+        "ascApiKeyIssuerId": "2d798f46-5fbc-4410-81ac-4188406fc5f7",
+        "ascApiKeyId": "27ULRV4RHT"
+      }
+    }
   }
 }

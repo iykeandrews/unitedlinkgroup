@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Search, 
@@ -12,9 +12,13 @@ import {
   MoreHorizontal,
   Download
 } from 'lucide-react';
+import { useBusiness } from '@/context/business-context';
+import { clientAddress, clientRecipients } from '@/components/billing/BillingReferences';
+import { downloadCsv } from '@/lib/time/records';
 import api from '../../../../lib/api';
 
 interface Client {
+  [key: string]: any;
   id: string;
   name: string;
   type: string;
@@ -36,19 +40,19 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    fetchClients();
-  }, []);
-
+  const { selectedBusiness } = useBusiness();
+  const requestVersion = useRef(0);
+  const [error, setError] = useState('');
+  useEffect(() => { setClients([]); fetchClients(); return () => { requestVersion.current++; }; }, [selectedBusiness?.id]);
   const fetchClients = async () => {
+    const version = ++requestVersion.current;
+    setError(''); setLoading(true);
+    if (!selectedBusiness?.id) { setLoading(false); return; }
     try {
-      const res = await api.get('/clients');
-      setClients(res.data);
-    } catch (error) {
-      console.error('Failed to fetch clients', error);
-    } finally {
-      setLoading(false);
-    }
+      const res = await api.get('/clients', {headers: {'x-business-id': selectedBusiness.id}});
+      if (version === requestVersion.current) setClients(res.data);
+    } catch { if (version === requestVersion.current) {setClients([]); setError('Unable to load clients. Please retry.');} }
+    finally { if (version === requestVersion.current) setLoading(false); }
   };
 
   const filteredClients = clients.filter(client => 
@@ -57,38 +61,15 @@ export default function ClientsPage() {
     client.email?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleExport = () => {
-    const headers = ['Name', 'Type', 'Industry', 'Status', 'Contact', 'Email', 'Phone', 'City', 'State'];
-    const csvContent = [
-        headers.join(','),
-        ...filteredClients.map(c => [
-            `"${c.name}"`,
-            `"${c.type}"`,
-            `"${c.industry || ''}"`,
-            `"${c.status}"`,
-            `"${c.contactPerson || ''}"`,
-            `"${c.email || ''}"`,
-            `"${c.phone || ''}"`,
-            `"${c.city || ''}"`,
-            `"${c.state || ''}"`
-        ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    if (link.download !== undefined) {
-        const url = URL.createObjectURL(blob);
-        link.setAttribute('href', url);
-        link.setAttribute('download', 'clients.csv');
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-  };
+  const handleExport = () => downloadCsv([
+    ['Name','Type','Status','Contact','Phone','Billing address','Invoice To','Invoice CC','Locations'],
+    ...filteredClients.map(client => {const recipients = clientRecipients(client); return [client.name,client.type,client.status,client.contactPerson || '',client.phone || '',clientAddress(client),recipients.to,recipients.cc.join('; '),client._count?.locations || 0];}),
+  ], 'clients.csv');
 
   return (
     <div className="py-8">
+      {error && <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">{error} <button onClick={fetchClients} className="underline font-semibold">Retry</button></div>}
+      {!selectedBusiness && <p className="mb-4 text-slate-500">Select a business to manage clients.</p>}
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Client Accounts</h1>
@@ -96,6 +77,7 @@ export default function ClientsPage() {
         </div>
         <div className="flex gap-2">
             <button
+            disabled={loading || !!error || !filteredClients.length}
             onClick={handleExport}
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg transition-colors"
             >
@@ -164,7 +146,7 @@ export default function ClientsPage() {
                         </div>
                         <div>
                           <p className="font-medium text-slate-900 dark:text-white">{client.name}</p>
-                          <p className="text-xs text-slate-500">ID: {client.id.slice(0, 8)}</p>
+                          <p className="text-xs text-slate-500">{clientRecipients(client).cc.length} invoice CC recipient(s)</p>
                         </div>
                       </div>
                     </td>
@@ -176,7 +158,7 @@ export default function ClientsPage() {
                       <div className="flex flex-col gap-1">
                         <p className="text-sm font-medium text-slate-900 dark:text-white">{client.contactPerson}</p>
                         <div className="flex items-center gap-2 text-xs text-slate-500">
-                          <Mail size={12} /> {client.email}
+                          <Mail size={12} /> {clientRecipients(client).to || "Billing email not entered"}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-slate-500">
                           <Phone size={12} /> {client.phone}
@@ -186,7 +168,7 @@ export default function ClientsPage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                         <MapPin size={16} className="text-slate-400" />
-                        {client.city}, {client.state}
+                        <span className="whitespace-pre-line">{clientAddress(client) || "Address not entered"}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">

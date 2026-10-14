@@ -1,3 +1,4 @@
+import { IsArray, ArrayMaxSize, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsString, IsOptional, IsNumber, ValidateNested, IsDateString } from 'class-validator';
 import { TaxOverrideDto } from './tax-override.dto';
@@ -51,5 +52,12 @@ export class UpdateLocationDto {
   @ValidateNested()
   @Type(() => TaxOverrideDto)
   taxOverrideInfo?: TaxOverrideDto;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  billingPins?: string[];
+
 }
 

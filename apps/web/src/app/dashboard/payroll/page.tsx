@@ -130,8 +130,8 @@ export default function PayrollPage() {
           )
           .map((e: any) => ({
             ...e,
-            payType: e.w2Profile?.payType || e.payType,
-            paySchedule: e.w2Profile?.paySchedule || e.paySchedule,
+            payType: e.workerType === "CONTRACTOR_1099" ? "HOURLY" : e.w2Profile?.payType || e.payType,
+            paySchedule: e.workerType === "CONTRACTOR_1099" ? e.paySchedule : e.w2Profile?.paySchedule || e.paySchedule,
             hourlyRate:
               e.workerType === "CONTRACTOR_1099"
                 ? (e.contractorProfile?.rate ?? e.hourlyRate)

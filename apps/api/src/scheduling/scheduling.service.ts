@@ -1,3 +1,4 @@
+import { effectivePay } from "../employees/employment.util";
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma.service';
@@ -26,7 +27,7 @@ export class SchedulingService {
     if (user.role === 'SUPER_ADMIN') return;
     
     // Check if user owns the business
-    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: user.userId || user.sub || user.id } });
+    const ownedBusiness = await this.prisma.business.findFirst({ where: { id: targetBusinessId, ownerId: user.userId || user.sub || user.id } });
     if (ownedBusiness && ownedBusiness.id === targetBusinessId) return;
 
     // Check if user is an employee of the business
@@ -975,9 +976,9 @@ export class SchedulingService {
       return updatedShift;
   }
 
-  async getMyShifts(userId: string, start: Date, end: Date) {
+  async getMyShifts(userId: string, start: Date, end: Date, businessId?: string) {
     this.assertValidRange(start, end);
-    const employee = await this.prisma.employee.findFirst({ where: { userId } });
+    const employee = await this.prisma.employee.findFirst({ where: { userId, ...(businessId ? { businessId } : {}) }, include: { w2Profile: true, contractorProfile: true } });
     if (!employee) throw new BadRequestException('User is not associated with a business');
     const shifts = await this.prisma.shift.findMany({
       where: {
@@ -1000,10 +1001,11 @@ export class SchedulingService {
       totalBreakMinutes += Math.max(plannedBreakMinutes, requiredUnpaidBreakMinutes);
     }
     const netHours = Math.max(0, totalHours - (totalBreakMinutes / 60));
-    const rate = employee.hourlyRate || 0;
+    const pay = effectivePay(employee);
+    const rate = pay.hourlyRate ?? 0;
     let payableHours = netHours;
     let estimatedEarnings = Number((netHours * rate).toFixed(2));
-    if (employee.payType === 'HOURLY' && (employee.overtimeEligible ?? true)) {
+    if (pay.payType === 'HOURLY' && pay.overtimeEligible) {
       const weeklyHours: Record<string, number> = {};
       for (const s of shifts) {
         if (!s.endTime) continue;
@@ -1041,7 +1043,9 @@ export class SchedulingService {
         id: employee.id,
         firstName: employee.firstName,
         lastName: employee.lastName,
-        hourlyRate: employee.hourlyRate || 0,
+        hourlyRate: rate,
+        payType: pay.payType,
+        salary: pay.salary,
       },
       shifts,
       summary: {
@@ -1053,9 +1057,9 @@ export class SchedulingService {
     };
   }
   
-  async getMyPeerShifts(userId: string, start: Date, end: Date): Promise<Shift[]> {
+  async getMyPeerShifts(userId: string, start: Date, end: Date, businessId?: string): Promise<Shift[]> {
     this.assertValidRange(start, end);
-    const employee = await this.prisma.employee.findFirst({ where: { userId } });
+    const employee = await this.prisma.employee.findFirst({ where: { userId, ...(businessId ? { businessId } : {}) } });
     if (!employee) throw new BadRequestException('User is not associated with a business');
     const myShifts = await this.prisma.shift.findMany({
       where: {
@@ -1080,7 +1084,7 @@ export class SchedulingService {
           { employeeId: null }
         ]
       },
-      include: { employee: true, location: true, applications: { include: { employee: true } } } as any,
+      include: { employee: { select: { id: true, firstName: true, lastName: true, email: true } }, location: true, applications: { include: { employee: { select: { id: true, firstName: true, lastName: true } } } } } as any,
       orderBy: { startTime: 'asc' }
     }) as unknown as Shift[];
   }

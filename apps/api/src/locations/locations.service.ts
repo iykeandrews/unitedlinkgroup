@@ -47,6 +47,11 @@ export class LocationsService {
     return employee.businessId;
   }
 
+  private billingPins(value: any) {
+    if (!Array.isArray(value) || value.length > 50 || value.some(pin => typeof pin !== 'string' || !pin.trim() || pin.trim().length > 100)) throw new BadRequestException('Enter up to 50 non-empty billing pins (100 characters each)');
+    return JSON.stringify([...new Set(value.map(pin => pin.trim()))]);
+  }
+
   private async validateLocation(data: any, businessId: string, existing?: any) {
     const merged = { ...existing, ...data };
     if (!merged.name?.trim() || !merged.address?.trim()) throw new BadRequestException('Site name and address are required');
@@ -65,10 +70,6 @@ export class LocationsService {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     
     await this.validateLocation(data, businessId);
-    if (data.status === 'ACTIVE') {
-       throw new BadRequestException('Cannot create ACTIVE site without service pins. Please create as INACTIVE and add pins.');
-    }
-
     let { geoLat, geoLng } = data;
     if (data.address && (geoLat === undefined || geoLat === null || geoLng === undefined || geoLng === null)) {
         const coords = await this.geocodingService.geocode(data.address);
@@ -82,7 +83,8 @@ export class LocationsService {
       data: {
         name: data.name.trim(),
         code: data.code,
-        workOrder: data.workOrder,
+        workOrder: data.workOrder?.trim() || null,
+        billingPins: this.billingPins(data.billingPins ?? []),
         startDate: data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
         address: data.address.trim(),
@@ -134,13 +136,6 @@ export class LocationsService {
     if (!loc) throw new NotFoundException('Location not found');
 
     await this.validateLocation(data, businessId, loc);
-    if (data.status === 'ACTIVE') {
-        const pinCount = await this.prisma.servicePin.count({ where: { locationId: id, status: 'ACTIVE' } });
-        if (pinCount === 0) {
-             throw new BadRequestException('Cannot activate site without at least one active service pin');
-        }
-    }
-    
     if (data.status === 'INACTIVE' && loc.status === 'ACTIVE') {
       const commitments = await this.prisma.shift.count({ where: { locationId:id, endTime:{gt:new Date()}, status:{in:['DRAFT','PUBLISHED','OPEN']} } });
       const activeTime = await this.prisma.timesheet.count({where:{locationId:id,endTime:null}});
@@ -150,15 +145,16 @@ export class LocationsService {
       where: { id },
       data: {
         name: data.name ?? loc.name,
-        workOrder: data.workOrder ?? loc.workOrder,
+        workOrder: data.workOrder === undefined ? loc.workOrder : data.workOrder?.trim() || null,
+        billingPins: data.billingPins === undefined ? loc.billingPins : this.billingPins(data.billingPins),
         startDate: data.startDate === undefined ? loc.startDate : data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate === undefined ? loc.endDate : data.endDate ? new Date(data.endDate) : null,
         code: data.code ?? loc.code,
         address: data.address ?? loc.address,
         clientId: data.clientId === undefined ? loc.clientId : data.clientId || null,
         status: data.status ?? loc.status,
-        geoLat: data.geoLat ?? loc.geoLat,
-        geoLng: data.geoLng ?? loc.geoLng,
+        geoLat: data.geoLat === undefined ? loc.geoLat : data.geoLat,
+        geoLng: data.geoLng === undefined ? loc.geoLng : data.geoLng,
         radius: data.radius ?? loc.radius,
         taxOverrideInfo: data.taxOverrideInfo ? JSON.stringify(data.taxOverrideInfo) : loc.taxOverrideInfo,
       },

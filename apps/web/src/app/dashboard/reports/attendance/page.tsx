@@ -1,4 +1,5 @@
 "use client";
+import AmericanDateInput from "@/components/invoices/AmericanDateInput";
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useBusiness } from "../../../../context/business-context";
@@ -218,7 +219,7 @@ export default function AttendanceReportPage() {
       const netDuration = netHours(t);
 
       return [
-        format(parseISO(t.startTime), "yyyy-MM-dd"),
+        format(parseISO(t.startTime), "MM/dd/yyyy"),
         `${t.employee.firstName} ${t.employee.lastName}`,
         t.location?.name || "N/A",
         format(parseISO(t.startTime), "HH:mm"),
@@ -406,14 +407,12 @@ export default function AttendanceReportPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
-                <input
-                  type="date"
+                <AmericanDateInput
+                  aria-label="Attendance report start date"
                   value={format(startDate, "yyyy-MM-dd")}
-                  onChange={(e) =>
+                  onChange={(value) =>
                     setStartDate(
-                      parseISO(
-                        e.target.value || format(new Date(), "yyyy-MM-dd"),
-                      ),
+                      parseISO(value || format(new Date(), "yyyy-MM-dd")),
                     )
                   }
                   className="pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
@@ -422,14 +421,12 @@ export default function AttendanceReportPage() {
               </div>
               <span className="text-slate-400">-</span>
               <div className="relative">
-                <input
-                  type="date"
+                <AmericanDateInput
+                  aria-label="Attendance report end date"
                   value={format(endDate, "yyyy-MM-dd")}
-                  onChange={(e) =>
+                  onChange={(value) =>
                     setEndDate(
-                      parseISO(
-                        e.target.value || format(new Date(), "yyyy-MM-dd"),
-                      ),
+                      parseISO(value || format(new Date(), "yyyy-MM-dd")),
                     )
                   }
                   className="pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
@@ -523,7 +520,7 @@ export default function AttendanceReportPage() {
                       className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
                     >
                       <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                        {format(parseISO(t.startTime), "MMM d, yyyy")}
+                        {format(parseISO(t.startTime), "MM/dd/yyyy")}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
@@ -619,7 +616,7 @@ export default function AttendanceReportPage() {
                   <p className="text-sm font-medium text-slate-900 dark:text-white">
                     {format(
                       parseISO(selectedTimesheet.startTime),
-                      "MMM d, yyyy",
+                      "MM/dd/yyyy",
                     )}
                   </p>
                 </div>

@@ -1,3 +1,4 @@
+import { savedPay } from "../people/directory";
 import { workedHours } from "../../lib/time/records";
 import { useState, useEffect, useMemo } from "react";
 import { format, differenceInMinutes } from "date-fns";
@@ -91,6 +92,12 @@ export function TimesheetDetailsModal({
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [isOpen, loading, onClose]);
 
+  const employeePay = timesheet?.employee
+    ? savedPay({
+        ...timesheet.employee,
+        workerType: timesheet.workerType || timesheet.employee.workerType,
+      })
+    : null;
   // Dynamic Calculations
   const calculatedStats = useMemo(() => {
     if (!formData.startTime) return { duration: 0, pay: 0 };
@@ -111,7 +118,13 @@ export function TimesheetDetailsModal({
       end.toISOString(),
       formData.breaks.filter((b) => b.type !== "PAID"),
     );
-    const hourlyRate = timesheet?.employee?.hourlyRate || 0;
+    const payRate = timesheet?.employee
+      ? savedPay({
+          ...timesheet.employee,
+          workerType: timesheet.workerType || timesheet.employee.workerType,
+        })
+      : null;
+    const hourlyRate = payRate?.unit === "hour" ? payRate.amount : 0;
     const pay = duration * hourlyRate;
 
     return { duration, pay };
@@ -309,7 +322,8 @@ export function TimesheetDetailsModal({
             </div>
           </div>
           <button
-            aria-label="Close timesheet details" onClick={onClose}
+            aria-label="Close timesheet details"
+            onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
@@ -477,7 +491,8 @@ export function TimesheetDetailsModal({
                         />
                       </div>
                       <button
-                        aria-label={`Remove break ${idx + 1}`} onClick={() => handleRemoveBreak(idx)}
+                        aria-label={`Remove break ${idx + 1}`}
+                        onClick={() => handleRemoveBreak(idx)}
                         className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -542,10 +557,14 @@ export function TimesheetDetailsModal({
               </div>
               <div>
                 <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
-                  Estimated cost
+                  {employeePay?.unit === "year"
+                    ? "Annual salary"
+                    : "Estimated cost"}
                 </div>
                 <div className="text-xl font-bold text-green-600 dark:text-green-400 font-mono">
-                  {formatCurrency(calculatedStats.pay, safeCurrencyCode)}
+                  {employeePay
+                    ? `${formatCurrency(employeePay.unit === "year" ? employeePay.amount : calculatedStats.pay, safeCurrencyCode)}${employeePay.unit === "year" ? "/year" : ""}`
+                    : "Rate not set"}
                 </div>
               </div>
             </div>

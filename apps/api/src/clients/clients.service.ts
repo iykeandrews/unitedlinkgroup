@@ -17,7 +17,7 @@ export class ClientsService {
     const userId = user.userId || user.sub || user.id;
 
     // Check if user owns the business
-    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: userId } });
+    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: userId, id: targetBusinessId } });
     if (ownedBusiness && ownedBusiness.id === targetBusinessId) return;
 
     // Check if user is an employee of the business
@@ -27,6 +27,22 @@ export class ClientsService {
     if (employee) return;
 
     throw new BadRequestException('Access denied: You do not have access to this business data');
+  }
+
+  private billingData(dto: any) {
+    const { businessId, ccEmails, ...data } = dto;
+    if (data.name !== undefined) {
+      data.name = data.name.trim();
+      if (!data.name) throw new BadRequestException('Client name is required');
+    }
+    for (const field of ['email','billingContactEmail','billingContactEmail2','billingContactEmail3']) {
+      if (data[field] !== undefined) data[field] = data[field]?.trim().toLowerCase() || null;
+    }
+    if (ccEmails !== undefined) {
+      if (!Array.isArray(ccEmails) || ccEmails.length > 50 || ccEmails.some((email: any) => typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) throw new BadRequestException('Enter valid CC email addresses (maximum 50)');
+      data.ccEmails = JSON.stringify([...new Set(ccEmails.map((email: string) => email.trim().toLowerCase()))]);
+    }
+    return data;
   }
 
   async create(user: any, createClientDto: CreateClientDto, businessId?: string) {
@@ -39,7 +55,7 @@ export class ClientsService {
 
     return this.prisma.client.create({
       data: {
-        ...createClientDto,
+        ...this.billingData(createClientDto),
         businessId: finalBusinessId,
       } as any,
     });
@@ -86,7 +102,7 @@ export class ClientsService {
 
     return this.prisma.client.update({
       where: { id },
-      data: updateClientDto,
+      data: this.billingData(updateClientDto),
     });
   }
 

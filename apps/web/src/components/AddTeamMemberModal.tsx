@@ -74,12 +74,6 @@ export function AddTeamMemberModal({ isOpen, onClose, onSuccess }: AddTeamMember
         return;
       }
 
-      if (formData.workerType === 'W2' && !formData.ssn) {
-        setError('SSN is required for W-2 employees');
-        setLoading(false);
-        return;
-      }
-
       await api.post('/employees', {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
@@ -90,7 +84,7 @@ export function AddTeamMemberModal({ isOpen, onClose, onSuccess }: AddTeamMember
         type: formData.type,
         payType: formData.payType,
         departmentId: formData.departmentId || undefined,
-        ssn: formData.ssn,
+        ...(formData.ssn.trim() ? {ssn:formData.ssn.trim()} : {}),
         contractorBusinessName: formData.contractorBusinessName,
         status: 'ACTIVE',
         address: formData.address,
@@ -332,15 +326,18 @@ export function AddTeamMemberModal({ isOpen, onClose, onSuccess }: AddTeamMember
 
               <div className="space-y-1">
                 <label className="text-sm font-bold text-gray-700 dark:text-gray-300">
-                  {formData.workerType === 'W2' ? 'SSN / ITIN' : 'SSN / ITIN (Optional)'}
-                  {formData.workerType === 'W2' && <span className="text-red-500 ml-1">*</span>}
+                  SSN / ITIN (Optional)
                 </label>
                 <input
-                  type="text"
+                  type="password"
+                  aria-label="SSN or ITIN (optional)"
+                  autoComplete="off"
+                  maxLength={11}
+                  pattern="[0-9]{3}-?[0-9]{2}-?[0-9]{4}"
                   name="ssn"
                   value={formData.ssn}
                   onChange={handleChange}
-                  placeholder="XXX-XX-XXXX"
+                  placeholder="Optional — add later"
                   className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-slate-800 dark:text-white"
                 />
               </div>

@@ -1,4 +1,6 @@
 'use client';
+import { toast } from 'sonner';
+import { ReferenceList, stringList } from '@/components/billing/BillingReferences';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -35,6 +37,7 @@ export default function NewClientPage() {
     billingContactEmail: '',
     billingContactEmail2: '',
     billingContactEmail3: '',
+    ccEmails: [] as string[],
     paymentTerms: 'Net 30',
   });
 
@@ -64,7 +67,7 @@ export default function NewClientPage() {
     setLoading(true);
 
     try {
-      const payload = { ...formData };
+      const payload = Object.fromEntries(Object.entries(formData).filter(([key, value]) => !['email','billingContactEmail','billingContactEmail2','billingContactEmail3'].includes(key) || value));
       // If billing same as office, copy address to billingAddress if empty (or backend handles it, but let's be explicit if needed)
       // Actually backend model has billingAddressSameAsOffice boolean.
       
@@ -72,7 +75,7 @@ export default function NewClientPage() {
       router.push('/dashboard/security/clients');
     } catch (error) {
       console.error('Failed to create client', error);
-      alert('Failed to create client. Please try again.');
+      toast.error('Failed to create client. Please check the fields and retry.');
     } finally {
       setLoading(false);
     }
@@ -128,7 +131,6 @@ export default function NewClientPage() {
                 <option value="CORPORATE">Corporate</option>
                 <option value="GOVERNMENT">Government</option>
                 <option value="INDIVIDUAL">Individual</option>
-                <option value="RESIDENTIAL">Residential</option>
               </select>
             </div>
 
@@ -154,7 +156,6 @@ export default function NewClientPage() {
               >
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
-                <option value="PROSPECT">Prospect</option>
               </select>
             </div>
           </div>
@@ -360,6 +361,7 @@ export default function NewClientPage() {
               />
             </div>
 
+            <ReferenceList label="Additional invoice CC emails" email values={formData.ccEmails} onChange={ccEmails => setFormData(prev => ({...prev, ccEmails}))} />
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Payment Terms</label>
               <select

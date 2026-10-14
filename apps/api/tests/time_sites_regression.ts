@@ -40,6 +40,12 @@ async function main(){
   const reports=new ReportsService({timesheet:{findMany:async(q:any)=>{query=q;return[];}},shiftCallout:{findMany:async()=>[]}} as any);
   const result=await reports.getAttendanceReport('b','2026-01-01','2026-01-02');check(result,{timesheets:[],callouts:[]});check(query.include.employee.select.email,true);check(query.where.status.notIn,['DISCARDED','REJECTED']);
   await rejects(()=>reports.getAttendanceReport('b','invalid','2026-01-02'),/date range/);
+  let clocked: any;
+  const clockService = new TimeTrackingService({employee:{findUnique:async()=>({workerType:'CONTRACTOR_1099'})},timesheet:{findFirst:async()=>null,create:async({data}:any)=>{clocked=data;return data;}}} as any, {} as any, {} as any);
+  await clockService.clockIn('contractor',undefined,undefined,undefined,undefined,{bypassGeofence:true});check(clocked.workerType,'CONTRACTOR_1099');
+  await rejects(()=>clockService.clockIn('contractor',undefined,undefined,undefined,undefined,{bypassGeofence:true,workerType:'W2'}),/classification/);
+  const costs=new ReportsService({timesheet:{findMany:async()=>[{startTime:new Date('2026-01-01T08:00Z'),endTime:new Date('2026-01-01T16:00Z'),workerType:'CONTRACTOR_1099',employee:{workerType:'BOTH',hourlyRate:20,w2Profile:{payType:'HOURLY',rate:30},contractorProfile:{rate:45}}}]}} as any);
+  const labor=await costs.getLaborCostAnalysis('b');check(labor.estimatedCost,360);
   console.log(`Passed ${checks} Time, Sites and Attendance regression checks`);
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

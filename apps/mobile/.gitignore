@@ -1,0 +1,6 @@
+
+ios/certs/
+credentials.json
+
+ios/certs/*
+credentials.json

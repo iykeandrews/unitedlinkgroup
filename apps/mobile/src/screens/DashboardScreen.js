@@ -109,20 +109,24 @@ function DashboardScreen() {
     const mapGeoError = (err) => {
         const code = err === null || err === void 0 ? void 0 : err.code;
         if (code === 1)
-            return 'Location permission denied. Enable location access to clock in.';
+            return 'Location access was not granted. You can continue using the app; it is needed only to verify time tracking at your assigned site.';
         if (code === 2)
-            return 'Location unavailable. Check GPS and try again.';
+            return 'Location Services are off or unavailable. You can continue using the app; turn them on only to verify time tracking at your assigned site.';
         if (code === 3)
             return 'Location request timed out. Move to an open area and try again.';
         return extractErrorMessage(err, 'Unable to get your location. Enable GPS to clock in.');
     };
-    const getCoords = (0, react_1.useCallback)(() => new Promise((resolve, reject) => {
+    const getCoords = (0, react_1.useCallback)(({ requestPermission = false } = {}) => new Promise((resolve, reject) => {
         (async () => {
             var _a, _b;
             try {
-                const perm = await Location.getForegroundPermissionsAsync();
-                if (!perm.granted) {
-                    const req = await Location.requestForegroundPermissionsAsync();
+            const perm = await Location.getForegroundPermissionsAsync();
+            if (!perm.granted) {
+                if (!requestPermission) {
+                    reject({ code: 1, message: 'Location permission denied' });
+                    return;
+                }
+                const req = await Location.requestForegroundPermissionsAsync();
                     if (!req.granted) {
                         reject({ code: 1, message: 'Location permission denied' });
                         return;
@@ -150,7 +154,7 @@ function DashboardScreen() {
     }), []);
     const handleClockIn = async () => {
         try {
-            const coords = await getCoords();
+            const coords = await getCoords({ requestPermission: true });
             await api_1.default.post('/time-tracking/clock-in', coords);
             react_native_1.Alert.alert('Success', 'You are clocked in!');
             fetchData();
@@ -164,7 +168,7 @@ function DashboardScreen() {
         try {
             let coords = null;
             try {
-                coords = await getCoords();
+                coords = await getCoords({ requestPermission: false });
             }
             catch { }
             await api_1.default.post('/time-tracking/clock-out', coords || {});
@@ -177,7 +181,7 @@ function DashboardScreen() {
     };
     const handleStartBreak = async () => {
         try {
-            const coords = await getCoords();
+            const coords = await getCoords({ requestPermission: true });
             await api_1.default.post('/time-tracking/break/start', { type: 'UNPAID', ...coords });
             fetchData();
         }
@@ -188,7 +192,7 @@ function DashboardScreen() {
     };
     const handleResumeShift = async () => {
         try {
-            const coords = await getCoords();
+            const coords = await getCoords({ requestPermission: true });
             await api_1.default.post('/time-tracking/break/end', coords);
             fetchData();
         }
@@ -226,7 +230,7 @@ function DashboardScreen() {
     const nextShift = ((_e = dashboard === null || dashboard === void 0 ? void 0 : dashboard.schedule) === null || _e === void 0 ? void 0 : _e.nextShift) || null;
     const targetClockInShift = currentShift || nextShift;
     const onScheduleToday = todayShifts.length > 0;
-    const canClockIn = !!((_f = dashboard === null || dashboard === void 0 ? void 0 : dashboard.schedule) === null || _f === void 0 ? void 0 : _f.canClockIn) && !isClockedIn && clockInGeo.withinRadius;
+    const canClockIn = !!((_f = dashboard === null || dashboard === void 0 ? void 0 : dashboard.schedule) === null || _f === void 0 ? void 0 : _f.canClockIn) && !isClockedIn;
     const canClockOut = isClockedIn;
     const palette = {
         bg: '#050816',
@@ -307,7 +311,7 @@ function DashboardScreen() {
                 }));
             }
             try {
-                const coords = await getCoords();
+                const coords = await getCoords({ requestPermission: false });
                 if (cancelled)
                     return;
                 const distanceMeters = Math.round(calculateDistanceMeters(coords.lat, coords.lng, siteLat, siteLng));
@@ -355,7 +359,7 @@ function DashboardScreen() {
         const id = setInterval(() => {
             (async () => {
                 try {
-                    const coords = await getCoords();
+                    const coords = await getCoords({ requestPermission: false });
                     if (cancelled)
                         return;
                     await api_1.default.post('/time-tracking/location/ping', coords);

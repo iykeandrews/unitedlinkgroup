@@ -74,10 +74,11 @@ export class TimeTrackingService {
         const duplicate = await this.prisma.timesheet.findFirst({where:{employeeId:employee.id,startTime:start}});
         if (duplicate) throw new BadRequestException('Timesheet already exists for this employee and start time');
         
+        if (employee.workerType === 'BOTH' && row['WorkerType'] && !['W2','CONTRACTOR_1099'].includes(String(row['WorkerType']).toUpperCase())) throw new BadRequestException('WorkerType must be W2 or CONTRACTOR_1099');
         await this.prisma.timesheet.create({
             data: {
                 employeeId: employee.id,
-                workerType: employee.workerType,
+                workerType: employee.workerType === 'BOTH' ? String(row['WorkerType'] || 'W2').toUpperCase() : employee.workerType,
                 startTime: start,
                 endTime: end,
                 status: 'PENDING',
@@ -116,7 +117,7 @@ export class TimeTrackingService {
     lat: number | undefined,
     lng: number | undefined,
     ip?: string,
-    opts?: { bypassGeofence?: boolean },
+    opts?: { bypassGeofence?: boolean; workerType?: string },
   ): Promise<Timesheet> {
     // Check if already clocked in
     const activeTimesheet = await this.prisma.timesheet.findFirst({
@@ -130,6 +131,10 @@ export class TimeTrackingService {
       throw new BadRequestException(`Employee is already clocked in`);
     }
 
+    const employment = await this.prisma.employee.findUnique({ where: { id: employeeId }, select: { workerType: true } });
+    if (!employment) throw new BadRequestException('Employee not found');
+    const workerType = opts?.workerType || (employment.workerType === 'CONTRACTOR_1099' ? 'CONTRACTOR_1099' : 'W2');
+    if (!['W2','CONTRACTOR_1099'].includes(workerType) || employment.workerType !== 'BOTH' && workerType !== employment.workerType) throw new BadRequestException('Clock-in classification must match the employee employment info');
     if (!opts?.bypassGeofence) {
       if (!locationId) {
         throw new BadRequestException('Shift location is required for clock-in');
@@ -163,6 +168,7 @@ export class TimeTrackingService {
     const timesheet = await this.prisma.timesheet.create({
       data: {
         employeeId,
+        workerType,
         startTime: new Date(),
         status: 'IN_PROGRESS',
         locationId: locationId || undefined,
@@ -671,7 +677,7 @@ export class TimeTrackingService {
       return this.prisma.timesheet.findMany({
           where,
           include: {
-            employee: { select: { id:true, firstName:true, lastName:true, email:true, hourlyRate:true, workerType:true, role:true } },
+            employee: { select: { id:true, firstName:true, lastName:true, email:true, hourlyRate:true, salary:true, payType:true, overtimeEligible:true, w2Profile:{select:{rate:true,payType:true,overtimeEligible:true}}, contractorProfile:{select:{rate:true}}, workerType:true, role:true } },
             breaks: true,
             location: true,
           } as any
@@ -821,7 +827,7 @@ export class TimeTrackingService {
             ]
         },
         include: {
-          employee: { select: { id:true, firstName:true, lastName:true, email:true, hourlyRate:true, workerType:true, role:true } },
+          employee: { select: { id:true, firstName:true, lastName:true, email:true, hourlyRate:true, salary:true, payType:true, overtimeEligible:true, w2Profile:{select:{rate:true,payType:true,overtimeEligible:true}}, contractorProfile:{select:{rate:true}}, workerType:true, role:true } },
           breaks: true,
           location: true,
         } as any,
