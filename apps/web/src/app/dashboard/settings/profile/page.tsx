@@ -17,7 +17,6 @@ import {
 import { currencies } from '../../../../lib/currencies';
 import { countries } from '../../../../lib/countries';
 import { getCountryConfig } from '../../../../lib/localization';
-import ImageUpload from '../../../../components/ui/ImageUpload';
 
 export default function BusinessProfilePage() {
   const { selectedBusiness, setSelectedBusiness, refreshBusinesses } = useBusiness();
@@ -38,6 +37,21 @@ export default function BusinessProfilePage() {
     softwareName: ''
   });
   const [saving, setSaving] = useState(false);
+  const [failedLogoUrl, setFailedLogoUrl] = useState('');
+  const logoUrl = String(form.logoUrl || '').trim();
+  const isImageUrl = (value: string) => {
+    try {
+      const url = new URL(value);
+      return ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password;
+    } catch {
+      return false;
+    }
+  };
+  const logoChanged = logoUrl !== (selectedBusiness?.logoUrl || '');
+  const logoError = logoUrl && logoChanged && !isImageUrl(logoUrl)
+    ? 'Enter a complete image URL starting with https:// or http://.'
+    : '';
+  const previewUrl = isImageUrl(logoUrl) || (!logoChanged && logoUrl.startsWith('/')) ? logoUrl : '';
 
   // Derived config for display
   const localizationConfig = getCountryConfig(form.country);
@@ -82,13 +96,14 @@ export default function BusinessProfilePage() {
         
         return newData;
     });
-    if (key === 'logoUrl' && selectedBusiness) {
-      setSelectedBusiness({ ...selectedBusiness, logoUrl: value });
-    }
   };
 
   const handleSave = async () => {
     if (!selectedBusiness) return;
+    if (logoError) {
+      toast.error(logoError);
+      return;
+    }
     try {
       setSaving(true);
       
@@ -97,6 +112,7 @@ export default function BusinessProfilePage() {
       );
 
       // Ensure required fields have defaults if needed (though UI prevents this mostly)
+      sanitizedForm.logoUrl = logoUrl;
       if (!sanitizedForm.currencyCode) sanitizedForm.currencyCode = 'USD';
 
       const currentSettings = selectedBusiness.settings ? (() => { try { return JSON.parse(selectedBusiness.settings as any); } catch { return {}; } })() : {};
@@ -145,7 +161,7 @@ export default function BusinessProfilePage() {
         </div>
         <button
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || !!logoError}
           className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm font-medium"
         >
           {saving ? (
@@ -183,14 +199,32 @@ export default function BusinessProfilePage() {
                         />
                         <p className="text-xs text-slate-500 mt-1">This appears as the application name in the header and login pages.</p>
                     </div>
-                    <ImageUpload
-                      label="Company logo"
-                      value={form.logoUrl || ''}
-                      onChange={(url) => updateField('logoUrl', url)}
-                      accept="image/png"
-                      allowedMimeTypes={['image/png']}
-                      helpText="Upload a transparent PNG logo (max 10MB)."
-                    />
+                    <div className="space-y-3">
+                      <label htmlFor="company-logo-url" className="block text-sm font-medium text-slate-700 dark:text-slate-300">Company logo image URL</label>
+                      <input
+                        id="company-logo-url"
+                        type="url"
+                        value={form.logoUrl || ''}
+                        onChange={(e) => updateField('logoUrl', e.target.value)}
+                        placeholder="https://example.com/company-logo.png"
+                        autoComplete="off"
+                        spellCheck={false}
+                        aria-invalid={!!logoError}
+                        aria-describedby="company-logo-help company-logo-status"
+                        className="block w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-slate-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                      <p id="company-logo-help" className="text-xs text-slate-500">Paste the public image address, then select Save Changes. Use a direct image link rather than a webpage link. Clear the field to remove the logo.</p>
+                      <div id="company-logo-status" aria-live="polite">
+                        {logoError && <p className="text-sm text-red-600 dark:text-red-400">{logoError}</p>}
+                        {previewUrl && failedLogoUrl === previewUrl && <p className="text-sm text-amber-700 dark:text-amber-400">The image could not be loaded. Check that the address is public and points directly to an image.</p>}
+                      </div>
+                      {previewUrl && failedLogoUrl !== previewUrl && (
+                        <div className="inline-flex min-h-24 min-w-24 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img key={previewUrl} src={previewUrl} alt="Company logo preview" referrerPolicy="no-referrer" onError={() => setFailedLogoUrl(previewUrl)} className="max-h-28 max-w-full object-contain" />
+                        </div>
+                      )}
+                    </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="col-span-2">
