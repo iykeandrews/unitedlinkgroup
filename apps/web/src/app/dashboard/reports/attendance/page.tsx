@@ -1,4 +1,5 @@
 "use client";
+import { formatRecordTime } from '../../../../lib/time/record-zone';
 import AmericanDateInput from "@/components/invoices/AmericanDateInput";
 
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -29,6 +30,7 @@ import { toast } from "sonner";
 
 interface Timesheet {
   id: string;
+  timeZone?: string | null;
   startTime: string;
   endTime: string | null;
   status: string;
@@ -219,11 +221,11 @@ export default function AttendanceReportPage() {
       const netDuration = netHours(t);
 
       return [
-        format(parseISO(t.startTime), "MM/dd/yyyy"),
+        formatRecordTime(t.startTime, "MM/dd/yyyy", t.timeZone),
         `${t.employee.firstName} ${t.employee.lastName}`,
         t.location?.name || "N/A",
-        format(parseISO(t.startTime), "HH:mm"),
-        t.endTime ? format(parseISO(t.endTime), "HH:mm") : "Active",
+        formatRecordTime(t.startTime, "HH:mm", t.timeZone),
+        t.endTime ? formatRecordTime(t.endTime, "HH:mm", t.timeZone) : "Active",
         breakTime.toFixed(2),
         netDuration.toFixed(2),
         (t as any).employeeNote || "",
@@ -520,7 +522,7 @@ export default function AttendanceReportPage() {
                       className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
                     >
                       <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                        {format(parseISO(t.startTime), "MM/dd/yyyy")}
+                        {formatRecordTime(t.startTime, "MM/dd/yyyy", t.timeZone)}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
@@ -543,11 +545,11 @@ export default function AttendanceReportPage() {
                         {t.location?.name || "-"}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                        {format(parseISO(t.startTime), "h:mm a")}
+                        {formatRecordTime(t.startTime, "h:mm a", t.timeZone)}
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
                         {t.endTime ? (
-                          format(parseISO(t.endTime), "h:mm a")
+                          formatRecordTime(t.endTime, "h:mm a", t.timeZone)
                         ) : (
                           <span className="text-green-500 font-medium">
                             Active
@@ -614,10 +616,7 @@ export default function AttendanceReportPage() {
                     Date
                   </label>
                   <p className="text-sm font-medium text-slate-900 dark:text-white">
-                    {format(
-                      parseISO(selectedTimesheet.startTime),
-                      "MM/dd/yyyy",
-                    )}
+                    {formatRecordTime(selectedTimesheet.startTime, "MM/dd/yyyy", selectedTimesheet.timeZone)}
                   </p>
                 </div>
                 <div>
@@ -625,7 +624,7 @@ export default function AttendanceReportPage() {
                     Start Time
                   </label>
                   <p className="text-sm font-medium text-slate-900 dark:text-white">
-                    {format(parseISO(selectedTimesheet.startTime), "h:mm a")}
+                    {formatRecordTime(selectedTimesheet.startTime, "h:mm a", selectedTimesheet.timeZone)}
                   </p>
                 </div>
                 <div>
@@ -634,7 +633,7 @@ export default function AttendanceReportPage() {
                   </label>
                   <p className="text-sm font-medium text-slate-900 dark:text-white">
                     {selectedTimesheet.endTime
-                      ? format(parseISO(selectedTimesheet.endTime), "h:mm a")
+                      ? formatRecordTime(selectedTimesheet.endTime, "h:mm a", selectedTimesheet.timeZone)
                       : "Active"}
                   </p>
                 </div>
@@ -691,11 +690,11 @@ export default function AttendanceReportPage() {
                         {selectedTimesheet.breaks.map((b, i) => (
                           <tr key={i}>
                             <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                              {format(parseISO(b.startTime), "h:mm a")}
+                              {formatRecordTime(b.startTime, "h:mm a", selectedTimesheet.timeZone)}
                             </td>
                             <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
                               {b.endTime
-                                ? format(parseISO(b.endTime), "h:mm a")
+                                ? formatRecordTime(b.endTime, "h:mm a", selectedTimesheet.timeZone)
                                 : "-"}
                             </td>
                             <td className="px-3 py-2 text-slate-700 dark:text-slate-300 text-right">

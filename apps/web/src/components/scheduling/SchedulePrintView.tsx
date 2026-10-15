@@ -1,3 +1,4 @@
+import { formatRecordTime } from '../../lib/time/record-zone';
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -88,6 +89,7 @@ export default function SchedulePrintView() {
         const areaName = (location as any)?.areaName || '';
         return {
           id: s.id,
+          timeZone: s.timeZone,
           status: st,
           startTime,
           endTime,
@@ -234,9 +236,9 @@ export default function SchedulePrintView() {
                 )}
                 {!loading && normalized.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 whitespace-nowrap">{format(r.startTime, 'EEE, d MMM')}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{formatRecordTime(r.startTime, 'EEE, d MMM', r.timeZone)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {format(r.startTime, 'HH:mm')} – {format(r.endTime, 'HH:mm')}
+                      {formatRecordTime(r.startTime, 'HH:mm', r.timeZone)} – {formatRecordTime(r.endTime, 'HH:mm', r.timeZone)}
                     </td>
                     <td className="px-4 py-3">{escapeText(r.employeeName)}</td>
                     <td className="px-4 py-3">{escapeText(r.siteName)}</td>

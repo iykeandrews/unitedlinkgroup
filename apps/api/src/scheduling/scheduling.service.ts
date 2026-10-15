@@ -732,7 +732,9 @@ export class SchedulingService {
     // Draft schedules can be prepared before final availability review.
     // Publish-time validation already blocks unavailable assignments from going live.
 
+    try { new Intl.DateTimeFormat('en-US', { timeZone: data.timeZone || 'America/New_York' }).format(startTime); } catch { throw new BadRequestException('Invalid shift time zone'); }
     const createData: any = {
+      timeZone: data.timeZone || 'America/New_York',
       business: { connect: { id: businessId } },
       startTime,
       endTime,
@@ -1171,6 +1173,7 @@ export class SchedulingService {
         return this.prisma.shift.update({
           where: { id: existingDraft.id },
           data: {
+            timeZone: before.timeZone || 'America/New_York',
             startTime: nextStart,
             endTime: nextEnd,
             breakMinutes: nextBreakMinutes,
@@ -1185,6 +1188,7 @@ export class SchedulingService {
         data: {
           businessId: before.businessId,
           groupId,
+          timeZone: before.timeZone || 'America/New_York',
           startTime: nextStart,
           endTime: nextEnd,
           breakMinutes: nextBreakMinutes,
@@ -1203,6 +1207,7 @@ export class SchedulingService {
     return this.prisma.shift.update({
       where: { id },
       data: {
+        timeZone: before.timeZone || 'America/New_York',
         ...(typeof (data as any).startTime !== 'undefined' ? { startTime: nextStart } : {}),
         ...(typeof (data as any).endTime !== 'undefined' ? { endTime: nextEnd } : {}),
         ...(typeof (data as any).breakMinutes !== 'undefined' ? { breakMinutes: nextBreakMinutes } : {}),

@@ -1,3 +1,4 @@
+import { formatRecordTime, moveRecordRange } from '../../lib/time/record-zone';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   DndContext, 
@@ -580,9 +581,7 @@ export default function SchedulingPage() {
       const oldStart = new Date(shift.startTime);
       const oldEnd = new Date(shift.endTime);
       const durationMs = oldEnd.getTime() - oldStart.getTime();
-      const newStart = new Date(newDate);
-      newStart.setHours(oldStart.getHours(), oldStart.getMinutes());
-      const newEnd = new Date(newStart.getTime() + durationMs);
+      const {start: newStart, end: newEnd} = moveRecordRange(oldStart,oldEnd,format(newDate,'yyyy-MM-dd'),shift.timeZone);
 
       // Check conflict for target employee on target date
       let conflict: LeaveRequest | undefined;
@@ -699,6 +698,7 @@ export default function SchedulingPage() {
               // but to be safe and consistent with typical Prisma usage in this project:
               const updatePayload: any = {
                 // Basic scalar fields
+                timeZone: shiftData.timeZone || 'America/New_York',
                 startTime: shiftData.startTime,
                 endTime: shiftData.endTime,
                 notes: shiftData.notes,
@@ -720,6 +720,7 @@ export default function SchedulingPage() {
             } else {
               // Create - Transform to relation syntax for validation
               const createPayload: any = {
+                timeZone: shiftData.timeZone || 'America/New_York',
                 startTime: shiftData.startTime,
                 endTime: shiftData.endTime,
                 notes: shiftData.notes,
@@ -959,10 +960,10 @@ export default function SchedulingPage() {
         const client = (locationRecord as any)?.client?.name || '';
 
         rows.push([
-          format(start, 'yyyy-MM-dd'),
-          format(start, 'EEE'),
-          format(start, 'HH:mm'),
-          format(end, 'HH:mm'),
+          formatRecordTime(start, 'yyyy-MM-dd', s.timeZone),
+          formatRecordTime(start, 'EEE', s.timeZone),
+          formatRecordTime(start, 'HH:mm', s.timeZone),
+          formatRecordTime(end, 'HH:mm', s.timeZone),
           employee,
           site,
           client,
@@ -1122,10 +1123,13 @@ export default function SchedulingPage() {
         for (const s of baseShifts) {
           const originalStart = new Date(s.startTime);
           const originalEnd = s.endTime ? new Date(s.endTime) : null;
-          const newStart = addWeeks(originalStart, i + 1);
-          const newEnd = originalEnd ? addWeeks(originalEnd, i + 1) : undefined;
+          const newDate = addWeeks(new Date(`${formatRecordTime(originalStart, 'yyyy-MM-dd', s.timeZone)}T12:00`), i + 1);
+          const moved = moveRecordRange(originalStart,originalEnd || originalStart,format(newDate,'yyyy-MM-dd'),s.timeZone);
+          const newStart = moved.start;
+          const newEnd = originalEnd ? moved.end : undefined;
           const location = locations.find(l => l.id === s.locationId);
           const payload: any = {
+            timeZone: s.timeZone || 'America/New_York',
             startTime: newStart.toISOString(),
             endTime: newEnd?.toISOString(),
             notes: s.notes || '',
@@ -1664,7 +1668,7 @@ export default function SchedulingPage() {
                         {activeDragItem.shift.employee?.firstName}
                         </div>
                         <div className="text-xs text-purple-700 dark:text-purple-300">
-                        {format(new Date(activeDragItem.shift.startTime), 'h:mm a')}
+                        {formatRecordTime(activeDragItem.shift.startTime, 'h:mm a', activeDragItem.shift.timeZone)}
                         </div>
                     </div>
                     )}

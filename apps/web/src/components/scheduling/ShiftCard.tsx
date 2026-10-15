@@ -1,3 +1,4 @@
+import { formatRecordTime } from '../../lib/time/record-zone';
 import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { AlertCircle, Clock, PauseCircle, LogOut, UserRoundCheck, UserRoundX } from 'lucide-react';
@@ -116,7 +117,7 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
       style={style}
       {...listeners}
       {...attributes}
-      aria-label={`${shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}` : 'Unassigned shift'}, ${format(start, 'EEE d MMM h:mm a')}, ${String(shift.status || 'DRAFT').toLowerCase()}`}
+      aria-label={`${shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}` : 'Unassigned shift'}, ${formatRecordTime(start, 'EEE d MMM h:mm a', shift.timeZone)}, ${String(shift.status || 'DRAFT').toLowerCase()}`}
       tabIndex={0}
       role="button"
       onKeyDown={(event) => {
@@ -143,7 +144,7 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
         {isMine ? (shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}`.trim() : 'Me') : (isEmpty ? 'Open shift' : `${shift.employee?.firstName || ''} ${shift.employee?.lastName || ''}`.trim())}
       </div>
       <div className={`${timeColors} flex items-center gap-1 text-[10px]`}>
-        {format(start, 'h:mm a')} - {end ? format(end, 'h:mm a') : 'In Progress'}
+        {formatRecordTime(start, 'h:mm a', shift.timeZone)} - {end ? formatRecordTime(end, 'h:mm a', shift.timeZone) : 'In Progress'}
       </div>
       {clockStatusLabel && ClockStatusIcon && !isEmpty ? (
         <div className="mt-1">

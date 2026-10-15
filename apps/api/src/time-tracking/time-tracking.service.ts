@@ -83,6 +83,7 @@ export class TimeTrackingService {
                 endTime: end,
                 status: 'PENDING',
                 clockInIp: 'Imported',
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             }
         });
         count++;
@@ -167,6 +168,7 @@ export class TimeTrackingService {
 
     const timesheet = await this.prisma.timesheet.create({
       data: {
+          timeZone: 'America/New_York',
         employeeId,
         workerType,
         startTime: new Date(),

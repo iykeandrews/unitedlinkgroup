@@ -1,3 +1,4 @@
+import { formatRecordTime, enteredShiftRange } from '../../lib/time/record-zone';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Clock, MapPin, User, Utensils, MoreHorizontal, CheckCircle, AlertCircle, Megaphone } from 'lucide-react';
 import { Shift, Employee, Location } from './types';
@@ -91,9 +92,9 @@ export function ShiftModal({
         setTimeout(() => setFormData({
           employeeId: shift.employeeId || '',
           locationId: shift.locationId,
-          date: format(start, 'yyyy-MM-dd'),
-          startTime: format(start, 'HH:mm'),
-          endTime: end ? format(end, 'HH:mm') : '',
+          date: formatRecordTime(start, 'yyyy-MM-dd', shift.timeZone),
+          startTime: formatRecordTime(start, 'HH:mm', shift.timeZone),
+          endTime: end ? formatRecordTime(end, 'HH:mm', shift.timeZone) : '',
           breakMinutes: shift.breakMinutes || 0,
           notes: shift.notes || ''
         }), 0);
@@ -142,13 +143,7 @@ export function ShiftModal({
   const handleSubmit = async (e: React.FormEvent) => {
     if (saveInFlight.current) { e.preventDefault(); return; }
     e.preventDefault();
-    const startDateTime = new Date(`${formData.date}T${formData.startTime}`);
-    const endDateTime = new Date(`${formData.date}T${formData.endTime}`);
-
-    // Handle overnight shifts
-    if (endDateTime < startDateTime) {
-      endDateTime.setDate(endDateTime.getDate() + 1);
-    }
+    const {start: startDateTime, end: endDateTime} = enteredShiftRange(formData.date,formData.startTime,formData.endTime,shift?.timeZone);
 
     if (!Number.isFinite(+startDateTime) || !Number.isFinite(+endDateTime) || endDateTime <= startDateTime || formData.breakMinutes < 0 || formData.breakMinutes >= (+endDateTime - +startDateTime) / 60000) {
       toast.error('Check the shift times and break length');
@@ -164,7 +159,8 @@ export function ShiftModal({
       startTime: startDateTime.toISOString(),
       endTime: endDateTime.toISOString(),
       breakMinutes: formData.breakMinutes,
-      notes: formData.notes
+      notes: formData.notes,
+      timeZone: shift?.timeZone || 'America/New_York'
     });
     } finally { saveInFlight.current = false; setSaving(false); }
   };
@@ -178,13 +174,7 @@ export function ShiftModal({
   };
 
   const calculateStats = () => {
-    const startDateTime = new Date(`${formData.date}T${formData.startTime}`);
-    const endDateTime = new Date(`${formData.date}T${formData.endTime}`);
-    
-    // Handle overnight shifts
-    if (endDateTime < startDateTime) {
-      endDateTime.setDate(endDateTime.getDate() + 1);
-    }
+    const {start: startDateTime, end: endDateTime} = enteredShiftRange(formData.date,formData.startTime,formData.endTime,shift?.timeZone);
 
     const durationMs = endDateTime.getTime() - startDateTime.getTime();
     const totalHours = durationMs / (1000 * 60 * 60);
@@ -207,18 +197,15 @@ export function ShiftModal({
 
   const buildShiftForDate = (date: Date): Partial<Shift> => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    const startDateTime = new Date(`${dateStr}T${formData.startTime}`);
-    const endDateTime = new Date(`${dateStr}T${formData.endTime}`);
-    if (endDateTime < startDateTime) {
-      endDateTime.setDate(endDateTime.getDate() + 1);
-    }
+    const {start: startDateTime, end: endDateTime} = enteredShiftRange(dateStr,formData.startTime,formData.endTime,shift?.timeZone);
     return {
       employeeId: formData.employeeId,
       locationId: formData.locationId,
       startTime: startDateTime.toISOString(),
       endTime: endDateTime.toISOString(),
       breakMinutes: formData.breakMinutes,
-      notes: formData.notes
+      notes: formData.notes,
+      timeZone: shift?.timeZone || 'America/New_York'
     };
   };
 

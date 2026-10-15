@@ -1,4 +1,5 @@
 "use client";
+import { formatRecordTime } from '../../../lib/time/record-zone';
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useAuth } from "../../../context/auth-context";
@@ -64,6 +65,7 @@ interface Break {
 }
 
 interface Timesheet {
+  timeZone?: string | null;
   id: string;
   startTime: string;
   endTime?: string | null;
@@ -282,9 +284,9 @@ export default function TimeTrackingPage() {
 
     const tableData = targetTimesheets.map((t) => [
       t.employee ? `${t.employee.firstName} ${t.employee.lastName}` : "Unknown",
-      format(parseISO(t.startTime), "MMM d, yyyy"),
-      format(parseISO(t.startTime), "HH:mm"),
-      t.endTime ? format(parseISO(t.endTime), "HH:mm") : "-",
+      formatRecordTime(t.startTime, "MMM d, yyyy", t.timeZone),
+      formatRecordTime(t.startTime, "HH:mm", t.timeZone),
+      t.endTime ? formatRecordTime(t.endTime, "HH:mm", t.timeZone) : "-",
       t.breaks.length > 0 ? `${t.breaks.length} breaks` : "None",
       getDurationHours(t.startTime, t.endTime, t.breaks).toFixed(2) + "h",
       t.status,
@@ -478,7 +480,7 @@ export default function TimeTrackingPage() {
       // Group by Date
       const dateMap = new Map<string, Timesheet[]>();
       filtered.forEach((t) => {
-        const dateKey = format(parseISO(t.startTime), "yyyy-MM-dd");
+        const dateKey = formatRecordTime(t.startTime, "yyyy-MM-dd", t.timeZone);
         if (!dateMap.has(dateKey)) dateMap.set(dateKey, []);
         dateMap.get(dateKey)?.push(t);
       });
@@ -1251,10 +1253,7 @@ export default function TimeTrackingPage() {
                                         </span>
                                       </span>
                                     ) : (
-                                      format(
-                                        parseISO(timesheet.startTime),
-                                        "EEE d MMM",
-                                      )
+                                      formatRecordTime(timesheet.startTime, "EEE d MMM", timesheet.timeZone)
                                     )}
                                   </div>
 
@@ -1266,16 +1265,10 @@ export default function TimeTrackingPage() {
 
                                   {/* Time Range */}
                                   <div className="col-span-1 md:col-span-2 text-sm text-slate-600 dark:text-slate-300">
-                                    {format(
-                                      parseISO(timesheet.startTime),
-                                      "h:mm a",
-                                    )}{" "}
+                                    {formatRecordTime(timesheet.startTime, "h:mm a", timesheet.timeZone)}{" "}
                                     –{" "}
                                     {timesheet.endTime
-                                      ? format(
-                                          parseISO(timesheet.endTime),
-                                          "h:mm a",
-                                        )
+                                      ? formatRecordTime(timesheet.endTime, "h:mm a", timesheet.timeZone)
                                       : "Now"}
                                   </div>
 

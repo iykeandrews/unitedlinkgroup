@@ -1,3 +1,4 @@
+import { formatRecordTime, recordInputDate } from '../../lib/time/record-zone';
 import { savedPay } from "../people/directory";
 import { workedHours } from "../../lib/time/records";
 import { useState, useEffect, useMemo } from "react";
@@ -60,10 +61,10 @@ export function TimesheetDetailsModal({
     if (timesheet) {
       setFormData({
         startTime: timesheet.startTime
-          ? format(new Date(timesheet.startTime), "yyyy-MM-dd'T'HH:mm")
+          ? formatRecordTime(timesheet.startTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
           : "",
         endTime: timesheet.endTime
-          ? format(new Date(timesheet.endTime), "yyyy-MM-dd'T'HH:mm")
+          ? formatRecordTime(timesheet.endTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
           : "",
         locationId: timesheet.locationId || "",
         managerComments: timesheet.employeeNote || "",
@@ -71,10 +72,10 @@ export function TimesheetDetailsModal({
         breaks:
           timesheet.breaks?.map((b: any) => ({
             startTime: b.startTime
-              ? format(new Date(b.startTime), "yyyy-MM-dd'T'HH:mm")
+              ? formatRecordTime(b.startTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
               : "",
             endTime: b.endTime
-              ? format(new Date(b.endTime), "yyyy-MM-dd'T'HH:mm")
+              ? formatRecordTime(b.endTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
               : "",
             type: b.type || "UNPAID",
           })) || [],
@@ -102,11 +103,11 @@ export function TimesheetDetailsModal({
   const calculatedStats = useMemo(() => {
     if (!formData.startTime) return { duration: 0, pay: 0 };
 
-    const start = new Date(formData.startTime);
+    const start = recordInputDate(formData.startTime, timesheet?.timeZone);
     let end = new Date(); // Default to now if active
 
     if (formData.endTime) {
-      end = new Date(formData.endTime);
+      end = recordInputDate(formData.endTime, timesheet?.timeZone);
     } else if (timesheet?.endTime) {
       end = new Date(timesheet.endTime);
     }
@@ -114,9 +115,13 @@ export function TimesheetDetailsModal({
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()))
       return { duration: 0, pay: 0 };
     const duration = workedHours(
-      start.toISOString(),
-      end.toISOString(),
-      formData.breaks.filter((b) => b.type !== "PAID"),
+      start.toJSON() || '',
+      end.toJSON() || '',
+      formData.breaks.filter((b) => b.type !== "PAID" && b.startTime).map(b => ({
+        ...b,
+        startTime: recordInputDate(b.startTime, timesheet?.timeZone).toJSON() || '',
+        endTime: b.endTime ? recordInputDate(b.endTime, timesheet?.timeZone).toJSON() || '' : null,
+      })),
     );
     const payRate = timesheet?.employee
       ? savedPay({
@@ -161,10 +166,10 @@ export function TimesheetDetailsModal({
     try {
       setLoading(true);
 
-      const start = new Date(formData.startTime);
+      const start = recordInputDate(formData.startTime, timesheet?.timeZone);
       let end = null;
       if (formData.endTime) {
-        end = new Date(formData.endTime);
+        end = recordInputDate(formData.endTime, timesheet?.timeZone);
       }
 
       if (
@@ -175,8 +180,8 @@ export function TimesheetDetailsModal({
       const processedBreaks = formData.breaks.map((b) => {
         if (!b.startTime) throw new Error("Every break needs a start time");
         return {
-          startTime: new Date(b.startTime).toISOString(),
-          endTime: b.endTime ? new Date(b.endTime).toISOString() : null,
+          startTime: recordInputDate(b.startTime, timesheet?.timeZone).toISOString(),
+          endTime: b.endTime ? recordInputDate(b.endTime, timesheet?.timeZone).toISOString() : null,
           type: b.type,
         };
       });

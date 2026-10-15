@@ -76,6 +76,7 @@ export interface ShiftCoverage {
 }
 
 export interface Shift {
+  timeZone?: string | null;
   id: string;
   groupId?: string;
   startTime: string;

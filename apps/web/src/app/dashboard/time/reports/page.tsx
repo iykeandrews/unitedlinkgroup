@@ -1,4 +1,5 @@
 'use client';
+import { formatRecordTime, recordWallDate } from '../../../../lib/time/record-zone';
 
 import { useEffect, useState, useMemo } from 'react';
 import api from '../../../../lib/api';
@@ -48,6 +49,7 @@ interface Break {
 }
 
 interface Timesheet {
+  timeZone?: string | null;
   id: string;
   startTime: string;
   endTime?: string;
@@ -96,6 +98,7 @@ interface EmployeeStats {
   chartData: { day: string; hours: number; status: string }[];
   dailyRecords: {
     date: Date;
+    timeZone?: string | null;
     startTime: string;
     endTime?: string;
     duration: number;
@@ -199,7 +202,7 @@ export default function AttendanceReportsPage() {
       }
 
       if (ts.endTime) {
-        const start = new Date(ts.startTime);
+        const start = recordWallDate(ts.startTime, ts.timeZone);
         const { hours, breakMinutes } = getDurationHours(ts.startTime, ts.endTime, ts.breaks);
         
         employees[empId].totalHours += hours;
@@ -225,6 +228,7 @@ export default function AttendanceReportsPage() {
         // Daily Record
         employees[empId].dailyRecords.push({
           date: start,
+          timeZone: ts.timeZone,
           startTime: ts.startTime,
           endTime: ts.endTime,
           duration: hours,
@@ -360,8 +364,8 @@ export default function AttendanceReportsPage() {
             `"${emp.name}"`,
             `"${emp.role}"`,
             `"${format(record.date, 'yyyy-MM-dd')}"`,
-            `"${format(parseISO(record.startTime), 'HH:mm')}"`,
-            record.endTime ? `"${format(parseISO(record.endTime), 'HH:mm')}"` : '""',
+            `"${formatRecordTime(record.startTime, 'HH:mm', record.timeZone)}"`,
+            record.endTime ? `"${formatRecordTime(record.endTime, 'HH:mm', record.timeZone)}"` : '""',
             `"${record.duration.toFixed(2)}"`,
             `"${record.breakDuration}"`,
             `"${record.location || ''}"`,
@@ -691,9 +695,9 @@ export default function AttendanceReportsPage() {
                               <tr key={idx} className="hover:bg-slate-50">
                                 <td className="px-4 py-3 text-slate-900">{format(record.date, 'MMM d, yyyy')}</td>
                                 <td className="px-4 py-3 text-slate-600">{record.location || '-'}</td>
-                                <td className="px-4 py-3 text-slate-600 font-mono">{format(parseISO(record.startTime), 'HH:mm')}</td>
+                                <td className="px-4 py-3 text-slate-600 font-mono">{formatRecordTime(record.startTime, 'HH:mm', record.timeZone)}</td>
                                 <td className="px-4 py-3 text-slate-600 font-mono">
-                                  {record.endTime ? format(parseISO(record.endTime), 'HH:mm') : '-'}
+                                  {record.endTime ? formatRecordTime(record.endTime, 'HH:mm', record.timeZone) : '-'}
                                 </td>
                                 <td className="px-4 py-3 text-slate-600 text-right">{record.breakDuration}</td>
                                 <td className="px-4 py-3 text-slate-900 font-medium text-right">{record.duration.toFixed(2)}</td>

@@ -1,3 +1,4 @@
+import { recordWallDate } from '../../lib/time/record-zone';
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { format, addDays, isSameDay, isToday, startOfDay, endOfDay, isBefore, isAfter } from 'date-fns';
@@ -26,8 +27,8 @@ interface TimelineGridProps {
 const isShiftInDay = (shift: Shift, day: Date) => {
   const dayStart = startOfDay(day);
   const dayEnd = endOfDay(day);
-  const shiftStart = new Date(shift.startTime);
-  const shiftEnd = shift.endTime ? new Date(shift.endTime) : null;
+  const shiftStart = recordWallDate(shift.startTime, shift.timeZone);
+  const shiftEnd = shift.endTime ? recordWallDate(shift.endTime, shift.timeZone) : null;
 
   if (!shiftEnd) {
     const now = new Date();

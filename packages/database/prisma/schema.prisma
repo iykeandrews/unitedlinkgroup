@@ -872,6 +872,7 @@ model LeaveAttachment {
 }
 
 model Shift {
+  timeZone String? // Work-location time zone snapshot for historical records.
   id          String   @id @default(uuid())
   groupId     String?
   businessId  String
@@ -1065,6 +1066,7 @@ model ShiftSwapRequest {
 }
 
 model Timesheet {
+  timeZone String? // Work-location time zone snapshot; independent of viewer device.
   paidExternally Boolean @default(false) // Attendance only; do not pay again in this app.
   id          String   @id @default(uuid())
   employeeId  String
