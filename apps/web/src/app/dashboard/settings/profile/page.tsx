@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useBusiness } from '../../../../context/business-context';
 import api from '../../../../lib/api';
-import { businessProfileFields } from '../../../../context/business-selection';
+import { businessProfileFields, hydrateBusinessProfile } from '../../../../context/business-selection';
 import { toast } from 'sonner';
 import { 
   Building2, 
@@ -37,6 +37,8 @@ export default function BusinessProfilePage() {
     logoUrl: '',
     softwareName: ''
   });
+  const editedFields = useRef(new Set<string>());
+  const formBusinessId = useRef<string | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [logoEdited, setLogoEdited] = useState(false);
   const [failedLogoUrl, setFailedLogoUrl] = useState('');
@@ -60,8 +62,12 @@ export default function BusinessProfilePage() {
 
   useEffect(() => {
     if (selectedBusiness) {
-      setLogoEdited(false);
-      setFailedLogoUrl('');
+      if (formBusinessId.current !== selectedBusiness.id) {
+        editedFields.current.clear();
+        formBusinessId.current = selectedBusiness.id;
+        setLogoEdited(false);
+        setFailedLogoUrl('');
+      }
       let softwareName = '';
       try {
         if (selectedBusiness.settings) {
@@ -69,7 +75,7 @@ export default function BusinessProfilePage() {
           softwareName = s.softwareName || '';
         }
       } catch {}
-      setForm({
+      const saved = {
         name: selectedBusiness.name || '',
         ein: selectedBusiness.ein || '',
         industry: selectedBusiness.industry || '',
@@ -84,11 +90,14 @@ export default function BusinessProfilePage() {
         country: selectedBusiness.country || '',
         logoUrl: selectedBusiness.logoUrl || '',
         softwareName
-      });
+      };
+      setForm((draft: Record<string, unknown>) => hydrateBusinessProfile(saved, draft, editedFields.current));
     }
   }, [selectedBusiness]);
 
   const updateField = (key: string, value: any) => {
+    editedFields.current.add(key);
+    if (key === 'country') editedFields.current.add('currencyCode');
     if (key === 'logoUrl') setLogoEdited(true);
     setForm((prev: any) => {
         const newData = { ...prev, [key]: value };
@@ -112,23 +121,28 @@ export default function BusinessProfilePage() {
     try {
       setSaving(true);
       
-      const sanitizedForm = businessProfileFields(form, logoEdited);
+      const sanitizedForm = businessProfileFields(form, logoEdited, editedFields.current);
 
-      if (!sanitizedForm.currencyCode) sanitizedForm.currencyCode = 'USD';
+      if (editedFields.current.has('name') && !String(form.name || '').trim()) {
+        toast.error('Business name is required');
+        return;
+      }
 
       const currentSettings = selectedBusiness.settings ? (() => { try { return JSON.parse(selectedBusiness.settings as any); } catch { return {}; } })() : {};
-      const nextSettings = { ...currentSettings, softwareName: sanitizedForm.softwareName || currentSettings.softwareName || '' };
-      const payload = { ...sanitizedForm, settings: JSON.stringify(nextSettings) };
+      const nextSettings = { ...currentSettings, softwareName: String(form.softwareName || '').trim() };
+      const payload: Record<string, unknown> = { ...sanitizedForm, ...(editedFields.current.has('softwareName') ? { settings: JSON.stringify(nextSettings) } : {}) };
+      delete payload.softwareName;
 
       const { data: updated } = await api.patch(`/businesses/${selectedBusiness.id}`, payload, { headers: { 'x-business-id': selectedBusiness.id } });
+      editedFields.current.clear();
       setLogoEdited(false);
       setSelectedBusiness(updated);
       await refreshBusinesses();
-      if (nextSettings.softwareName) {
-        try {
-          localStorage.setItem('app_software_name', nextSettings.softwareName);
-        } catch {}
-      }
+      try {
+        const savedSettings = JSON.parse(updated.settings || '{}');
+        if (savedSettings.softwareName) localStorage.setItem('app_software_name', savedSettings.softwareName);
+        else localStorage.removeItem('app_software_name');
+      } catch {}
       toast.success('Business profile updated successfully');
     } catch (e: any) {
       console.error(e);
@@ -179,7 +193,7 @@ export default function BusinessProfilePage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <fieldset disabled={businessLoading || saving} className="grid min-w-0 grid-cols-1 lg:grid-cols-3 gap-8 disabled:opacity-70">
         {/* Left Column - Identity & Branding */}
         <div className="lg:col-span-2 space-y-8">
             
@@ -421,7 +435,7 @@ export default function BusinessProfilePage() {
                 </div>
             </div>
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 }
