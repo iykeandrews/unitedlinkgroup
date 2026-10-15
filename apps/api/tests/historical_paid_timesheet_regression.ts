@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { calculateHours } from '../src/payroll/hours';
 import { workedHours } from '../../web/src/lib/time/records';
+import { SchedulingService } from '../src/scheduling/scheduling.service';
 import { TimeTrackingService } from '../src/time-tracking/time-tracking.service';
 const days = [17,18,19,24,25,26];
 const sheets = days.map(day => {
@@ -17,6 +18,12 @@ const next={startTime:'2026-09-15T17:00:00Z',endTime:'2026-09-15T19:00:00Z',brea
 const mixed=calculateHours([next,historical],new Date('2026-09-13T00:00Z'),new Date('2026-09-20T00:00Z'),19,true,new Date('2026-09-13T00:00Z'));
 assert.equal(mixed.regularHours,0);assert.equal(mixed.overtimeHours,2);assert.equal(mixed.grossPay,57);
 async function main(){
+ let scheduleQuery:any;
+ const scheduling=new SchedulingService({business:{findUnique:async()=>({id:'A'})},shift:{findMany:async(q:any)=>{scheduleQuery=q;return[{id:'s',status:'COMPLETED'}]}}} as any,{} as any,{} as any,{} as any);
+ const visible=await scheduling.getShifts('A',start,end,{role:'SUPER_ADMIN'});
+ assert(scheduleQuery.where.status.in.includes('COMPLETED'));
+ assert.equal(visible.length,1);
+
  const service=new TimeTrackingService({timesheet:{findUnique:async()=>({paidExternally:true,employee:{businessId:'A'}})}} as any,{} as any,{} as any);
  await assert.rejects(()=>service.updateTimesheet('paid',{status:'PENDING'}),/already paid externally/);
  await assert.rejects(()=>service.deleteTimesheet('paid'),/already paid externally/);

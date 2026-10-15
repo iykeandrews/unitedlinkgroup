@@ -778,7 +778,7 @@ export class SchedulingService {
         ...(employeeId ? { employeeId } : {}),
         startTime: { lte: end },
         endTime: { gte: start },
-        status: { in: ['DRAFT', 'PUBLISHED', 'OPEN', 'CANCELLED'] } as any,
+        status: { in: ['DRAFT', 'PUBLISHED', 'OPEN', 'COMPLETED', 'CANCELLED'] } as any,
       },
       orderBy: { createdAt: 'desc' },
       include: {
