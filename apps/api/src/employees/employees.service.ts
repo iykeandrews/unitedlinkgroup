@@ -1,3 +1,4 @@
+import { rateChanges } from "./rate-history.util";
 import { normalizeEmployment, effectivePay } from "./employment.util";
 import { Injectable, BadRequestException, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
@@ -845,10 +846,21 @@ export class EmployeesService {
     }
 
     try {
-      return await this.prisma.employee.update({
-        where: { id },
-        data: finalData,
-        include: { w2Profile: true, contractorProfile: true },
+      return await this.prisma.$transaction(async tx => {
+        // Serialize employee writes so each history entry compares the actual saved rates.
+        await tx.$queryRawUnsafe('SELECT id FROM "Employee" WHERE id = $1 AND "businessId" = $2 FOR UPDATE', id, businessId);
+        const before = await tx.employee.findFirst({ where: { id, businessId }, include: { w2Profile: true, contractorProfile: true } });
+        if (!before) throw new NotFoundException('Employee not found');
+        const updated = await tx.employee.update({ where: { id }, data: finalData, include: { w2Profile: true, contractorProfile: true } });
+        const changes = rateChanges(before, updated);
+        if (changes.length) {
+          const business = await tx.business.findUnique({ where: { id: businessId }, select: { currencyCode: true } });
+          await tx.auditLog.create({ data: {
+            businessId, userId: user.userId, action: 'RATE_CHANGE', resource: 'EMPLOYEE_RATE', resourceId: id,
+            details: JSON.stringify({ version: 1, currencyCode: business?.currencyCode || 'USD', changes }),
+          } });
+        }
+        return updated;
       });
     } catch (error: any) {
       console.error(`Error updating employee ${id}:`, error);
@@ -857,6 +869,33 @@ export class EmployeesService {
       }
       throw new BadRequestException(`Failed to update employee: ${error.message}`);
     }
+  }
+
+  async getRateHistory(user: any, id: string, businessIdHeader?: string, cursor?: string) {
+    // Resolve the target before reading compensation history; never allow unscoped audit queries.
+    const businessId = user.role === UserRole.SUPER_ADMIN && !businessIdHeader
+      ? (await this.prisma.employee.findUnique({ where: { id }, select: { businessId: true } }))?.businessId
+      : await this.getBusinessId(user, businessIdHeader);
+    if (!businessId || !await this.prisma.employee.findFirst({ where: { id, businessId }, select: { id: true } })) {
+      throw new NotFoundException('Employee not found');
+    }
+    const where = { businessId, resource: 'EMPLOYEE_RATE', resourceId: id, action: 'RATE_CHANGE' };
+    if (cursor && !await this.prisma.auditLog.findFirst({ where: { ...where, id: cursor }, select: { id: true } })) {
+      throw new BadRequestException('Invalid rate history cursor');
+    }
+    const logs = await this.prisma.auditLog.findMany({
+      where, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 51,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { user: { select: { firstName: true, lastName: true } } },
+    });
+    const page = logs.slice(0, 50);
+    return {
+      items: page.map(log => ({ id: log.id, changedAt: log.createdAt,
+        changedBy: log.user ? `${log.user.firstName || ''} ${log.user.lastName || ''}`.trim() || 'Administrator' : 'System',
+        ...JSON.parse(log.details || '{}'),
+      })),
+      nextCursor: logs.length > 50 ? page[page.length - 1].id : null,
+    };
   }
 
   async listAvailability(user: any, employeeId: string, businessIdHeader?: string) {

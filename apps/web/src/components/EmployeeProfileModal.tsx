@@ -1,3 +1,4 @@
+import RateHistory from "./people/RateHistory";
 import { employmentForm, employmentField, employmentPayload } from "./people/employment";
 import { savedPay } from "./people/directory";
 import TaxSetup from "./payroll/TaxSetup";
@@ -590,6 +591,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
   }, [activeTab, employee, reloadAvailability]);
 
   const [savingEmployment, setSavingEmployment] = useState(false);
+  const [rateHistoryRevision, setRateHistoryRevision] = useState(0);
   const [showTaxSetup, setShowTaxSetup] = useState(false);
   useEffect(() => { setShowTaxSetup(false); }, [employee?.id, isOpen]);
   const handleStartEdit = () => {
@@ -756,6 +758,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
 
       await api.patch(`/employees/${employee.id}`, payload, businessIdOverride ? { headers: { 'x-business-id': businessIdOverride } } : undefined);
       onUpdate();
+      setRateHistoryRevision(value => value + 1);
       setIsEditing(false);
       toast.success(activeTab === 'Employment' ? 'Employment info saved. Recalculate draft payroll to apply the changes.' : 'Employee updated successfully');
     } catch (e: any) {
@@ -2045,6 +2048,10 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                   </ContentCard>
                 )}
               </div>
+            )}
+
+            {activeTab === 'Employment' && !isEditing && ['BUSINESS_ADMIN', 'SUPER_ADMIN', 'MANAGER'].includes(userRole || '') && (
+              <RateHistory key={employee.id} employeeId={employee.id} businessId={roleBusinessId} revision={rateHistoryRevision} />
             )}
 
             {activeTab === 'Shifts' && (

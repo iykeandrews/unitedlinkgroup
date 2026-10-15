@@ -140,6 +140,12 @@ export class EmployeesController {
     return this.employeesService.update(req.user, id, { password: body.password }, businessId);
   }
 
+  @Get(':id/rate-history')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
+  getRateHistory(@Request() req: any, @Param('id') id: string, @Headers('x-business-id') businessId?: string, @Query('cursor') cursor?: string) {
+    return this.employeesService.getRateHistory(req.user, id, businessId, cursor);
+  }
+
   @Get(':id/availability')
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
   listAvailability(@Request() req: any, @Param('id') id: string, @Headers('x-business-id') businessId?: string) {

@@ -226,6 +226,10 @@ async function main() {
     timesheet: { findFirst: async () => null },
     location: { findFirst: async () => null },
   };
+  prisma.$queryRawUnsafe = async () => [];
+  prisma.auditLog = { create: async () => ({}) };
+  prisma.business = { findUnique: async () => ({ currencyCode: 'USD' }) };
+  prisma.$transaction = async (callback: any) => callback(prisma);
   const service = new EmployeesService(
     prisma,
     {
