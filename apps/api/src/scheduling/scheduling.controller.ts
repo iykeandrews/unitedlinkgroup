@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Query, Put, Param, Delete, UseGuards, Request, Headers, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Query, Put, Param, Delete, UseGuards, Request, Headers, BadRequestException, Res } from '@nestjs/common';
 import { SchedulingService } from './scheduling.service';
 import { Prisma } from '@unitedlinkgroup/database';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -41,6 +41,19 @@ export class SchedulingController {
       console.error('Error in getShifts:', error);
       throw error;
     }
+  }
+
+  @Get('range')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)
+  async scheduleRange(@Query() query: any, @Headers('x-business-id') header: string, @Request() req: any, @Res() res: any) {
+    const businessId=query.businessId || header || (req.user.role !== UserRole.SUPER_ADMIN ? await this.schedulingService.getBusinessId(req.user.userId) : null);
+    if(!businessId) throw new BadRequestException('Select a business.');
+    const result=await this.schedulingService.searchSchedule(businessId,query.start,query.end,query.locationId,req.user,query.format);
+    res.setHeader('Cache-Control','private, no-store');
+    if(!query.format) return res.json(result);
+    res.setHeader('Content-Type',query.format==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',`attachment; filename="schedule-${query.start}-${query.end}.${query.format}"`);
+    return res.send(result);
   }
 
   @Get('my')

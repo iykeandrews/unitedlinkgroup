@@ -1,3 +1,4 @@
+import { validateScheduleDates, scheduleRows, buildScheduleExport } from './schedule-export';
 import { effectivePay } from "../employees/employment.util";
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -769,6 +770,20 @@ export class SchedulingService {
     const employee = await this.prisma.employee.findFirst({ where: { userId } });
     if (!employee) throw new BadRequestException('User is not associated with a business');
     return resolveTaxContext(this.prisma, employee.businessId, locationId);
+  }
+
+  async searchSchedule(businessId: string, start: string, end: string, locationId: string | undefined, user: any, format?: string) {
+    validateScheduleDates(start,end);
+    await this.validateBusinessAccess(businessId,user);
+    const business=await this.prisma.business.findUniqueOrThrow({where:{id:businessId}});
+    const location=locationId ? await this.prisma.location.findFirst({where:{id:locationId,businessId}}) : null;
+    if(locationId && !location) throw new BadRequestException('Location not found in this business.');
+    if(format && (!location || !['xlsx','pdf'].includes(format))) throw new BadRequestException('Select a location and a valid download format.');
+    // Broad instant bounds followed by per-record local-date filtering preserve all source zones.
+    const shifts=await this.getShifts(businessId,new Date(Date.parse(start)-86400000),new Date(Date.parse(end)+2*86400000),user);
+    const rows=scheduleRows(shifts,start,end,locationId);
+    if(!format) return rows;
+    return buildScheduleExport(business,location,rows,start,end,format as 'xlsx'|'pdf');
   }
 
   async getShifts(businessId: string, start: Date, end: Date, user: any, employeeId?: string): Promise<Shift[]> {

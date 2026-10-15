@@ -1,3 +1,4 @@
+import ScheduleRangeSearch from './ScheduleRangeSearch';
 import { calendarEmployees, recordPeriodBounds } from '../../lib/time/calendar-history';
 import { formatRecordTime, moveRecordRange } from '../../lib/time/record-zone';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -926,103 +927,7 @@ export default function SchedulingPage() {
     );
   }
 
-  const exportScheduleExcel = () => {
-    const escapeXml = (v: any) =>
-      String(v ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
-
-    const employeesById = new Map(employees.map(e => [e.id, e]));
-    const locationsById = new Map(locations.map(l => [l.id, l]));
-
-    const businessName = selectedBusiness?.name || 'Schedule';
-    const rangeLabel = `${format(weekStart, 'd MMM yyyy')} – ${format(weekEnd, 'd MMM yyyy')}`;
-
-    const header = ['Date', 'Day', 'Start', 'End', 'Employee', 'Site', 'Client', 'Notes'];
-    const rows: Array<string[]> = [header];
-    shifts
-      .filter(s => String(s.status || '').toUpperCase() !== 'ARCHIVED')
-      .forEach(s => {
-        const start = new Date(s.startTime);
-        const end = new Date(s.endTime || s.startTime);
-        const statusUpper = String(s.status || '').toUpperCase();
-
-        const employeeRecord = s.employee || (s.employeeId ? employeesById.get(s.employeeId) : undefined);
-        const employee = employeeRecord
-          ? `${employeeRecord.firstName} ${employeeRecord.lastName}`
-          : statusUpper === 'OPEN'
-            ? 'Open shift'
-            : 'Unassigned';
-
-        const locationRecord = s.location || locationsById.get(s.locationId);
-        const site = locationRecord ? locationRecord.name : (s.locationId || 'Unknown');
-        const client = (locationRecord as any)?.client?.name || '';
-
-        rows.push([
-          formatRecordTime(start, 'yyyy-MM-dd', s.timeZone),
-          formatRecordTime(start, 'EEE', s.timeZone),
-          formatRecordTime(start, 'HH:mm', s.timeZone),
-          formatRecordTime(end, 'HH:mm', s.timeZone),
-          employee,
-          site,
-          client,
-          (s as any).notes || '',
-        ]);
-      });
-
-    const sheetName = 'Schedule';
-    const xml =
-      `<?xml version="1.0"?>` +
-      `<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">` +
-      `<Styles>` +
-      `<Style ss:ID="Title"><Font ss:Bold="1" ss:Size="16"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>` +
-      `<Style ss:ID="SubTitle"><Font ss:Bold="1" ss:Size="11" ss:Color="#475569"/><Alignment ss:Horizontal="Left" ss:Vertical="Center"/></Style>` +
-      `<Style ss:ID="Header"><Font ss:Bold="1"/><Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders></Style>` +
-      `<Style ss:ID="Cell"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>` +
-      `</Styles>` +
-      `<Worksheet ss:Name="${escapeXml(sheetName)}">` +
-      `<Table>` +
-      `<Row><Cell ss:StyleID="Title" ss:MergeAcross="7"><Data ss:Type="String">${escapeXml(businessName)}</Data></Cell></Row>` +
-      `<Row><Cell ss:StyleID="SubTitle" ss:MergeAcross="7"><Data ss:Type="String">${escapeXml(rangeLabel)}</Data></Cell></Row>` +
-      `<Row></Row>` +
-      rows
-        .map((r, idx) => {
-          const styleId = idx === 0 ? 'Header' : 'Cell';
-          return (
-            `<Row>` +
-            r
-              .map(v => `<Cell ss:StyleID="${styleId}"><Data ss:Type="String">${escapeXml(v)}</Data></Cell>`)
-              .join('') +
-            `</Row>`
-          );
-        })
-        .join('') +
-      `</Table>` +
-      `</Worksheet>` +
-      `</Workbook>`;
-
-    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const safeName = businessName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-    a.download = `${safeName || 'schedule'}_${format(weekStart, 'yyyy-MM-dd')}_${format(weekEnd, 'yyyy-MM-dd')}.xls`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const openPrintView = () => {
-    const url = `/dashboard/scheduling/print?start=${encodeURIComponent(weekStart.toISOString())}&end=${encodeURIComponent(
-      weekEnd.toISOString()
-    )}&clientId=${encodeURIComponent(selectedClientId || 'all')}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
+  const openRangeSearch = () => document.getElementById('schedule-range-search')?.scrollIntoView({behavior:'smooth',block:'start'});
 
   const exportICS = () => {
     const businessName = selectedBusiness?.name || 'Schedule';
@@ -1487,8 +1392,8 @@ export default function SchedulingPage() {
               {optionsOpen && (
                 <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-30 overflow-hidden">
                   <div className="py-2">
-                    <button onClick={() => { openPrintView(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Print / Save PDF</button>
-                    <button onClick={() => { exportScheduleExcel(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Export Excel</button>
+                    <button onClick={() => { openRangeSearch(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Download location PDF</button>
+                    <button onClick={() => { openRangeSearch(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Download location Excel</button>
                     <button onClick={() => { exportICS(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Sync to calendar</button>
                     <div className="h-px bg-slate-200 dark:bg-slate-700 my-2" />
                     <div className="px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Options</div>
@@ -1540,6 +1445,8 @@ export default function SchedulingPage() {
             </button>
         </div>
       </div>
+
+      <ScheduleRangeSearch key={selectedBusiness?.id} businessId={selectedBusiness?.id} locations={locations} />
 
       {(userRole === 'BUSINESS_ADMIN' || userRole === 'SUPER_ADMIN') && pendingCallouts.length > 0 ? (
         <div className="mb-4 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-rose-50 dark:from-amber-900/20 dark:via-slate-900 dark:to-rose-900/20 dark:border-amber-800/50 shadow-sm">
