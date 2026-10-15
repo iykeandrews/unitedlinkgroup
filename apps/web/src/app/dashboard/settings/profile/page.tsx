@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useBusiness } from '../../../../context/business-context';
 import api from '../../../../lib/api';
+import { businessProfileFields } from '../../../../context/business-selection';
 import { toast } from 'sonner';
 import { 
   Building2, 
@@ -19,7 +20,7 @@ import { countries } from '../../../../lib/countries';
 import { getCountryConfig } from '../../../../lib/localization';
 
 export default function BusinessProfilePage() {
-  const { selectedBusiness, setSelectedBusiness, refreshBusinesses } = useBusiness();
+  const { selectedBusiness, setSelectedBusiness, refreshBusinesses, isLoading: businessLoading } = useBusiness();
   const [form, setForm] = useState<any>({
     name: '',
     ein: '',
@@ -37,6 +38,7 @@ export default function BusinessProfilePage() {
     softwareName: ''
   });
   const [saving, setSaving] = useState(false);
+  const [logoEdited, setLogoEdited] = useState(false);
   const [failedLogoUrl, setFailedLogoUrl] = useState('');
   const logoUrl = String(form.logoUrl || '').trim();
   const isImageUrl = (value: string) => {
@@ -58,6 +60,8 @@ export default function BusinessProfilePage() {
 
   useEffect(() => {
     if (selectedBusiness) {
+      setLogoEdited(false);
+      setFailedLogoUrl('');
       let softwareName = '';
       try {
         if (selectedBusiness.settings) {
@@ -85,6 +89,7 @@ export default function BusinessProfilePage() {
   }, [selectedBusiness]);
 
   const updateField = (key: string, value: any) => {
+    if (key === 'logoUrl') setLogoEdited(true);
     setForm((prev: any) => {
         const newData = { ...prev, [key]: value };
         
@@ -99,7 +104,7 @@ export default function BusinessProfilePage() {
   };
 
   const handleSave = async () => {
-    if (!selectedBusiness) return;
+    if (!selectedBusiness || businessLoading) return;
     if (logoError) {
       toast.error(logoError);
       return;
@@ -107,20 +112,16 @@ export default function BusinessProfilePage() {
     try {
       setSaving(true);
       
-      const sanitizedForm = Object.fromEntries(
-        Object.entries(form).filter(([_, value]) => value !== '')
-      );
+      const sanitizedForm = businessProfileFields(form, logoEdited);
 
-      // Ensure required fields have defaults if needed (though UI prevents this mostly)
-      sanitizedForm.logoUrl = logoUrl;
       if (!sanitizedForm.currencyCode) sanitizedForm.currencyCode = 'USD';
 
       const currentSettings = selectedBusiness.settings ? (() => { try { return JSON.parse(selectedBusiness.settings as any); } catch { return {}; } })() : {};
       const nextSettings = { ...currentSettings, softwareName: sanitizedForm.softwareName || currentSettings.softwareName || '' };
       const payload = { ...sanitizedForm, settings: JSON.stringify(nextSettings) };
 
-      await api.patch(`/businesses/${selectedBusiness.id}`, payload);
-      const updated = { ...selectedBusiness, ...sanitizedForm, settings: JSON.stringify(nextSettings) };
+      const { data: updated } = await api.patch(`/businesses/${selectedBusiness.id}`, payload, { headers: { 'x-business-id': selectedBusiness.id } });
+      setLogoEdited(false);
       setSelectedBusiness(updated);
       await refreshBusinesses();
       if (nextSettings.softwareName) {
@@ -161,7 +162,7 @@ export default function BusinessProfilePage() {
         </div>
         <button
           onClick={handleSave}
-          disabled={saving || !!logoError}
+          disabled={saving || businessLoading || !!logoError}
           className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm font-medium"
         >
           {saving ? (
@@ -204,6 +205,7 @@ export default function BusinessProfilePage() {
                       <input
                         id="company-logo-url"
                         type="url"
+                        disabled={businessLoading || saving}
                         value={form.logoUrl || ''}
                         onChange={(e) => updateField('logoUrl', e.target.value)}
                         placeholder="https://example.com/company-logo.png"

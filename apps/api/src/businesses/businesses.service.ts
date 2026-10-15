@@ -108,6 +108,14 @@ export class BusinessesService {
 
     const { country } = updateBusinessDto;
     const dataToUpdate: any = { ...updateBusinessDto };
+    delete dataToUpdate.clearLogo;
+    // A cached/incomplete profile must not erase saved branding. Removal is explicit.
+    if (updateBusinessDto.clearLogo === true) {
+      if (String(dataToUpdate.logoUrl || '').trim()) throw new BadRequestException('Choose a logo URL or remove the logo, not both');
+      dataToUpdate.logoUrl = '';
+    } else if (dataToUpdate.logoUrl === null || (typeof dataToUpdate.logoUrl === 'string' && !dataToUpdate.logoUrl.trim())) {
+      delete dataToUpdate.logoUrl;
+    }
 
     if (country) {
        const map: Record<string, { currencyCode: string; gov: any }> = {

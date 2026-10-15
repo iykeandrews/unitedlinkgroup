@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsBoolean } from 'class-validator';
 
 export class UpdateBusinessDto {
   @IsString()
@@ -56,6 +56,10 @@ export class UpdateBusinessDto {
   @IsString()
   @IsOptional()
   logoUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  clearLogo?: boolean;
 
   @IsString()
   @IsOptional()
