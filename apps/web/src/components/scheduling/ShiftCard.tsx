@@ -1,3 +1,5 @@
+import { shiftDayPresentation } from '../../lib/time/calendar-history';
+import { officerColor } from './officer-color';
 import { formatRecordTime } from '../../lib/time/record-zone';
 import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
@@ -8,19 +10,21 @@ import { differenceInMinutes, format } from 'date-fns';
 interface ShiftCardProps {
   shift: Shift;
   onEdit: (shift: Shift) => void;
+  calendarDate?: Date;
   draggable?: boolean;
   isMine?: boolean;
   employeeClockStatus?: EmployeeClockStatus;
 }
 
-export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, employeeClockStatus }: ShiftCardProps) {
+export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, employeeClockStatus, calendarDate }: ShiftCardProps) {
+  const presentation = shiftDayPresentation(shift,calendarDate);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `shift-${shift.id}`,
+    id: `shift-${shift.id}-${presentation.dayKey}`,
     data: {
       type: 'shift',
       shift
     },
-    disabled: !draggable
+    disabled: !draggable || presentation.continuation
   });
 
   const style = transform ? {
@@ -111,13 +115,17 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
   // For the Deputy-style timeline, shifts usually float on a timeline.
   // We'll assume the parent renders this in the correct position.
 
+  const officer = shift.employeeId ? officerColor(shift.employeeId) : null;
+  const cardStyle = {...style, ...(officer ? {'--officer-hue':officer.hue,'--officer-saturation':`${officer.saturation}%`,'--officer-lightness':`${officer.lightness}%`} : {})} as React.CSSProperties;
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={cardStyle}
       {...listeners}
       {...attributes}
-      aria-label={`${shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}` : 'Unassigned shift'}, ${formatRecordTime(start, 'EEE d MMM h:mm a', shift.timeZone)}, ${String(shift.status || 'DRAFT').toLowerCase()}`}
+      aria-label={`${shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}` : 'Unassigned shift'}, ${formatRecordTime(start, 'EEE d MMM h:mm a', shift.timeZone)}, ${String(shift.status || 'DRAFT').toLowerCase()}, ${presentation.label}`}
+      data-shift-id={shift.id}
+      data-continuation={presentation.continuation || undefined}
       tabIndex={0}
       role="button"
       onKeyDown={(event) => {
@@ -127,7 +135,7 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
         e.stopPropagation();
         onEdit(shift);
       }}
-      className={`relative group ${containerColors} ${extraClasses} rounded pl-2 pr-1 ${isDraft ? 'pt-5 pb-1' : 'py-1'} text-xs cursor-pointer hover:brightness-95 overflow-hidden h-full min-h-[40px] w-full flex flex-col justify-center ${isDragging ? 'opacity-50 z-50 shadow-xl' : ''}`}
+      className={`relative group ${officer ? 'officer-shift' : ''} ${containerColors} ${extraClasses} rounded pl-2 pr-1 ${isDraft ? 'pt-5 pb-1' : 'py-1'} text-xs cursor-pointer hover:brightness-95 overflow-hidden h-full min-h-[40px] w-full flex flex-col justify-center ${isDragging ? 'opacity-50 z-50 shadow-xl' : ''}`}
     >
       {isDraft && (
         <div className="absolute top-1 left-1 text-[9px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-100 font-semibold tracking-wide">
@@ -140,12 +148,14 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
           {isLateNotice && <AlertCircle className="w-3 h-3 text-red-700 dark:text-red-300" />}
         </div>
       )}
-      <div className={`font-semibold ${nameColors} break-words whitespace-normal leading-snug`}>
+      <div className={`officer-name font-semibold ${nameColors} break-words whitespace-normal leading-snug`}>
         {isMine ? (shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}`.trim() : 'Me') : (isEmpty ? 'Open shift' : `${shift.employee?.firstName || ''} ${shift.employee?.lastName || ''}`.trim())}
       </div>
-      <div className={`${timeColors} flex items-center gap-1 text-[10px]`}>
-        {formatRecordTime(start, 'h:mm a', shift.timeZone)} - {end ? formatRecordTime(end, 'h:mm a', shift.timeZone) : 'In Progress'}
+      <div className={`officer-time ${timeColors} flex items-center gap-1 text-[10px]`}>
+        {presentation.continuation ? (end ? `Ends ${formatRecordTime(end, 'h:mm a', shift.timeZone)}` : 'In progress') : <>{formatRecordTime(start, 'h:mm a', shift.timeZone)} - {end ? formatRecordTime(end, 'h:mm a', shift.timeZone) : 'In Progress'}</>}
       </div>
+      {presentation.overnight && <div className="mt-1 text-[9px] font-semibold text-slate-700 dark:text-slate-100 leading-snug">{presentation.label}</div>}
+      {!isDraft && !isEmpty && <span className="mt-1 text-[9px] font-medium text-slate-600 dark:text-slate-200">{isCompleted ? 'Completed' : statusUpper === 'PUBLISHED' ? 'Published' : statusUpper.replace(/_/g,' ')}</span>}
       {clockStatusLabel && ClockStatusIcon && !isEmpty ? (
         <div className="mt-1">
           <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${clockStatusTone}`}>

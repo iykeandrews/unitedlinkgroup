@@ -1,3 +1,4 @@
+import { officerColor } from './officer-color';
 import { recordWallDate } from '../../lib/time/record-zone';
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
@@ -146,7 +147,7 @@ export function TimelineGrid({ view, groupBy, startDate, locations, employees, s
                   onAddShift={(employeeId, date) => onAddShiftForEmployee(employeeId, date)}
                   colorIndex={idx}
                   collapsed={collapsed}
-                  readOnly={readOnly}
+                  readOnly={readOnly || (!!employee.status && employee.status !== 'ACTIVE')}
                   currentUserId={currentUserId}
                   shiftClockStatuses={shiftClockStatuses}
                   shiftPlacementLocks={shiftPlacementLocks}
@@ -268,6 +269,7 @@ function DroppableCell({ date, locationId, shifts, onShiftClick, onAddShift, col
           <div key={shift.id} className="min-h-[40px]">
             <ShiftCard
               shift={shift}
+              calendarDate={date}
               onEdit={onShiftClick}
               draggable={!readOnly && !shiftPlacementLocks[shift.id]}
               isMine={shift.employeeId === currentUserId}
@@ -307,11 +309,11 @@ function EmployeeRow({ employee, days, shifts, onShiftClick, onAddShift, colorIn
   shiftClockStatuses: Record<string, EmployeeClockStatus>;
   shiftPlacementLocks: Record<string, boolean>;
 }) {
-  const color = LOCATION_COLORS[colorIndex % LOCATION_COLORS.length];
+  const color = officerColor(employee.id);
   return (
     <div className="flex bg-white dark:bg-slate-800 group/row">
       <div className="w-64 flex-shrink-0 p-3 border-r border-slate-200 dark:border-slate-700 flex items-start gap-3">
-        <div className={`w-1.5 h-6 rounded-full mt-1 ${color.bg}`} />
+        <div className="w-1.5 h-6 rounded-full mt-1" style={{backgroundColor:color.border}} />
         <div className="min-w-0">
           <div className="text-sm font-bold text-slate-900 dark:text-white truncate">
             {employee.firstName} {employee.lastName}
@@ -374,6 +376,7 @@ function EmployeeDroppableCell({ date, employeeId, shifts, onShiftClick, onAddSh
           <div key={shift.id} className="min-h-[40px]">
             <ShiftCard
               shift={shift}
+              calendarDate={date}
               onEdit={onShiftClick}
               draggable={!readOnly && !shiftPlacementLocks[shift.id]}
               isMine={shift.employeeId === currentUserId}

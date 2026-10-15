@@ -1,4 +1,5 @@
 "use client";
+import { recordPeriodBounds, startsInWorkPeriod } from '../../../../lib/time/calendar-history';
 import { formatRecordTime } from '../../../../lib/time/record-zone';
 import AmericanDateInput from "@/components/invoices/AmericanDateInput";
 
@@ -119,17 +120,19 @@ export default function AttendanceReportPage() {
 
     try {
       setLoading(true);
+      const startDay=format(startDate,'yyyy-MM-dd'), endDay=format(endDate,'yyyy-MM-dd');
+      const period=recordPeriodBounds(startDay,endDay);
       const res = await api.get("/reports/attendance", {
         headers: { "x-business-id": selectedBusiness.id },
         params: {
           businessId: selectedBusiness.id,
-          startDate: startOfDay(startDate).toISOString(),
-          endDate: endOfDay(endDate).toISOString(),
+          startDate: period.start.toISOString(),
+          endDate: period.end.toISOString(),
         },
       });
       if (version !== requestVersion.current) return;
       setTimesheets(
-        Array.isArray(res.data) ? res.data : res.data.timesheets || [],
+        (Array.isArray(res.data) ? res.data : res.data.timesheets || []).filter((t: Timesheet) => startsInWorkPeriod(t,startDay,endDay)),
       );
       setCallouts(res.data.callouts || []);
     } catch (error) {
@@ -145,21 +148,8 @@ export default function AttendanceReportPage() {
     workedHours(start, end);
   const calculateBreakDuration = (breaks: Timesheet["breaks"]) =>
     breaks.reduce((total, b) => total + workedHours(b.startTime, b.endTime), 0);
-  const netHours = (t: Timesheet) => {
-    const from = new Date(
-      Math.max(
-        new Date(t.startTime).getTime(),
-        startOfDay(startDate).getTime(),
-      ),
-    ).toISOString();
-    const to = new Date(
-      Math.min(
-        t.endTime ? new Date(t.endTime).getTime() : Date.now(),
-        endOfDay(endDate).getTime(),
-      ),
-    ).toISOString();
-    return workedHours(from, to, t.breaks || []);
-  };
+  // Group by the shift's work date and retain its complete overnight interval.
+  const netHours = (t: Timesheet) => workedHours(t.startTime,t.endTime,t.breaks || []);
   const [selectedTimesheet, setSelectedTimesheet] = useState<Timesheet | null>(
     null,
   );

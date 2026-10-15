@@ -1,4 +1,5 @@
 'use client';
+import { recordPeriodBounds, startsInWorkPeriod } from '../../../../lib/time/calendar-history';
 import { formatRecordTime, recordWallDate } from '../../../../lib/time/record-zone';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -154,13 +155,15 @@ export default function AttendanceReportsPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const startDay=format(startDate,'yyyy-MM-dd'), endDay=format(endDate,'yyyy-MM-dd');
+      const period=recordPeriodBounds(startDay,endDay);
       const res = await api.get('/reports/attendance', {
         params: {
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString()
+          startDate: period.start.toISOString(),
+          endDate: period.end.toISOString()
         }
       });
-      setTimesheets(Array.isArray(res.data?.timesheets) ? res.data.timesheets : []);
+      setTimesheets((Array.isArray(res.data?.timesheets) ? res.data.timesheets : []).filter((t:Timesheet)=>startsInWorkPeriod(t,startDay,endDay)));
       setCallouts(Array.isArray(res.data?.callouts) ? res.data.callouts : []);
     } catch (error) {
       console.error('Failed to fetch attendance data', error);

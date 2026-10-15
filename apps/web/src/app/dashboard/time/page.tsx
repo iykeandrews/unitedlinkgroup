@@ -1,4 +1,5 @@
 "use client";
+import { recordPeriodBounds, startsInWorkPeriod } from '../../../lib/time/calendar-history';
 import { formatRecordTime } from '../../../lib/time/record-zone';
 
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -159,10 +160,8 @@ export default function TimeTrackingPage() {
     }
     try {
       setLoading(true);
-      const start = new Date(startDate);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      const startDay = format(startDate,'yyyy-MM-dd'), endDay = format(endDate,'yyyy-MM-dd');
+      const {start,end}=recordPeriodBounds(startDay,endDay);
 
       const [timesheetsRes, employeesRes, locationsRes] = await Promise.all([
         api.get("/time-tracking/timesheets", {
@@ -190,7 +189,7 @@ export default function TimeTrackingPage() {
       if (version !== requestVersion.current) return;
       const records = timesheetsRes.data.filter(
         (t: Timesheet) =>
-          (t.workerType || t.employee?.workerType || "W2") === roleTab,
+          (t.workerType || t.employee?.workerType || "W2") === roleTab && startsInWorkPeriod(t,startDay,endDay),
       );
       const team = employeesRes.data.filter(
         (e: Employee) =>

@@ -1,3 +1,4 @@
+import { calendarEmployees, recordPeriodBounds } from '../../lib/time/calendar-history';
 import { formatRecordTime, moveRecordRange } from '../../lib/time/record-zone';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
@@ -150,8 +151,9 @@ export default function SchedulingPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday start
-      const end = endOfWeek(currentDate, { weekStartsOn: 1 });
+      const rangeStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+      const rangeEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+      const {start,end} = recordPeriodBounds(format(rangeStart,'yyyy-MM-dd'),format(rangeEnd,'yyyy-MM-dd'));
       
       const locationParams: any = { status: 'ACTIVE' };
       if (selectedClientId && selectedClientId !== 'all') {
@@ -1632,7 +1634,7 @@ export default function SchedulingPage() {
                       groupBy={groupBy}
                       startDate={weekStart}
                       locations={locations}
-                      employees={employees}
+                      employees={calendarEmployees(employees, visibleShifts)}
                       shifts={visibleShifts}
                       shiftClockStatuses={shiftClockStatuses}
                       shiftPlacementLocks={shiftPlacementLocks}

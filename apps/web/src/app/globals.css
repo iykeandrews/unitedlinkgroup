@@ -1,3 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Officer identity remains visible independently of shift status. */
+.officer-shift { background-color: hsl(var(--officer-hue) var(--officer-saturation) var(--officer-lightness)); border-left-color: hsl(var(--officer-hue) 60% 43%); }
+.officer-shift .officer-name, .officer-shift .officer-time { color: hsl(var(--officer-hue) 35% 22%); }
+.dark .officer-shift { background-color: hsl(var(--officer-hue) 38% 22%); border-left-color: hsl(var(--officer-hue) 70% 65%); }
+.dark .officer-shift .officer-name, .dark .officer-shift .officer-time { color: hsl(var(--officer-hue) 45% 91%); }

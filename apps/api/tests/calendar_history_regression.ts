@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import {calendarEmployees,recordPeriodBounds,startsInWorkPeriod,shiftDayPresentation} from '../../web/src/lib/time/calendar-history';
+import {officerColor} from '../../web/src/components/scheduling/officer-color';
+import {workedHours} from '../../web/src/lib/time/records';
+const active={id:'active',status:'ACTIVE'},inactive={id:'past',status:'INACTIVE'};
+assert.deepEqual(calendarEmployees([active],[{status:'COMPLETED',employee:inactive},{status:'COMPLETED',employee:inactive}]),[active,inactive]);
+assert.deepEqual(calendarEmployees([active],[{status:'DRAFT',employee:inactive}]),[active]);
+const period=recordPeriodBounds('2026-09-16','2026-09-30');
+assert.equal(period.start.toISOString(),'2026-09-16T04:00:00.000Z');assert.equal(period.end.toISOString(),'2026-10-01T03:59:59.999Z');
+const overnight={startTime:'2026-10-01T03:00Z',endTime:'2026-10-01T11:00Z',timeZone:'America/New_York',breaks:[{startTime:'2026-10-01T06:45Z',endTime:'2026-10-01T07:15Z'}]};
+assert(startsInWorkPeriod(overnight,'2026-09-16','2026-09-30'));
+assert.equal(workedHours(overnight.startTime,overnight.endTime,overnight.breaks),7.5);
+assert(!startsInWorkPeriod({startTime:'2026-10-01T05:00Z'},'2026-09-16','2026-09-30'));
+const colors=Array.from({length:60},(_,i)=>officerColor(`officer-${i}`));
+assert.equal(new Set(colors.map(c=>c.background)).size,60);
+assert.deepEqual(officerColor('same-officer'),officerColor('same-officer'));
+assert.notEqual(officerColor('officer-a').background,officerColor('officer-b').background);
+console.log(`Calendar history checks passed in ${process.env.TZ}: historical inactive rows, whole overnight shifts, stable work-date bounds, unique officer colors.`);
+
+const night={startTime:'2026-10-01T03:00Z',endTime:'2026-10-01T11:00Z',timeZone:'America/New_York'};
+const first=shiftDayPresentation(night,new Date(2026,8,30));
+const next=shiftDayPresentation(night,new Date(2026,9,1));
+assert(first.overnight && !first.continuation);assert.match(first.label,/Thu, 10\/01.*\+1 day/);
+assert(next.continuation);assert.match(next.label,/Continued from Wed, 09\/30/);
+assert(!shiftDayPresentation({startTime:'2026-09-30T10:00Z',endTime:'2026-09-30T18:00Z'},new Date(2026,8,30)).overnight);
+assert(shiftDayPresentation({startTime:'2026-09-30T20:00Z',endTime:'2026-10-01T04:00Z'},new Date(2026,8,30)).overnight);
