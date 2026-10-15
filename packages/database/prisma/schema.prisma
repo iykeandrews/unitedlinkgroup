@@ -1065,6 +1065,7 @@ model ShiftSwapRequest {
 }
 
 model Timesheet {
+  paidExternally Boolean @default(false) // Attendance only; do not pay again in this app.
   id          String   @id @default(uuid())
   employeeId  String
   employee    Employee @relation(fields: [employeeId], references: [id])

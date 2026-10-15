@@ -157,7 +157,7 @@ export function TimesheetDetailsModal({
   };
 
   const handleSave = async (statusOverride?: string) => {
-    if (loading) return;
+    if (loading || timesheet?.paidExternally) return;
     try {
       setLoading(true);
 
@@ -205,6 +205,7 @@ export function TimesheetDetailsModal({
   };
 
   const handleDelete = async () => {
+    if (timesheet?.paidExternally) return;
     try {
       setLoading(true);
       await api.delete(`/time-tracking/timesheets/${timesheet.id}`);
@@ -467,6 +468,7 @@ export function TimesheetDetailsModal({
                 </div>
 
                 <div className="space-y-3">
+                  {timesheet?.paidExternally && <p className="text-sm text-emerald-700">Already paid externally; excluded from new payroll payments. Historical record is read-only.</p>}
                   {formData.breaks.map((brk, idx) => (
                     <div
                       key={idx}
@@ -570,7 +572,7 @@ export function TimesheetDetailsModal({
             </div>
 
             <div className="flex items-center gap-3">
-              {timesheet.status === "DISCARDED" ? (
+              {timesheet.paidExternally ? <span className="text-sm text-emerald-700">Historical paid record</span> : timesheet.status === "DISCARDED" ? (
                 <button
                   onClick={handleRestore}
                   disabled={loading}

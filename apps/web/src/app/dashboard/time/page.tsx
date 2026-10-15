@@ -71,6 +71,7 @@ interface Timesheet {
   employeeId: string;
   workerType?: string;
   employee?: Employee;
+  paidExternally?: boolean;
   breaks: Break[];
   notes?: string;
   location?: { id: string; name: string };
@@ -1260,6 +1261,7 @@ export default function TimeTrackingPage() {
                                   {/* Status */}
                                   <div className="col-span-1 md:col-span-2">
                                     {getStatusBadge(timesheet.status)}
+                                    {timesheet.paidExternally && <span className="block text-xs text-emerald-700">Paid externally</span>}
                                   </div>
 
                                   {/* Time Range */}

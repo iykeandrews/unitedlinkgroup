@@ -687,6 +687,7 @@ export class TimeTrackingService {
   async updateTimesheet(id: string, data: any, user?: any): Promise<Timesheet> {
     const timesheet = await this.prisma.timesheet.findUnique({ where: { id }, include: { employee: true } });
     if (!timesheet) throw new BadRequestException('Timesheet not found');
+    if (timesheet.paidExternally) throw new BadRequestException('This historical timesheet was already paid externally and is read-only.');
 
     if (user) {
         await this.validateBusinessAccess(timesheet.employee.businessId, user);
@@ -772,6 +773,7 @@ export class TimeTrackingService {
   async deleteTimesheet(id: string, requestingEmployeeId?: string, user?: any): Promise<Timesheet> {
     const timesheet = await this.prisma.timesheet.findUnique({ where: { id }, include: { employee: true } });
     if (!timesheet) throw new BadRequestException('Timesheet not found');
+    if (timesheet.paidExternally) throw new BadRequestException('This historical timesheet was already paid externally and cannot be deleted.');
 
     if (user) {
         await this.validateBusinessAccess(timesheet.employee.businessId, user);
