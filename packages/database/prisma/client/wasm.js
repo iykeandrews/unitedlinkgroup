@@ -403,6 +403,7 @@ exports.Prisma.ClientScalarFieldEnum = {
   billingContactEmail: 'billingContactEmail',
   billingContactEmail2: 'billingContactEmail2',
   billingContactEmail3: 'billingContactEmail3',
+  ccEmails: 'ccEmails',
   paymentTerms: 'paymentTerms',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -419,6 +420,7 @@ exports.Prisma.LocationScalarFieldEnum = {
   geoLng: 'geoLng',
   radius: 'radius',
   workOrder: 'workOrder',
+  billingPins: 'billingPins',
   startDate: 'startDate',
   endDate: 'endDate',
   status: 'status',
@@ -1063,6 +1065,13 @@ exports.Prisma.InvoicePaymentScalarFieldEnum = {
   voidReason: 'voidReason'
 };
 
+exports.Prisma.InvoiceNumberReservationScalarFieldEnum = {
+  id: 'id',
+  businessId: 'businessId',
+  invoiceNumber: 'invoiceNumber',
+  createdAt: 'createdAt'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1138,7 +1147,8 @@ exports.Prisma.ModelName = {
   Asset: 'Asset',
   AssetAssignmentHistory: 'AssetAssignmentHistory',
   Payment: 'Payment',
-  InvoicePayment: 'InvoicePayment'
+  InvoicePayment: 'InvoicePayment',
+  InvoiceNumberReservation: 'InvoiceNumberReservation'
 };
 
 /**

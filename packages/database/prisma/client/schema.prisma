@@ -524,6 +524,7 @@ model Client {
   billingContactEmail        String?
   billingContactEmail2       String?
   billingContactEmail3       String?
+  ccEmails                   String  @default("[]") // JSON array of invoice CC recipients
   paymentTerms               String?
 
   locations         Location[]
@@ -549,9 +550,10 @@ model Location {
   geoLng Float?
   radius Int? // Geofence radius in meters
 
-  workOrder String?
-  startDate DateTime?
-  endDate   DateTime?
+  workOrder   String?
+  billingPins String    @default("[]") // Billing references only; unrelated to timekeeping
+  startDate   DateTime?
+  endDate     DateTime?
 
   status String @default("ACTIVE") // ACTIVE, INACTIVE
 
@@ -1560,4 +1562,15 @@ model InvoicePayment {
 
   @@unique([invoiceId, idempotencyKey])
   @@index([invoiceId, paidAt])
+}
+
+// Permanent number reservations deliberately have no cascading invoice relation.
+// PostgreSQL allocates IDs atomically, including across concurrent requests.
+model InvoiceNumberReservation {
+  id            BigInt   @id @default(autoincrement())
+  businessId    String
+  invoiceNumber String?  @unique
+  createdAt     DateTime @default(now())
+
+  @@index([businessId])
 }
