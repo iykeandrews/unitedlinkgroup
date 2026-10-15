@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { format, startOfWeek, endOfWeek } from "date-fns";
 import api from "../../lib/api";
+import ServiceDatePicker from "../invoices/ServiceDatePicker";
 import { toast } from "sonner";
 
 type Row = {
@@ -119,25 +120,21 @@ export default function ScheduleRangeSearch({
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="text-sm">
           Start date
-          <input
-            aria-label="Schedule search start date"
-            type="date"
-            lang="en-US"
+          <ServiceDatePicker
+            label="Schedule search start date"
             value={start}
-            onChange={(e) => setStart(e.target.value)}
-            className="mt-1 block rounded border p-2 dark:bg-slate-900"
+            onChange={setStart}
+            className="mt-1 block w-44 rounded border p-2 dark:bg-slate-900"
           />
         </label>
         <label className="text-sm">
           End date
-          <input
-            aria-label="Schedule search end date"
-            type="date"
-            lang="en-US"
+          <ServiceDatePicker
+            label="Schedule search end date"
             value={end}
             min={start}
-            onChange={(e) => setEnd(e.target.value)}
-            className="mt-1 block rounded border p-2 dark:bg-slate-900"
+            onChange={setEnd}
+            className="mt-1 block w-44 rounded border p-2 dark:bg-slate-900"
           />
         </label>
         <label className="text-sm">
