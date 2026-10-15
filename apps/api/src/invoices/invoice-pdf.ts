@@ -156,35 +156,58 @@ export async function generateInvoicePdf({
   const billEndPage = doc.getNumberOfPages();
   let siteY = billEndPage > 1 ? billY + 5 : y + 8;
   if (location) {
-    const siteRows: any[] = [
-      [
-        {
-          content: location.name || "Service site",
-          colSpan: 2,
-          styles: { fontStyle: "bold", textColor: navy },
-        },
-      ],
-      ...(location.address
-        ? [[{ content: location.address, colSpan: 2 }]]
-        : []),
-      ...(location.workOrder ? [["Work order", location.workOrder]] : []),
-      ...(billingList(location.billingPins).length
-        ? [["Billing pins", billingList(location.billingPins).join(", ")]]
-        : []),
-    ];
+    const siteWidth = right - siteX;
+    // A fixed single column is essential here: all-colSpan rows let autoTable
+    // infer a wider table when a site has no work order or billing pins.
     autoTable(doc, {
       startY: siteY - 3,
-      body: siteRows,
+      tableWidth: siteWidth,
+      body: [
+        [location.name || "Service site"],
+        ...(location.address ? [[location.address]] : []),
+      ],
       theme: "plain",
       styles: {
         fontSize: 8.5,
         cellPadding: { top: 1, bottom: 2, left: 0, right: 2 },
         overflow: "linebreak",
         textColor: muted,
+        cellWidth: siteWidth,
       },
-      columnStyles: { 0: { cellWidth: 28, fontStyle: "bold" } },
+      columnStyles: { 0: { cellWidth: siteWidth } },
       margin: { left: siteX, right: 15, top: 22, bottom: 22 },
+      didParseCell: ({ row, cell }) => {
+        if (row.index === 0) {
+          cell.styles.fontStyle = "bold";
+          cell.styles.textColor = navy;
+        }
+      },
     });
+    const referenceRows = [
+      ...(location.workOrder ? [["Work order", location.workOrder]] : []),
+      ...(billingList(location.billingPins).length
+        ? [["Billing pins", billingList(location.billingPins).join(", ")]]
+        : []),
+    ];
+    if (referenceRows.length) {
+      autoTable(doc, {
+        startY: (doc as any).lastAutoTable.finalY + 1,
+        tableWidth: siteWidth,
+        body: referenceRows,
+        theme: "plain",
+        styles: {
+          fontSize: 8.5,
+          cellPadding: { top: 1, bottom: 2, left: 0, right: 2 },
+          overflow: "linebreak",
+          textColor: muted,
+        },
+        columnStyles: {
+          0: { cellWidth: 24, fontStyle: "bold" },
+          1: { cellWidth: siteWidth - 24 },
+        },
+        margin: { left: siteX, right: 15, top: 22, bottom: 22 },
+      });
+    }
     siteY = (doc as any).lastAutoTable.finalY + 4;
   }
   y =
