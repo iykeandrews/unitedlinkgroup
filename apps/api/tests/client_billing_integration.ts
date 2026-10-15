@@ -95,9 +95,11 @@ async function main() {
   equal(invoiceRecipients(client), {
     to: "accounts@example.test",
     cc: [
+      "contact@example.test",
       "legacy@example.test",
       "finance@example.test",
       "supervisor@example.test",
+      "invoice@unitedlinksecurity.com",
     ],
   });
   await rejects(
@@ -204,9 +206,11 @@ async function main() {
   await invoices.sendInvoice(invoice.id, user, business.id);
   equal(sent.to, "accounts@example.test");
   equal(sent.cc, [
+    "contact@example.test",
     "legacy@example.test",
     "finance@example.test",
     "supervisor@example.test",
+    "invoice@unitedlinksecurity.com",
   ]);
   equal(sent.attachments[0].contentType, "application/pdf");
   equal(
@@ -228,7 +232,7 @@ async function main() {
   equal(billingAddress(updated), "500 Billing Lane\nNew York, NY 10001");
   await invoices.sendInvoice(invoice.id, user, business.id);
   equal(sent.to, "new-accounts@example.test");
-  equal(sent.cc, ["new-copy@example.test"]);
+  equal(sent.cc, ["contact@example.test", "new-copy@example.test", "invoice@unitedlinksecurity.com"]);
   await clients.update(
     client.id,
     { billingContactEmail: null, ccEmails: [] },
@@ -236,7 +240,7 @@ async function main() {
   );
   await invoices.sendInvoice(invoice.id, user, business.id);
   equal(sent.to, "contact@example.test");
-  equal(sent.cc, undefined);
+  equal(sent.cc, ["invoice@unitedlinksecurity.com"]);
   const restored = await clients.update(
     client.id,
     {
@@ -246,7 +250,7 @@ async function main() {
     },
     user,
   );
-  equal(invoiceRecipients(restored).cc.length, 2);
+  equal(invoiceRecipients(restored).cc.length, 4);
   const cleared = await locations.update(
     user,
     noPins.id,

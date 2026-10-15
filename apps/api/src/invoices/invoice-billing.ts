@@ -22,6 +22,8 @@ export function billingAddress(client: any): string {
     .filter(Boolean)
     .join("\n");
 }
+export const INVOICE_COPY_EMAIL = "invoice@unitedlinksecurity.com";
+
 export function invoiceRecipients(client: any) {
   const to = String(client?.billingContactEmail || client?.email || "")
     .trim()
@@ -29,9 +31,11 @@ export function invoiceRecipients(client: any) {
   const cc = [
     ...new Set(
       [
+        client?.email,
         client?.billingContactEmail2,
         client?.billingContactEmail3,
         ...billingList(client?.ccEmails),
+        INVOICE_COPY_EMAIL,
       ]
         .filter(Boolean)
         .map((email) => String(email).trim().toLowerCase()),

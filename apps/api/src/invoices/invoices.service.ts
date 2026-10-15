@@ -1,3 +1,5 @@
+import { invoiceEmail } from "./invoice-email";
+import { loadInvoiceLogo } from "./invoice-logo";
 import { invoiceRecipients } from "./invoice-billing";
 import {
   Injectable,
@@ -6,7 +8,7 @@ import {
   ForbiddenException,
   ConflictException,
 } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { reserveInvoiceNumber } from "./invoice-number";
 import { PrismaService } from "../prisma.service";
 import { resolveTaxContext } from "../common/tax.util";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
@@ -196,13 +198,9 @@ export class InvoicesService {
       tax.rate,
       tax.inclusive,
     );
-    const invoiceNumber =
-      data.invoiceNumber?.trim() ||
-      `INV-${randomUUID().slice(0, 12).toUpperCase()}`;
-    if (invoiceNumber.length > 100)
-      throw new BadRequestException("Invoice number is too long.");
     try {
       return await this.prisma.$transaction(async (tx) => {
+        const invoiceNumber = await reserveInvoiceNumber(tx, businessId);
         const invoice = await tx.invoice.create({
           data: {
             businessId,
@@ -238,6 +236,9 @@ export class InvoicesService {
     header?: string,
   ) {
     const previous = await this.invoiceAccess(id, user, header);
+    if (data.invoiceNumber !== undefined && data.invoiceNumber.trim() !== previous.invoiceNumber) {
+      throw new BadRequestException("Invoice numbers are assigned automatically and cannot be changed.");
+    }
     if (
       (data as any).expectedUpdatedAt &&
       new Date((data as any).expectedUpdatedAt).getTime() !==
@@ -315,7 +316,7 @@ export class InvoicesService {
           data: {
             clientId,
             locationId,
-            invoiceNumber: data.invoiceNumber?.trim() || previous.invoiceNumber,
+            invoiceNumber: previous.invoiceNumber,
             ...dates,
             status: nextStatus,
             notes: data.notes,
@@ -567,79 +568,18 @@ export class InvoicesService {
       extractEmail(process.env.INVOICE_SMTP_USER || "") ||
       "";
 
+    const logo = await loadInvoiceLogo(invoice.business?.logoUrl);
     const pdf = await generateInvoicePdf({
+      logo,
       business: invoice.business,
-      invoice,
+      invoice: { ...invoice, status: invoice.status === 'DRAFT' ? 'SENT' : invoice.status },
       businessEmail,
     });
     const invoiceNumber = invoice.invoiceNumber || "invoice";
     const subject = `Invoice ${invoiceNumber} from ${invoice.business?.name || "United Link Group"}`;
 
-    const dueDateLabel = invoice.dueDate
-      ? new Date(invoice.dueDate).toLocaleDateString("en-US", {
-          month: "2-digit",
-          day: "2-digit",
-          year: "numeric",
-          timeZone: "UTC",
-        })
-      : "";
-    const tracked = invoiceTracking(invoice);
-    const totalLabel = new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: invoice.business.currencyCode || "USD",
-    }).format(tracked.balanceDue);
-    const businessName = invoice.business?.name || "United Link Group";
-    const htmlEscape = (value: string) =>
-      value.replace(
-        /[&<>"\']/g,
-        (c) =>
-          ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "\'": "&#39;",
-          })[c] || c,
-      );
-    const safeBusinessName = htmlEscape(businessName);
-    const safeInvoiceNumber = htmlEscape(invoiceNumber);
-
-    const replyTo =
-      process.env.INVOICE_REPLY_TO ||
-      process.env.INVOICE_FROM ||
-      process.env.INVOICE_SMTP_USER ||
-      undefined;
-    const html = `
-      <div style="font-family: Arial, Helvetica, sans-serif; line-height:1.5; color:#111827;">
-        <h2 style="margin:0 0 8px 0; font-size:18px;">${safeBusinessName} — Invoice ${safeInvoiceNumber}</h2>
-        <p style="margin:0 0 12px 0; color:#374151;">
-          Thank you for your business. Please find your invoice attached as a PDF.
-        </p>
-        <div style="margin:0 0 12px 0; padding:12px; border:1px solid #E5E7EB; border-radius:10px; background:#F9FAFB;">
-          <div><strong>Invoice:</strong> ${safeInvoiceNumber}</div>
-          ${dueDateLabel ? `<div><strong>Service end date:</strong> ${dueDateLabel}</div>` : ""}
-          ${totalLabel ? `<div><strong>Total due:</strong> ${totalLabel}</div>` : ""}
-        </div>
-        <p style="margin:0 0 12px 0; color:#374151;">
-          If you have any questions or need assistance, reply to this email and we’ll be happy to help.
-        </p>
-        <p style="margin:0; color:#6B7280; font-size:12px;">
-          ${safeBusinessName}
-        </p>
-      </div>
-    `.trim();
-
-    const text = [
-      `${businessName} — Invoice ${invoiceNumber}`,
-      "",
-      "Thank you for your business. Please find your invoice attached as a PDF.",
-      dueDateLabel ? `Service end date: ${dueDateLabel}` : null,
-      totalLabel ? `Total due: ${totalLabel}` : null,
-      "",
-      "If you have any questions, reply to this email.",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const replyTo = process.env.INVOICE_REPLY_TO || process.env.INVOICE_FROM || process.env.INVOICE_SMTP_USER || undefined;
+    const { html, text } = invoiceEmail({ business: invoice.business, invoice, balanceDue: invoiceTracking(invoice).balanceDue, hasLogo: !!logo });
 
     const cc = ccFromClient.length ? ccFromClient : undefined;
 
@@ -669,6 +609,7 @@ export class InvoicesService {
             content: pdf,
             contentType: "application/pdf",
           },
+          ...(logo ? [{ filename: logo.format === 'PNG' ? 'business-logo.png' : 'business-logo.jpg', content: logo.bytes, contentType: logo.contentType, cid: 'business-logo@unitedlink-invoice', contentDisposition: 'inline' as const }] : []),
         ],
       });
     } catch (e: any) {

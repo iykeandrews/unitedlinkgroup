@@ -1,6 +1,6 @@
 "use client";
+import ServiceDatePicker from "./ServiceDatePicker";
 import { InvoiceBillingDetails } from "@/components/billing/BillingReferences";
-import AmericanDateInput from "./AmericanDateInput";
 import { useEffect, useRef, useState } from "react";
 import {
   X,
@@ -277,7 +277,7 @@ export default function InvoiceModal({
       const payload = {
         ...form,
         ...(saved?.id ? { expectedUpdatedAt: saved.updatedAt } : {}),
-        invoiceNumber: form.invoiceNumber.trim() || undefined,
+        invoiceNumber: saved?.invoiceNumber || undefined,
         locationId: form.locationId || null,
         items: form.items.map((i: any) => ({
           ...i,
@@ -462,15 +462,15 @@ export default function InvoiceModal({
                     aria-label="Invoice number"
                     className={input}
                     placeholder="Generated when saved"
-                    maxLength={100}
-                    value={form.invoiceNumber}
-                    onChange={(e) => change("invoiceNumber", e.target.value)}
+                    readOnly
+                    value={saved?.invoiceNumber || ''}
+                    title="Assigned automatically when the invoice is saved; cannot be changed."
                   />
                 </label>
                 <label className="text-sm font-medium">
                   Service start date (MM/DD/YYYY)
-                  <AmericanDateInput
-                    aria-label="Service start date"
+                  <ServiceDatePicker
+                    label="Service start date"
                     className={input}
                     value={form.issueDate}
                     onChange={(value) => change("issueDate", value)}
@@ -478,14 +478,15 @@ export default function InvoiceModal({
                 </label>
                 <label className="text-sm font-medium">
                   Service end date (MM/DD/YYYY)
-                  <AmericanDateInput
-                    aria-label="Service end date"
+                  <ServiceDatePicker
+                    label="Service end date"
                     className={input}
                     min={form.issueDate}
                     value={form.dueDate}
                     onChange={(value) => change("dueDate", value)}
                   />
                 </label>
+                <p className="text-xs text-gray-500 md:col-span-2">Invoice numbers are generated automatically and retained permanently. Invoice emails include all client contact and billing emails, with a copy to invoice@unitedlinksecurity.com.</p>
                 <label className="text-sm font-medium">
                   Document status
                   <select

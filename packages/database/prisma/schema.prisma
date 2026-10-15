@@ -1562,3 +1562,14 @@ model InvoicePayment {
   @@unique([invoiceId, idempotencyKey])
   @@index([invoiceId, paidAt])
 }
+
+// Permanent number reservations deliberately have no cascading invoice relation.
+// PostgreSQL allocates IDs atomically, including across concurrent requests.
+model InvoiceNumberReservation {
+  id            BigInt   @id @default(autoincrement())
+  businessId    String
+  invoiceNumber String?  @unique
+  createdAt     DateTime @default(now())
+
+  @@index([businessId])
+}

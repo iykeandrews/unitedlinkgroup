@@ -8,7 +8,7 @@ type SendEmailArgs = {
   html: string;
   text: string;
   replyTo?: string;
-  attachments?: Array<{ filename: string; content: Buffer; contentType: string }>;
+  attachments?: Array<{ filename: string; content: Buffer; contentType: string; cid?: string; contentDisposition?: 'inline' | 'attachment' }>;
 };
 
 @Injectable()
@@ -54,7 +54,7 @@ export class SmtpMailerService {
     }
 
     const sendMail = async (transporter: nodemailer.Transporter) => {
-      return transporter.sendMail({
+      const result = await transporter.sendMail({
         from,
         to: args.to,
         cc: args.cc,
@@ -66,8 +66,13 @@ export class SmtpMailerService {
           filename: a.filename,
           content: a.content,
           contentType: a.contentType,
+          ...(a.cid ? { cid: a.cid, contentDisposition: a.contentDisposition || 'inline' } : {}),
         })),
       });
+      if (result.rejected?.length) {
+        throw new BadRequestException('The mail server rejected one or more invoice recipients. Other recipients may already have received the email. Correct the addresses before retrying.');
+      }
+      return result;
     };
 
     if (!this.transporter) {

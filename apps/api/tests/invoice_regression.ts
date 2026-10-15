@@ -292,15 +292,21 @@ async function main() {
     equal(draft.status, "DRAFT");
     equal(draft.total, 1050);
     equal(draft.taxRate, 5);
-    await rejects(
-      () =>
-        service.createInvoice(
-          { ...base, invoiceNumber: "INV-DRAFT" },
-          user,
-          business.id,
-        ),
-      /already used/,
-    );
+    const anotherDraft = await service.createInvoice({ ...base, invoiceNumber: draft.invoiceNumber }, user, business.id);
+    equal(anotherDraft.invoiceNumber === draft.invoiceNumber, false);
+    await rejects(() => service.updateInvoice(draft.id, { invoiceNumber: 'MANUAL-CHANGE' }, user, business.id), /cannot be changed/);
+    const concurrentNumbers = await Promise.all(Array.from({ length: 6 }, () => service.createInvoice({ ...base, invoiceNumber: draft.invoiceNumber }, user, business.id)));
+    equal(new Set(concurrentNumbers.map(invoice => invoice.invoiceNumber)).size, 6);
+    equal(concurrentNumbers.every(invoice => /^INV-\d{4}-\d{6,}$/.test(invoice.invoiceNumber)), true);
+    const disposable = concurrentNumbers[0];
+    await db.invoiceItem.deleteMany({ where: { invoiceId: disposable.id } });
+    await db.invoice.delete({ where: { id: disposable.id } });
+    const afterDeletion = await service.createInvoice(base, user, business.id);
+    equal(afterDeletion.invoiceNumber === disposable.invoiceNumber, false);
+    equal(await db.invoiceNumberReservation.count({ where: { invoiceNumber: disposable.invoiceNumber } }), 1);
+    const numberCheckIds = [anotherDraft.id, afterDeletion.id, ...concurrentNumbers.map(invoice => invoice.id)];
+    await db.invoiceItem.deleteMany({ where: { invoiceId: { in: numberCheckIds } } });
+    await db.invoice.deleteMany({ where: { id: { in: numberCheckIds } } });
     const payment = {
       amount: 250,
       paidAt: "2026-10-13",

@@ -27,9 +27,11 @@ export function clientRecipients(client: any) {
   const cc = Array.from(
     new Set<string>(
       [
+        client?.email,
         client?.billingContactEmail2,
         client?.billingContactEmail3,
         ...stringList(client?.ccEmails),
+        'invoice@unitedlinksecurity.com',
       ]
         .filter(Boolean)
         .map((email: string) => email.trim().toLowerCase()),
@@ -65,7 +67,7 @@ export function ReferenceList({
       </div>
       <p className="text-sm text-slate-500">
         {email
-          ? "Invoices go to the primary billing email (or contact email), with these addresses copied. Duplicate recipients are removed."
+          ? "Invoices go to the billing and contact emails, with all additional recipients and invoice@unitedlinksecurity.com copied. Duplicate recipients are removed."
           : "Reference codes shown on invoices for this location. These pins are used only for billing and never for clock-in or clock-out."}
       </p>
       {!values.length && (

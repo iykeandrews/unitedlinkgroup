@@ -1,23 +1,40 @@
+import { InvoiceLogo, loadInvoiceLogo } from "./invoice-logo";
 import { billingAddress, billingList } from "./invoice-billing";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { invoiceTracking } from "./invoice-accounting";
+
 export async function generateInvoicePdf({
   business,
   invoice,
   businessEmail,
+  logo: suppliedLogo,
 }: {
   business: any;
   invoice: any;
   businessEmail?: string;
+  logo?: InvoiceLogo | null;
 }): Promise<Buffer> {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ format: "letter" });
+  const logo =
+    suppliedLogo === undefined
+      ? await loadInvoiceLogo(business?.logoUrl)
+      : suppliedLogo;
   const tracked =
     invoice.balanceDue !== undefined ? invoice : invoiceTracking(invoice);
+  const width = doc.internal.pageSize.getWidth(),
+    height = doc.internal.pageSize.getHeight();
+  const left = 15,
+    right = width - 15,
+    contentWidth = right - left;
+  const navy: [number, number, number] = [16, 42, 67],
+    ink: [number, number, number] = [23, 50, 77];
+  const muted: [number, number, number] = [97, 115, 134],
+    line: [number, number, number] = [225, 232, 239];
   const currency = business?.currencyCode || "USD";
-  const money = (n: number) =>
+  const money = (value: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
-      n || 0,
+      value || 0,
     );
   const day = (value: any) =>
     new Date(value).toLocaleDateString("en-US", {
@@ -26,111 +43,272 @@ export async function generateInvoicePdf({
       year: "numeric",
       timeZone: "UTC",
     });
-  const text = (value: any, width: number) =>
-    doc.splitTextToSize(String(value || ""), width);
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, 210, 36, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(20);
-  doc.text("INVOICE", 14, 16);
-  doc.setFontSize(10);
-  doc.text(text(business?.name || "Invoice", 180), 14, 25);
-  doc.setTextColor(30, 41, 59);
-  doc.setFontSize(10);
-  let y = 47;
-  for (const line of [
+  const wrapped = (value: any, maxWidth: number) =>
+    doc.splitTextToSize(String(value || ""), maxWidth);
+  const write = (
+    value: any,
+    x: number,
+    y: number,
+    size = 9,
+    bold = false,
+    color = ink,
+    align: "left" | "right" = "left",
+  ) => {
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(size);
+    doc.setTextColor(...color);
+    doc.text(String(value || ""), x, y, { align });
+  };
+  const rule = (y: number) => {
+    doc.setDrawColor(...line);
+    doc.setLineWidth(0.25);
+    doc.line(left, y, right, y);
+  };
+  doc.setFillColor(...navy);
+  doc.rect(0, 0, width, 4.5, "F");
+  if (logo) {
+    const properties = doc.getImageProperties(logo.dataUrl);
+    const scale = Math.min(88 / properties.width, 22 / properties.height);
+    const w = properties.width * scale,
+      h = properties.height * scale;
+    doc.addImage(logo.dataUrl, logo.format, left, 24 - h / 2, w, h);
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(...navy);
+    doc.text(wrapped(business?.name || "Business", 108), left, 25);
+  }
+  write("INVOICE", right, 25, 27, true, navy, "right");
+  doc.setFontSize(9);
+  const numberLines = wrapped(invoice.invoiceNumber, 70);
+  doc.setTextColor(...muted);
+  doc.text(numberLines, right, 33, { align: "right" });
+  let y = Math.max(47, 35 + numberLines.length * 4);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...ink);
+  const nameLines = wrapped(business?.name || "Business", 105);
+  doc.text(nameLines, left, y);
+  let addressY = y + nameLines.length * 4.5;
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(...muted);
+  for (const value of [
     business?.address,
     [business?.city, business?.state, business?.zip].filter(Boolean).join(", "),
-    businessEmail,
     business?.mobile,
-  ].filter(Boolean)) {
-    const lines = text(line, 110);
-    doc.text(lines, 14, y);
-    y += lines.length * 5;
+    businessEmail,
+  ]) {
+    if (!value) continue;
+    const lines = wrapped(value, 106);
+    doc.text(lines, left, addressY);
+    addressY += lines.length * 4.6;
   }
-  doc.text(text(invoice.invoiceNumber, 62), 134, 47);
-  doc.text(`Service start: ${day(invoice.issueDate)}`, 134, 59);
-  doc.text(`Service end: ${day(invoice.dueDate)}`, 134, 66);
-  doc.text(`Status: ${tracked.status.replace(/_/g, " ")}`, 134, 73);
-  y = Math.max(y + 9, 88);
-  doc.setFont("helvetica", "bold");
-  doc.text("BILL TO", 14, y);
-  doc.setFont("helvetica", "normal");
-  y += 7;
-  for (const line of [
+  let metaY = y;
+  for (const [label, value] of [
+    ["SERVICE START", day(invoice.issueDate)],
+    ["SERVICE END", day(invoice.dueDate)],
+    ...(invoice.createdAt ? [["PREPARED", day(invoice.createdAt)]] : []),
+    ["STATUS", String(tracked.status).replace(/_/g, " ")],
+  ]) {
+    write(label, right - 72, metaY, 7, false, muted);
+    write(value, right, metaY, 9, true, ink, "right");
+    metaY += 8;
+  }
+  y = Math.max(addressY, metaY) + 5;
+  rule(y);
+  y += 9;
+  const location = invoice.location,
+    siteX = right - 76;
+  write("BILL TO", left, y, 7.5, true, muted);
+  if (location) write("SERVICE LOCATION", siteX, y, 7.5, true, muted);
+  const billingRows = [
     invoice.client?.name,
     billingAddress(invoice.client),
     invoice.client?.billingContactEmail || invoice.client?.email,
-    invoice.location?.name ? `Site: ${invoice.location.name}` : null,
-  ].filter(Boolean)) {
-    const lines = text(line, 180);
-    if (y + lines.length * 5 > 260) { doc.addPage(); y = 24; }
-    doc.text(lines, 14, y);
-    y += lines.length * 5;
-  }
-  const location = invoice.location;
-  if (location) {
-    const rows = [["Service location", [location.name, location.address].filter(Boolean).join("\n")], ["Work order", location.workOrder || "Not entered"], ...(billingList(location.billingPins).length ? [["Billing pins", billingList(location.billingPins).join(", ")]] : [])];
-    autoTable(doc, { startY: y + 5, body: rows, theme: "plain", styles: { fontSize: 9, overflow: "linebreak" }, columnStyles: { 0: { cellWidth: 32, fontStyle: "bold" } }, margin: { top: 18, bottom: 20 } });
-    y = (doc as any).lastAutoTable.finalY;
-  }
+  ]
+    .filter(Boolean)
+    .map((value) => [String(value)]);
   autoTable(doc, {
-    startY: y + 7,
-    head: [["Description", "Quantity", "Rate", "Amount"]],
+    startY: y + 5,
+    body: billingRows,
+    theme: "plain",
+    styles: {
+      fontSize: 9,
+      textColor: muted,
+      cellPadding: { top: 0, bottom: 3, left: 0, right: 0 },
+      overflow: "linebreak",
+    },
+    margin: {
+      left,
+      right: location ? width - left - 100 : 15,
+      top: 22,
+      bottom: 22,
+    },
+    didParseCell: (cell) => {
+      if (cell.row.index === 0) {
+        cell.cell.styles.fontStyle = "bold";
+        cell.cell.styles.fontSize = 12;
+        cell.cell.styles.textColor = navy;
+      }
+    },
+  });
+  const billY = (doc as any).lastAutoTable.finalY + 4;
+  const billEndPage = doc.getNumberOfPages();
+  let siteY = billEndPage > 1 ? billY + 5 : y + 8;
+  if (location) {
+    const siteRows: any[] = [
+      [
+        {
+          content: location.name || "Service site",
+          colSpan: 2,
+          styles: { fontStyle: "bold", textColor: navy },
+        },
+      ],
+      ...(location.address
+        ? [[{ content: location.address, colSpan: 2 }]]
+        : []),
+      ...(location.workOrder ? [["Work order", location.workOrder]] : []),
+      ...(billingList(location.billingPins).length
+        ? [["Billing pins", billingList(location.billingPins).join(", ")]]
+        : []),
+    ];
+    autoTable(doc, {
+      startY: siteY - 3,
+      body: siteRows,
+      theme: "plain",
+      styles: {
+        fontSize: 8.5,
+        cellPadding: { top: 1, bottom: 2, left: 0, right: 2 },
+        overflow: "linebreak",
+        textColor: muted,
+      },
+      columnStyles: { 0: { cellWidth: 28, fontStyle: "bold" } },
+      margin: { left: siteX, right: 15, top: 22, bottom: 22 },
+    });
+    siteY = (doc as any).lastAutoTable.finalY + 4;
+  }
+  y =
+    (doc.getNumberOfPages() > billEndPage ? siteY : Math.max(billY, siteY)) + 7;
+  autoTable(doc, {
+    startY: y,
+    head: [["SERVICE DESCRIPTION", "QUANTITY", "RATE", "AMOUNT"]],
     body: (invoice.items || []).map((item: any) => [
       item.description,
       String(item.quantity),
       money(item.rate),
       money(item.amount ?? item.quantity * item.rate),
     ]),
-    theme: "striped",
-    styles: { fontSize: 9, cellPadding: 3, overflow: "linebreak" },
-    headStyles: { fillColor: [15, 23, 42] },
-    columnStyles: {
-      0: { cellWidth: 105 },
-      1: { halign: "right" },
-      2: { halign: "right" },
-      3: { halign: "right" },
+    theme: "plain",
+    styles: {
+      fontSize: 9,
+      cellPadding: 4,
+      overflow: "linebreak",
+      textColor: ink,
+      lineColor: line,
+      lineWidth: { bottom: 0.2 },
     },
-    margin: { top: 18, bottom: 20 },
+    headStyles: {
+      fillColor: navy,
+      textColor: [255, 255, 255],
+      fontSize: 7.5,
+      fontStyle: "bold",
+      cellPadding: 4,
+    },
+    columnStyles: {
+      0: { cellWidth: contentWidth - 83 },
+      1: { cellWidth: 25, halign: "right" },
+      2: { cellWidth: 27, halign: "right" },
+      3: { cellWidth: 31, halign: "right" },
+    },
+    margin: { left, right: 15, top: 22, bottom: 22 },
   });
-  y = (doc as any).lastAutoTable.finalY + 10;
-  if (y > 228) {
+  y = (doc as any).lastAutoTable.finalY + 13;
+  if (y + 65 > height - 24) {
     doc.addPage();
-    y = 24;
+    y = 28;
   }
-  doc.setFontSize(10);
-  for (const [label, value] of [
+  const summaryX = right - 73;
+  write("SERVICE & PAYMENT NOTES", left, y, 7.5, true, muted);
+  doc.setFontSize(9);
+  const note = wrapped(
+    "Please include the invoice number with your remittance. Payment terms are per your service agreement.",
+    100,
+  );
+  doc.setTextColor(...muted);
+  doc.text(note, left, y + 8);
+  write("Billing questions? Contact our team.", left, y + 29, 9, false, muted);
+  if (businessEmail) {
+    doc.setFontSize(9);
+    doc.text(wrapped(businessEmail, 100), left, y + 35);
+  }
+  let totalY = y;
+  for (const [label, amount] of [
     ["Subtotal", invoice.subtotal],
     [
-      `Tax (${invoice.taxRate}%)${invoice.taxInclusive ? " included" : ""}`,
+      `Tax (${invoice.taxRate || 0}%)${invoice.taxInclusive ? " included" : ""}`,
       invoice.taxAmount,
     ],
     ["Invoice total", invoice.total],
     ["Payments recorded", tracked.amountPaid],
-    ["Balance due", tracked.balanceDue],
   ] as [string, number][]) {
-    doc.text(label, 115, y);
-    doc.text(money(value), 196, y, { align: "right" });
-    y += 7;
+    write(label, summaryX, totalY, 9, false, muted);
+    write(
+      money(amount),
+      right,
+      totalY,
+      10,
+      label === "Invoice total",
+      ink,
+      "right",
+    );
+    totalY += 8;
   }
+  doc.setFillColor(242, 246, 250);
+  doc.roundedRect(summaryX - 4, totalY + 1, 77, 16, 2, 2, "F");
+  write("BALANCE DUE", summaryX, totalY + 11, 7.5, true, navy);
+  write(
+    money(tracked.balanceDue),
+    right - 3,
+    totalY + 11,
+    17,
+    true,
+    navy,
+    "right",
+  );
+  y = totalY + 29;
   if (invoice.notes) {
     autoTable(doc, {
-      startY: y + 7,
-      body: [["Notes & terms", invoice.notes]],
+      startY: y,
+      body: [["Additional notes", invoice.notes]],
       theme: "plain",
-      styles: { fontSize: 9, overflow: "linebreak" },
-      columnStyles: { 0: { cellWidth: 32 } },
-      margin: { top: 18, bottom: 20 },
+      styles: {
+        fontSize: 9,
+        overflow: "linebreak",
+        textColor: muted,
+        cellPadding: 2,
+      },
+      columnStyles: { 0: { cellWidth: 32, fontStyle: "bold" } },
+      margin: { left, right: 15, top: 22, bottom: 22 },
     });
   }
   const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setTextColor(100, 116, 139);
-    doc.setFontSize(8);
-    doc.text(`${invoice.invoiceNumber} | ${p} / ${pages}`, 14, 286);
-    doc.text("Thank you for your business", 196, 286, { align: "right" });
+  for (let page = 1; page <= pages; page++) {
+    doc.setPage(page);
+    rule(height - 19);
+    if (page > 1) {
+      write(business?.name || "Invoice", left, 12, 8, true, muted);
+      write(invoice.invoiceNumber, right, 12, 8, false, muted, "right");
+    }
+    write("Thank you for your business.", left, height - 12, 8, false, muted);
+    write(
+      `${invoice.invoiceNumber} | ${page} / ${pages}`,
+      right,
+      height - 12,
+      8,
+      false,
+      muted,
+      "right",
+    );
   }
   return Buffer.from(doc.output("arraybuffer"));
 }
