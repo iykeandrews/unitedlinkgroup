@@ -84,6 +84,7 @@ export function employmentField(form: any, field: string, value: any) {
 export function employmentPayload(form: any) {
   const fields = [
     "role",
+    "customRoleId",
     "type",
     "hireDate",
     "payrollId",

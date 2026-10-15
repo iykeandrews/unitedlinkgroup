@@ -64,6 +64,8 @@ interface Employee {
   lastName: string;
   email: string;
   role: string;
+  customRoleId?: string | null;
+  customRole?: { id: string; name: string } | null;
   status: string;
   profileImageUrl?: string;
   phone?: string;
@@ -215,6 +217,24 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
 
   const [showSensitiveData, setShowSensitiveData] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [businessRoles, setBusinessRoles] = useState<{ id: string; name: string }[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState(false);
+  const [rolesRetry, setRolesRetry] = useState(0);
+  const roleBusinessId = selectedBusiness?.id || (employee as any)?.businessId;
+
+  useEffect(() => {
+    if (!isOpen || !isEditing || activeTab !== 'Employment' || !roleBusinessId) return;
+    let cancelled = false;
+    setBusinessRoles([]);
+    setRolesLoading(true);
+    setRolesError(false);
+    api.get('/roles', { headers: { 'x-business-id': roleBusinessId } })
+      .then(({ data }) => { if (!cancelled) setBusinessRoles(data); })
+      .catch(() => { if (!cancelled) setRolesError(true); })
+      .finally(() => { if (!cancelled) setRolesLoading(false); });
+    return () => { cancelled = true; };
+  }, [isOpen, isEditing, activeTab, roleBusinessId, rolesRetry]);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRequestLeaveModalOpen, setIsRequestLeaveModalOpen] = useState(false);
   const [isAddEntitlementModalOpen, setIsAddEntitlementModalOpen] = useState(false);
@@ -1539,9 +1559,9 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <LabelValue 
                           label="Access role"
-                          value={employee.role === 'BUSINESS_ADMIN' ? 'System Administrator' : 
+                          value={employee.customRole?.name || (employee.role === 'BUSINESS_ADMIN' ? 'System Administrator' :
                                  employee.role === 'SUPER_ADMIN' ? 'System Administrator' : 
-                                 employee.role.charAt(0) + employee.role.slice(1).toLowerCase().replace('_', ' ')}
+                                 employee.role.charAt(0) + employee.role.slice(1).toLowerCase().replace('_', ' '))}
                         />
                         <LabelValue label="Works at" value={(employee as any).defaultLocation?.name || selectedBusiness?.name || "Not assigned"} />
                         <LabelValue 
@@ -1696,16 +1716,41 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                         <h4 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider mb-4">Work Details</h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div>
-                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>
+                             <label htmlFor="employment-role" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>
                              <select
-                               value={editFormData.role || ''}
-                               onChange={(e) => handleInputChange('role', e.target.value)}
+                               id="employment-role"
+                               value={editFormData.customRoleId ? `custom:${editFormData.customRoleId}` : `system:${editFormData.role || 'EMPLOYEE'}`}
+                               disabled={rolesLoading || rolesError || !roleBusinessId}
+                               aria-describedby="employment-role-status"
+                               onChange={(e) => {
+                                 const value = e.target.value;
+                                 setEditFormData(prev => value.startsWith('custom:')
+                                   ? { ...prev, customRoleId: value.slice(7) }
+                                   : { ...prev, role: value.slice(7), customRoleId: null });
+                               }}
                                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white sm:text-sm px-4 py-2.5 border transition-colors"
                              >
-                               <option value="EMPLOYEE">Employee</option>
-                               <option value="MANAGER">Manager</option>
-                               <option value="BUSINESS_ADMIN">System Administrator</option>
+                               <optgroup label="Built-in roles">
+                                 <option value="system:EMPLOYEE">Employee</option>
+                                 <option value="system:MANAGER">Manager</option>
+                                 <option value="system:BUSINESS_ADMIN">System Administrator</option>
+                                 {editFormData.role && !['EMPLOYEE', 'MANAGER', 'BUSINESS_ADMIN'].includes(editFormData.role) && (
+                                   <option value={`system:${editFormData.role}`}>{editFormData.role.replaceAll('_', ' ')}</option>
+                                 )}
+                               </optgroup>
+                               {!!editFormData.customRoleId && !businessRoles.some(role => role.id === editFormData.customRoleId) && (
+                                 <option value={`custom:${editFormData.customRoleId}`}>{employee.customRole?.name || 'Current custom role'}</option>
+                               )}
+                               {businessRoles.length > 0 && (
+                                 <optgroup label="Roles & Permissions">
+                                   {businessRoles.map(role => <option key={role.id} value={`custom:${role.id}`}>{role.name}</option>)}
+                                 </optgroup>
+                               )}
                              </select>
+                             <div id="employment-role-status" className="mt-2 text-xs text-gray-500" aria-live="polite">
+                               {rolesLoading && 'Loading roles…'}
+                               {rolesError && <span>Could not load roles. <button type="button" onClick={() => setRolesRetry(value => value + 1)} className="font-semibold text-indigo-600 underline">Try again</button></span>}
+                             </div>
                           </div>
                           <div>
                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Hire Date</label>
