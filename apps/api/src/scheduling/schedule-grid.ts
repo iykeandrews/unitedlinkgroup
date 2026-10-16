@@ -46,11 +46,16 @@ export function calendarScheduleGrids(
   start: string,
   end: string,
 ): ScheduleGrid[] {
+  const daysInRange =
+    Math.floor((Date.parse(end) - Date.parse(start)) / dayMs) + 1;
+  const pageCount = Math.ceil(daysInRange / 16);
+  const daysPerPage = Math.ceil(daysInRange / pageCount);
   const weeks: string[][] = [];
-  for (let n = Date.parse(start); n <= Date.parse(end); n += dayMs) {
-    const day = new Date(n).toISOString().slice(0, 10);
-    if (!weeks.length || new Date(n).getUTCDay() === 0) weeks.push([]);
-    weeks[weeks.length - 1].push(day);
+  for (let n = 0; n < daysInRange; n++) {
+    if (n % daysPerPage === 0) weeks.push([]);
+    weeks[weeks.length - 1].push(
+      new Date(Date.parse(start) + n * dayMs).toISOString().slice(0, 10),
+    );
   }
   return weeks.flatMap((days) => {
     const weekRows = rows.filter(
@@ -76,9 +81,9 @@ export function calendarScheduleGrids(
     }
     if (!columns.length)
       columns.push({ key: "empty", lane: 0, label: "No scheduled shifts" });
-    const parts = Math.ceil(columns.length / 6);
+    const parts = 1;
     return Array.from({ length: parts }, (_, part) => {
-      const subset = columns.slice(part * 6, part * 6 + 6);
+      const subset = columns;
       const cells = days.map((day) =>
         subset.map(
           (c) =>
@@ -103,9 +108,11 @@ export function calendarScheduleGrids(
     });
   });
 }
-const cellText = (r: Row | null) =>
+const cellText = (r: Row | null, compact = false) =>
   r
-    ? `${r.officer.toUpperCase()}\n${r.hours.toFixed(2)} hrs${r.breakMinutes ? ` | Break ${r.breakMinutes} min` : ""}${r.status === "DRAFT" ? " | DRAFT" : ""}`
+    ? compact
+      ? `${r.officer.toUpperCase()}${r.status === "DRAFT" ? " (DRAFT)" : ""}`
+      : `${r.officer.toUpperCase()}\n${r.hours.toFixed(2)} hrs${r.breakMinutes ? ` | Break ${r.breakMinutes} min` : ""}${r.status === "DRAFT" ? " | DRAFT" : ""}`
     : "—";
 const headerColors: [number, number, number][] = [
   [226, 240, 217],
@@ -199,21 +206,21 @@ export async function buildCalendarScheduleExport(
         },
       );
       sheet.columns = [
-        { width: 25 },
-        ...grid.columns.map(() => ({ width: 33 })),
+        { width: 18 },
+        ...grid.columns.map(() => ({ width: 21 })),
       ];
       for (let i = 1; i <= 6; i++) sheet.mergeCells(i, 1, i, cols);
-      sheet.getRow(1).height = logo ? 82 : 12;
+      sheet.getRow(1).height = logo ? 46 : 8;
       if (logo && logoId !== undefined) {
         const props = new jsPDF().getImageProperties(logo.dataUrl);
-        const total = 175 + grid.columns.length * 231;
+        const total = 126 + grid.columns.length * 147;
         const scale = Math.min(
           Math.min(450, total - 20) / props.width,
-          95 / props.height,
+          52 / props.height,
         );
         const w = props.width * scale;
         const left = (total - w) / 2;
-        const col = left < 175 ? left / 175 : 1 + (left - 175) / 231;
+        const col = left < 126 ? left / 126 : 1 + (left - 126) / 147;
         const wholeCol = Math.floor(col);
         const anchor = {
           col,
@@ -221,7 +228,7 @@ export async function buildCalendarScheduleExport(
           nativeCol: wholeCol,
           nativeRow: 0,
           nativeColOff: Math.round(
-            (left - (wholeCol === 0 ? 0 : 175 + (wholeCol - 1) * 231)) * 9525,
+            (left - (wholeCol === 0 ? 0 : 126 + (wholeCol - 1) * 147)) * 9525,
           ),
           nativeRowOff: 19050,
         };
@@ -231,46 +238,51 @@ export async function buildCalendarScheduleExport(
         });
       }
       sheet.getCell("A2").value = business.name || "Business";
-      sheet.getRow(2).height = 25;
+      sheet.getRow(2).height = 18;
       sheet.getCell("A3").value = businessAddress;
-      sheet.getRow(3).height = 30;
+      sheet.getRow(3).height = 20;
       sheet.getCell("A4").value = locationHeading;
       sheet.getRow(4).height = Math.max(
-        36,
-        Math.ceil(locationHeading.length / (cols * 18)) * 16,
+        28,
+        Math.ceil(locationHeading.length / (cols * 16)) * 12,
       );
       sheet.getCell("A5").value = heading(grid);
-      sheet.getRow(5).height = 28;
+      sheet.getRow(5).height = 22;
       sheet.getCell("A6").value = references || "LOCATION SCHEDULE";
       sheet.getRow(6).height = Math.max(
-        22,
-        Math.ceil(references.length / (cols * 20)) * 14,
+        18,
+        Math.ceil(references.length / (cols * 18)) * 11,
       );
       sheet.getRow(7).values = [
         "Schedule dates",
         ...grid.columns.map((c) => c.label),
       ];
-      sheet.getRow(7).height = 65;
+      sheet.getRow(7).height = 44;
       for (let index = 0; index < grid.days.length; index++) {
         const row = sheet.getRow(8 + index);
         row.values = [
           dayLabel(grid.days[index]),
-          ...grid.cells[index].map(cellText),
+          ...grid.cells[index].map((r) => cellText(r, grid.days.length > 8)),
         ];
-        row.height = 75;
+        const headerHeight = Array.from(
+          { length: 7 },
+          (_, i) => sheet.getRow(i + 1).height || 15,
+        ).reduce((n, h) => n + h, 0);
+        row.height = Math.max(16, (535 - headerHeight - 42) / grid.days.length);
       }
       const bottom = 8 + grid.days.length;
       sheet.mergeCells(bottom, 1, bottom, cols);
       sheet.getCell(bottom, 1).value = summary(grid);
-      sheet.getRow(bottom).height = 28;
+      sheet.getRow(bottom).height = 20;
       sheet.mergeCells(bottom + 1, 1, bottom + 1, cols);
       sheet.getCell(bottom + 1, 1).value = note;
-      sheet.getRow(bottom + 1).height = 30;
+      sheet.getRow(bottom + 1).height = 22;
       sheet.eachRow((row, i) =>
         row.eachCell({ includeEmpty: true }, (cell, col) => {
           cell.font = {
             name: "Arial",
-            size: i === 2 || i === 4 || i === 5 ? 14 : 11,
+            size:
+              i === 2 || i === 4 || i === 5 ? 11 : grid.days.length > 8 ? 8 : 9,
             bold: i !== 3 && i !== bottom + 1,
             color: { argb: "FF111111" },
           };
@@ -327,7 +339,7 @@ export async function buildCalendarScheduleExport(
     let y = 10;
     if (logo) {
       const props = doc.getImageProperties(logo.dataUrl);
-      const scale = Math.min(120 / props.width, 23 / props.height);
+      const scale = Math.min(110 / props.width, 16 / props.height);
       const lw = props.width * scale,
         lh = props.height * scale;
       doc.addImage(logo.dataUrl, logo.format, (w - lw) / 2, y, lw, lh);
@@ -365,33 +377,58 @@ export async function buildCalendarScheduleExport(
       doc.text(lines, w / 2, y + 4, { align: "center" });
       y += lines.length * 3 + 5;
     }
+    const columnWidth = (w - 20 - 32) / grid.columns.length;
+    const rowHeight = (h - 23 - y - 14) / grid.days.length;
+    const body = grid.days.map((day, i) => [
+      dayLabel(day),
+      ...grid.cells[i].map((r) => cellText(r, grid.days.length > 8)),
+    ]);
+    let bodyFont = grid.days.length > 8 ? 7 : 8.5;
+    doc.setFont("helvetica", "bold");
+    while (bodyFont > 3) {
+      doc.setFontSize(bodyFont);
+      const maxLines = Math.max(
+        ...body.flatMap((row) =>
+          row.map(
+            (value, col) =>
+              doc.splitTextToSize(value, (col === 0 ? 32 : columnWidth) - 1.2)
+                .length,
+          ),
+        ),
+      );
+      if (maxLines * bodyFont * 0.35278 * 1.15 + 1.2 <= rowHeight) break;
+      bodyFont -= 0.25;
+    }
     autoTable(doc, {
       startY: y,
       theme: "grid",
       head: [["Schedule dates", ...grid.columns.map((c) => c.label)]],
-      body: grid.days.map((day, i) => [
-        dayLabel(day),
-        ...grid.cells[i].map(cellText),
-      ]),
+      body,
       styles: {
         font: "helvetica",
-        fontSize: 8.5,
+        fontSize: bodyFont,
         fontStyle: "bold",
         halign: "center",
         valign: "middle",
-        cellPadding: 2,
+        cellPadding: 0.6,
         lineWidth: 0.2,
         lineColor: [30, 30, 30],
         textColor: [15, 15, 15],
         overflow: "linebreak",
-        minCellHeight: 12,
+        minCellHeight: rowHeight,
       },
       headStyles: {
         fillColor: [255, 255, 255],
         textColor: [15, 15, 15],
-        fontSize: 8,
+        fontSize: 7,
+        minCellHeight: 14,
       },
-      columnStyles: { 0: { cellWidth: 32 } },
+      columnStyles: Object.fromEntries(
+        Array.from({ length: grid.columns.length + 1 }, (_, i) => [
+          i,
+          { cellWidth: i === 0 ? 32 : columnWidth },
+        ]),
+      ),
       margin: { left: 10, right: 10, top: 12, bottom: 21 },
       rowPageBreak: "avoid",
       didParseCell: (data) => {

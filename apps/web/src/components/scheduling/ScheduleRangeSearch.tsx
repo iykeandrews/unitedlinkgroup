@@ -128,9 +128,9 @@ export default function ScheduleRangeSearch({
         )}
       </div>
       <p className="mt-1 text-sm text-slate-500">
-        Choose dates and a location (MM/DD/YYYY). Downloads use a weekly
-        calendar grid with officer colors, the business logo and address. Shifts
-        are included by their start date.
+        Choose dates and a location (MM/DD/YYYY). Downloads fit up to 16 days
+        per page in a calendar grid with officer colors, the business logo and
+        address. Shifts are included by their start date.
       </p>
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <label className="text-sm">

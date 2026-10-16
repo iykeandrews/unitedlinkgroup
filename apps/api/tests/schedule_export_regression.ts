@@ -119,7 +119,7 @@ async function main() {
     "2026-09-30",
     "2026-09-30",
   );
-  assert.equal(manyColumns.length, 2);
+  assert.equal(manyColumns.length, 1);
   assert.equal(
     manyColumns.reduce((n, g) => n + g.rows.length, 0),
     9,
@@ -147,6 +147,59 @@ async function main() {
   assert.match(String(sheet.getCell("A15").value), /Net hours: 180.00/);
   assert.deepEqual(sheet.getCell("B8").fill, sheet.getCell("B9").fill);
   assert.notDeepEqual(sheet.getCell("B8").fill, sheet.getCell("C8").fill);
+  for (const count of [1, 7, 15, 16, 30, 31]) {
+    const from = "2026-09-01";
+    const to = new Date(Date.parse(from) + (count - 1) * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const grouping = calendarScheduleGrids([], from, to);
+    assert.equal(grouping.length, Math.ceil(count / 16));
+    assert.equal(
+      grouping.reduce((n, g) => n + g.days.length, 0),
+      count,
+    );
+    assert(grouping.every((g) => g.days.length <= 16));
+    const pageRows = Array.from({ length: count }, (_, i) =>
+      matrixRows.slice(0, 6).map((r, j) => ({
+        ...r,
+        id: `page-${i}-${j}`,
+        startDay: new Date(Date.parse(from) + i * 86400000)
+          .toISOString()
+          .slice(0, 10),
+        endDay: new Date(Date.parse(from) + i * 86400000)
+          .toISOString()
+          .slice(0, 10),
+      })),
+    ).flat();
+    const bytes = await buildScheduleExport(
+      business,
+      { ...location, billingPins: '["0388","3118"]' },
+      pageRows,
+      from,
+      to,
+      "pdf",
+    );
+    assert.equal(
+      (await PDFDocument.load(bytes)).getPageCount(),
+      Math.ceil(count / 16),
+      `PDF pages for ${count} days`,
+    );
+    const x = await buildScheduleExport(
+      business,
+      location,
+      pageRows,
+      from,
+      to,
+      "xlsx",
+    );
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(x as any);
+    assert.equal(wb.worksheets.length, Math.ceil(count / 16));
+    if (count === 16 || count === 30) {
+      fs.writeFileSync(`/private/tmp/schedule-${count}-days.pdf`, bytes);
+      fs.writeFileSync(`/private/tmp/schedule-${count}-days.xlsx`, x);
+    }
+  }
   const pdf = await buildScheduleExport(
     business,
     location,
@@ -156,13 +209,13 @@ async function main() {
     "pdf",
   );
   const document = await PDFDocument.load(pdf);
-  assert.equal(document.getPages().length, 2);
+  assert.equal(document.getPages().length, 1);
   for (const page of document.getPages())
     assert(page.getWidth() > page.getHeight());
   fs.writeFileSync("/private/tmp/schedule-export-sample.xlsx", xlsx);
   fs.writeFileSync("/private/tmp/schedule-export-sample.pdf", pdf);
   console.log(
-    `Calendar export checks passed (${process.env.TZ}): weekly matrix, source dates, overnight shifts, concurrent officers, colors, totals, logo, billing PINs and landscape pages.`,
+    `Calendar export checks passed (${process.env.TZ}): date-range matrix, source dates, overnight shifts, concurrent officers, colors, totals, logo, billing PINs and landscape pages.`,
   );
 }
 main().catch((e) => {
