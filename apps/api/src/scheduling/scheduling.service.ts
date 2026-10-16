@@ -1,4 +1,3 @@
-import {ShiftConfigurationService} from '../locations/shift-configuration.service';
 import { validateScheduleDates, scheduleRows, buildScheduleExport } from './schedule-export';
 import { effectivePay } from "../employees/employment.util";
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
@@ -821,7 +820,7 @@ export class SchedulingService {
       const cur = byGroup.get(gid);
       if (!cur || score(s) > score(cur)) byGroup.set(gid, s);
     }
-    return new ShiftConfigurationService(this.prisma).decorate(Array.from(byGroup.values()));
+    return Array.from(byGroup.values());
   }
 
   async applyForShift(shiftId: string, userId: string) {
@@ -994,8 +993,6 @@ export class SchedulingService {
       return updatedShift;
   }
 
-  async myClientPins(user:any,businessId?:string) { return new ShiftConfigurationService(this.prisma).myPins(user,businessId); }
-
   async getMyShifts(userId: string, start: Date, end: Date, businessId?: string) {
     this.assertValidRange(start, end);
     const employee = await this.prisma.employee.findFirst({ where: { userId, ...(businessId ? { businessId } : {}) }, include: { w2Profile: true, contractorProfile: true } });
@@ -1067,7 +1064,7 @@ export class SchedulingService {
         payType: pay.payType,
         salary: pay.salary,
       },
-      shifts: await new ShiftConfigurationService(this.prisma).decorate(shifts,employee),
+      shifts,
       summary: {
         totalHours: Number(totalHours.toFixed(2)),
         totalBreakMinutes,

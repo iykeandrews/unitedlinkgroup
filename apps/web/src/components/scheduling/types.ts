@@ -1,5 +1,4 @@
 export interface Employee {
-  officerCategory?: string | null;
   status?: string;
   id: string;
   firstName: string;
@@ -78,7 +77,6 @@ export interface ShiftCoverage {
 }
 
 export interface Shift {
-  clientPinAssignment?: {state:string;pin:string|null;classification?:string;configurationName?:string;officerCategory?:string};
   timeZone?: string | null;
   id: string;
   groupId?: string;

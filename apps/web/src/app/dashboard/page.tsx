@@ -1,6 +1,5 @@
 'use client';
 
-import AssignedClientPins from '../../components/AssignedClientPins';
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -1598,7 +1597,6 @@ function EmployeeDashboard({
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-6">
-      <AssignedClientPins />
       <div className="rounded-3xl border border-indigo-200/40 dark:border-indigo-700/30 bg-gradient-to-br from-white via-indigo-50/60 to-purple-50/60 dark:from-slate-950 dark:via-indigo-950/30 dark:to-purple-950/20 p-6 shadow-sm overflow-hidden relative">
         <div className="absolute -top-24 -right-24 w-72 h-72 bg-indigo-400/20 blur-3xl rounded-full" />
         <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-purple-400/20 blur-3xl rounded-full" />

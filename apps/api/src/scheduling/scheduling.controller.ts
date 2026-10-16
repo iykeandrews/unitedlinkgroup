@@ -56,10 +56,6 @@ export class SchedulingController {
     return res.send(result);
   }
 
-  @Get('my-client-pins')
-  @Roles(UserRole.EMPLOYEE)
-  async myClientPins(@Request() req:any,@Headers('x-business-id') businessId?:string) { return this.schedulingService.myClientPins(req.user,businessId); }
-
   @Get('my')
   @Roles(UserRole.EMPLOYEE)
   async getMyShifts(
