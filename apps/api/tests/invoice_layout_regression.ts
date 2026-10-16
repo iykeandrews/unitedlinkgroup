@@ -8,7 +8,7 @@ import { generateInvoicePdf } from '../src/invoices/invoice-pdf';
 async function main() {
   const output = mkdtempSync(join(tmpdir(), 'ulg-invoice-layout-'));
   const address = "Example Hospital Parking Garage, 818 Michigan Avenue Northeast, Washington, District of Columbia, 20017, United States of America";
-  const base = { invoiceNumber: 'INV-LAYOUT-TEST', issueDate: '2026-10-01', dueDate: '2026-10-15', client: { name: 'Example Property Group', address: '818 Example Avenue', city: 'Washington', state: 'DC', zip: '20017' }, items: [{ description: 'Security services', quantity: 336, rate: 20, amount: 6720 }], subtotal: 6720, total: 6720, taxRate: 0, taxAmount: 0, amountPaid: 0, balanceDue: 6720, status: 'DRAFT' };
+  const base = { createdAt: '2026-10-16T10:00:00Z', invoiceNumber: 'INV-LAYOUT-TEST', issueDate: '2026-10-01', dueDate: '2026-10-15', client: { name: 'Example Property Group', address: '818 Example Avenue', city: 'Washington', state: 'DC', zip: '20017' }, items: [{ description: 'Security services', quantity: 336, rate: 20, amount: 6720 }], subtotal: 6720, total: 6720, taxRate: 0, taxAmount: 0, amountPaid: 0, balanceDue: 6720, status: 'DRAFT' };
   const cases = [
     { name: 'long-address-no-references', location: { name: 'Example Hospital', address } },
     { name: 'unbroken-address-no-references', location: { name: 'Example Hospital', address: 'LongUnbrokenLocationReference'.repeat(15) } },
@@ -18,6 +18,11 @@ async function main() {
   const paths: string[] = [];
   for (const example of cases) {
     const pdf = await generateInvoicePdf({ business: { name: 'Example Security Agency', currencyCode: 'USD', address: '100 Example Drive', city: 'Bowie', state: 'MD', zip: '20720' }, invoice: { ...base, ...example } });
+    const content = pdf.toString('latin1');
+    assert(!content.includes('PREPARED'));
+    assert(!content.includes('STATUS'));
+    assert(!content.includes('(DRAFT)'));
+    assert(content.includes('SERVICE START') && content.includes('SERVICE END'));
     const document = await PDFDocument.load(pdf);
     assert(document.getPageCount() >= 1);
     if (example.name === 'multiple-pages') assert(document.getPageCount() > 1);

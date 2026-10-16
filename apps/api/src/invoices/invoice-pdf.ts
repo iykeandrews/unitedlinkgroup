@@ -107,8 +107,6 @@ export async function generateInvoicePdf({
   for (const [label, value] of [
     ["SERVICE START", day(invoice.issueDate)],
     ["SERVICE END", day(invoice.dueDate)],
-    ...(invoice.createdAt ? [["PREPARED", day(invoice.createdAt)]] : []),
-    ["STATUS", String(tracked.status).replace(/_/g, " ")],
   ]) {
     write(label, right - 72, metaY, 7, false, muted);
     write(value, right, metaY, 9, true, ink, "right");
