@@ -20,8 +20,10 @@ type Row = {
 export default function ScheduleRangeSearch({
   businessId,
   locations,
+  onClose,
 }: {
   businessId?: string;
+  onClose?: () => void;
   locations: Array<{ id: string; name: string }>;
 }) {
   const [start, setStart] = useState(() =>
@@ -110,9 +112,21 @@ export default function ScheduleRangeSearch({
       id="schedule-range-search"
       className="mb-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800"
     >
-      <h2 className="font-semibold text-slate-900 dark:text-white">
-        Date range search & downloads
-      </h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-semibold text-slate-900 dark:text-white">
+          Date range search & downloads
+        </h2>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close date range search and downloads"
+            className="rounded border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-100 dark:border-slate-600 dark:hover:bg-slate-700"
+          >
+            Close
+          </button>
+        )}
+      </div>
       <p className="mt-1 text-sm text-slate-500">
         Choose dates and a location (MM/DD/YYYY). Downloads include the business
         logo and address. Shifts are included by their start date.

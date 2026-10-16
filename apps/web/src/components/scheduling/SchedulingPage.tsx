@@ -72,6 +72,10 @@ export default function SchedulingPage() {
   const [autoScheduling, setAutoScheduling] = useState(false);
   const [activeDragItem, setActiveDragItem] = useState<any>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [rangeSearchOpen, setRangeSearchOpen] = useState(false);
+  useEffect(() => {
+    if (rangeSearchOpen) document.getElementById('schedule-range-search')?.scrollIntoView({behavior:'smooth',block:'start'});
+  }, [rangeSearchOpen]);
   const [areasCollapsed, setAreasCollapsed] = useState(false);
   const [bulkModal, setBulkModal] = useState<{ open: boolean; field: 'notes' | 'breakMinutes'; value: string }>({ open: false, field: 'notes', value: '' });
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -927,7 +931,7 @@ export default function SchedulingPage() {
     );
   }
 
-  const openRangeSearch = () => document.getElementById('schedule-range-search')?.scrollIntoView({behavior:'smooth',block:'start'});
+  const openRangeSearch = () => setRangeSearchOpen(true);
 
   const exportICS = () => {
     const businessName = selectedBusiness?.name || 'Schedule';
@@ -1392,8 +1396,7 @@ export default function SchedulingPage() {
               {optionsOpen && (
                 <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-30 overflow-hidden">
                   <div className="py-2">
-                    <button onClick={() => { openRangeSearch(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Download location PDF</button>
-                    <button onClick={() => { openRangeSearch(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Download location Excel</button>
+                    <button aria-expanded={rangeSearchOpen} aria-controls="schedule-range-search" onClick={() => { openRangeSearch(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Date range search &amp; downloads</button>
                     <button onClick={() => { exportICS(); setOptionsOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">Sync to calendar</button>
                     <div className="h-px bg-slate-200 dark:bg-slate-700 my-2" />
                     <div className="px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Options</div>
@@ -1446,7 +1449,7 @@ export default function SchedulingPage() {
         </div>
       </div>
 
-      <ScheduleRangeSearch key={selectedBusiness?.id} businessId={selectedBusiness?.id} locations={locations} />
+      {rangeSearchOpen && <ScheduleRangeSearch key={selectedBusiness?.id} businessId={selectedBusiness?.id} locations={locations} onClose={() => setRangeSearchOpen(false)} />}
 
       {(userRole === 'BUSINESS_ADMIN' || userRole === 'SUPER_ADMIN') && pendingCallouts.length > 0 ? (
         <div className="mb-4 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-rose-50 dark:from-amber-900/20 dark:via-slate-900 dark:to-rose-900/20 dark:border-amber-800/50 shadow-sm">
