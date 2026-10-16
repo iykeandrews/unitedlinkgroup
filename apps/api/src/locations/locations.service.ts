@@ -141,7 +141,7 @@ export class LocationsService {
       const activeTime = await this.prisma.timesheet.count({where:{locationId:id,endTime:null}});
       if (commitments || activeTime) throw new BadRequestException('Resolve upcoming shifts and active timesheets before deactivating this site');
     }
-    return this.prisma.location.update({
+    const updateArgs = {
       where: { id },
       data: {
         name: data.name ?? loc.name,
@@ -158,6 +158,18 @@ export class LocationsService {
         radius: data.radius ?? loc.radius,
         taxOverrideInfo: data.taxOverrideInfo ? JSON.stringify(data.taxOverrideInfo) : loc.taxOverrideInfo,
       },
+    };
+    if(data.billingPins===undefined) return this.prisma.location.update(updateArgs);
+    return this.prisma.$transaction(async tx=>{
+      await tx.$queryRaw`SELECT id FROM "Location" WHERE id=${id} FOR UPDATE`;
+      const before=await tx.location.findUniqueOrThrow({where:{id}});
+      const saved=await tx.location.update(updateArgs);
+      if(before.billingPins!==saved.billingPins){
+        const values=JSON.parse(saved.billingPins);
+        const disabled=await tx.locationShiftPin.updateMany({where:{locationId:id,isActive:true,billingPin:{notIn:values}},data:{isActive:false}});
+        await tx.auditLog.create({data:{businessId,userId:user.userId||user.sub||user.id,action:'UPDATE_LOCATION_BILLING_PINS',resource:'LocationShiftConfiguration',resourceId:id,details:JSON.stringify({before:JSON.parse(before.billingPins),after:values,deactivatedAssignments:disabled.count})}});
+      }
+      return saved;
     });
   }
 

@@ -1,4 +1,5 @@
 "use client";
+import ShiftConfiguration from "@/components/locations/ShiftConfiguration";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Save, MapPin } from "lucide-react";
@@ -314,6 +315,7 @@ export default function LocationDetails() {
           </p>
         )}
       </form>
+      <ShiftConfiguration key={String(id)} locationId={String(id)} canEdit={canEdit} />
     </div>
   );
 }

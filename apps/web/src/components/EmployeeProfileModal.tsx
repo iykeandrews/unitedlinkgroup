@@ -1,3 +1,4 @@
+import {OFFICER_CATEGORIES} from '../lib/officer-categories';
 import RateHistory from "./people/RateHistory";
 import { employmentForm, employmentField, employmentPayload } from "./people/employment";
 import { savedPay } from "./people/directory";
@@ -60,6 +61,7 @@ interface ContractorProfile {
 }
 
 interface Employee {
+  officerCategory?: string | null;
   id: string;
   firstName: string;
   lastName: string;
@@ -1566,6 +1568,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                                  employee.role === 'SUPER_ADMIN' ? 'System Administrator' : 
                                  employee.role.charAt(0) + employee.role.slice(1).toLowerCase().replace('_', ' '))}
                         />
+                        <LabelValue label="Officer category" value={OFFICER_CATEGORIES[employee.officerCategory || ''] || 'Not classified'} />
                         <LabelValue label="Works at" value={(employee as any).defaultLocation?.name || selectedBusiness?.name || "Not assigned"} />
                         <LabelValue 
                           label="Hired on" 
@@ -1714,6 +1717,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
                         <h3 className="text-xl font-bold text-gray-900 dark:text-white">Edit Employment Details</h3>
                       </div>
 
+                      <div className="mb-4"><label className="block text-sm font-medium">Officer category</label><select className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" disabled={!['SUPER_ADMIN','BUSINESS_ADMIN'].includes(authUser?.role || '')} value={editFormData.officerCategory || ''} onChange={e=>setEditFormData(prev=>({...prev,officerCategory:e.target.value||null}))}><option value="">Not classified</option>{Object.entries(OFFICER_CATEGORIES).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><p className="mt-1 text-xs text-gray-500">Used to match client-app billing PINs. Separate from roles and permissions.</p></div>
                       {/* Edit Work Details */}
                       <section className="animate-in fade-in slide-in-from-right-4 duration-200">
                         <h4 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider mb-4">Work Details</h4>

@@ -52,6 +52,9 @@ export function ShiftModal({
      notes: ''
    });
 
+   const [configurations,setConfigurations] = useState<any[]>([]);
+   const [selectedConfiguration,setSelectedConfiguration] = useState('');
+   useEffect(()=>{let active=true;setSelectedConfiguration('');setConfigurations([]);if(formData.locationId)api.get(`/locations/${formData.locationId}/shift-configurations`).then(r=>{if(active)setConfigurations(r.data.configurations.filter((c:any)=>c.isActive));}).catch(()=>{});return()=>{active=false;};},[formData.locationId,selectedBusiness?.id]);
    const [saving, setSaving] = useState(false);
    const saveInFlight = useRef(false);
    const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -439,7 +442,7 @@ export function ShiftModal({
                             onChange={e => setFormData({ ...formData, employeeId: e.target.value })}
                         >
                             <option value="">Select Employee</option>
-                            {employees.map(emp => (
+                            {employees.filter(emp=>!selectedConfiguration||emp.officerCategory===configurations.find(c=>c.id===selectedConfiguration)?.officerCategory).map(emp => (
                                 <option key={emp.id} value={emp.id}>
                                     {emp.firstName} {emp.lastName} {emp.hourlyRate ? `(${formatCurrency(emp.hourlyRate, selectedBusiness?.currencyCode)}/hr)` : ''}
                                 </option>
@@ -448,6 +451,7 @@ export function ShiftModal({
                     </div>
                 </div>
 
+                {!readOnly && configurations.length>0 && <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3"><label className="block text-sm font-semibold">Location shift configuration</label><select className="mt-1 w-full rounded border p-2 dark:bg-slate-900" value={selectedConfiguration} onChange={e=>{const c=configurations.find(x=>x.id===e.target.value);setSelectedConfiguration(e.target.value);if(c)setFormData(prev=>({...prev,startTime:c.startTime,endTime:c.endTime,employeeId:employees.find(x=>x.id===prev.employeeId)?.officerCategory===c.officerCategory?prev.employeeId:''}));}}><option value="">Custom schedule times</option>{configurations.map(c=><option key={c.id} value={c.id}>{c.name} — {c.startTime}–{c.endTime} — {c.officerCategory} — {c.requiredOfficers} officer(s){c.pin?.isActive?` — PIN ${c.pin.billingPin}`:''}</option>)}</select><p className="mt-1 text-xs text-slate-500">PIN assignment follows the saved times, location and officer category automatically.</p></div>}
                 {/* Location Selector */}
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">

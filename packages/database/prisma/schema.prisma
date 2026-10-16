@@ -159,6 +159,7 @@ model Role {
 }
 
 model Employee {
+  officerCategory String? // ARMED_SPO, UNARMED_SPO, SO, SG, PD, ASG; separate from access roles
   id          String   @id @default(uuid())
   firstName   String
   lastName    String
@@ -536,6 +537,9 @@ model Client {
 }
 
 model Location {
+  timeZone String @default("America/New_York")
+  shiftConfigurations LocationShiftConfiguration[]
+  shiftPins LocationShiftPin[]
   id          String   @id @default(uuid())
   name        String
   code        String?
@@ -1575,4 +1579,35 @@ model InvoiceNumberReservation {
   createdAt     DateTime @default(now())
 
   @@index([businessId])
+}
+
+model LocationShiftConfiguration {
+  id String @id @default(uuid())
+  locationId String
+  location Location @relation(fields: [locationId], references: [id])
+  name String
+  officerCategory String
+  classification String // MORNING, AFTERNOON, OVERNIGHT
+  startTime String // Location-local HH:mm
+  endTime String // <= start means next day
+  requiredOfficers Int @default(1)
+  isActive Boolean @default(true)
+  pinId String?
+  pin LocationShiftPin? @relation(fields: [pinId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([locationId, isActive, officerCategory])
+}
+model LocationShiftPin {
+  id String @id @default(uuid())
+  locationId String
+  location Location @relation(fields: [locationId], references: [id])
+  label String
+  billingPin String // Existing location billing PIN; used only in external client applications
+  isActive Boolean @default(true)
+  allowCrossCategory Boolean @default(false)
+  configurations LocationShiftConfiguration[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([locationId, billingPin])
 }

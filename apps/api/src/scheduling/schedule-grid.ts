@@ -17,7 +17,7 @@ const military = (time: string) => {
 const offset = (r: Row) =>
   Math.round((Date.parse(r.endDay) - Date.parse(r.startDay)) / dayMs);
 const slotKey = (r: Row) =>
-  `${military(r.startTime)}|${military(r.endTime)}|${offset(r)}`;
+  `${military(r.startTime)}|${military(r.endTime)}|${offset(r)}|${r.officerCategory || ""}|${r.clientPin || ""}`;
 export function scheduleOfficerRgb(id: string): [number, number, number] {
   // Same stable employee palette as the on-screen calendar.
   let hash = 2166136261;
@@ -76,7 +76,7 @@ export function calendarScheduleGrids(
         columns.push({
           key,
           lane,
-          label: `${military(sample.startTime)} - ${military(sample.endTime)}${next}\n(${sample.startTime} - ${sample.endTime})${count > 1 ? `\nCoverage ${lane + 1}` : ""}`,
+          label: `${[sample.clientPin ? `PIN: ${sample.clientPin}` : "", sample.officerCategory?.replaceAll("_", " ")].filter(Boolean).join(" | ")}${sample.clientPin || sample.officerCategory ? "\n" : ""}${military(sample.startTime)} - ${military(sample.endTime)}${next}\n(${sample.startTime} - ${sample.endTime})${count > 1 ? `\nCoverage ${lane + 1}` : ""}`,
         });
     }
     if (!columns.length)
@@ -399,6 +399,18 @@ export async function buildCalendarScheduleExport(
       if (maxLines * bodyFont * 0.35278 * 1.15 + 1.2 <= rowHeight) break;
       bodyFont -= 0.25;
     }
+    let headerFont = 7;
+    while (headerFont > 3) {
+      doc.setFontSize(headerFont);
+      const lines = Math.max(
+        ...["Schedule dates", ...grid.columns.map((c) => c.label)].map(
+          (t, i) =>
+            doc.splitTextToSize(t, (i === 0 ? 32 : columnWidth) - 1.2).length,
+        ),
+      );
+      if (lines * headerFont * 0.35278 * 1.15 + 1.2 <= 14) break;
+      headerFont -= 0.25;
+    }
     autoTable(doc, {
       startY: y,
       theme: "grid",
@@ -420,7 +432,7 @@ export async function buildCalendarScheduleExport(
       headStyles: {
         fillColor: [255, 255, 255],
         textColor: [15, 15, 15],
-        fontSize: 7,
+        fontSize: headerFont,
         minCellHeight: 14,
       },
       columnStyles: Object.fromEntries(

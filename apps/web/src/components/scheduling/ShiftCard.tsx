@@ -154,6 +154,7 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
       <div className={`officer-time ${timeColors} flex items-center gap-1 text-[10px]`}>
         {presentation.continuation ? (end ? `Ends ${formatRecordTime(end, 'h:mm a', shift.timeZone)}` : 'In progress') : <>{formatRecordTime(start, 'h:mm a', shift.timeZone)} - {end ? formatRecordTime(end, 'h:mm a', shift.timeZone) : 'In Progress'}</>}
       </div>
+      {shift.clientPinAssignment?.pin && <div className="mt-1 text-[10px] font-semibold">Client PIN: {shift.clientPinAssignment.pin}</div>}
       {presentation.overnight && <div className="mt-1 text-[9px] font-semibold text-slate-700 dark:text-slate-100 leading-snug">{presentation.label}</div>}
       {!isDraft && !isEmpty && <span className="mt-1 text-[9px] font-medium text-slate-600 dark:text-slate-200">{isCompleted ? 'Completed' : statusUpper === 'PUBLISHED' ? 'Published' : statusUpper.replace(/_/g,' ')}</span>}
       {clockStatusLabel && ClockStatusIcon && !isEmpty ? (

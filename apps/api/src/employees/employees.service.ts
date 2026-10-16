@@ -1,3 +1,4 @@
+import {OFFICER_CATEGORIES} from '../locations/shift-pin.policy';
 import { rateChanges } from "./rate-history.util";
 import { normalizeEmployment, effectivePay } from "./employment.util";
 import { Injectable, BadRequestException, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
@@ -498,6 +499,7 @@ export class EmployeesService {
     data = normalizeEmployment(data);
     const { w2Profile, contractorProfile, ...restData } = data;
     const empData = { ...restData };
+    if(empData.officerCategory && !Object.prototype.hasOwnProperty.call(OFFICER_CATEGORIES,empData.officerCategory)) throw new BadRequestException('Invalid officer category');
     if (empData.ssn) {
         empData.ssn = this.encryptionService.encrypt(empData.ssn);
     }
@@ -796,6 +798,8 @@ export class EmployeesService {
     ];
     
     const updateData: any = { ...restData };
+    if(updateData.officerCategory!==undefined && updateData.officerCategory!==employee.officerCategory && !['SUPER_ADMIN','BUSINESS_ADMIN'].includes(user.role)) throw new ForbiddenException('Only administrators can change officer categories');
+    if(updateData.officerCategory && !Object.prototype.hasOwnProperty.call(OFFICER_CATEGORIES,updateData.officerCategory)) throw new BadRequestException('Invalid officer category');
     
     // Remove system fields and relations from updateData
     [...systemFields, ...relationFields].forEach(field => delete updateData[field]);
@@ -852,6 +856,7 @@ export class EmployeesService {
         const before = await tx.employee.findFirst({ where: { id, businessId }, include: { w2Profile: true, contractorProfile: true } });
         if (!before) throw new NotFoundException('Employee not found');
         const updated = await tx.employee.update({ where: { id }, data: finalData, include: { w2Profile: true, contractorProfile: true } });
+        if(before.officerCategory!==updated.officerCategory) await tx.auditLog.create({data:{businessId,userId:user.userId,action:'UPDATE_OFFICER_CATEGORY',resource:'Employee',resourceId:id,details:JSON.stringify({before:before.officerCategory,after:updated.officerCategory})}});
         const changes = rateChanges(before, updated);
         if (changes.length) {
           const business = await tx.business.findUnique({ where: { id: businessId }, select: { currencyCode: true } });

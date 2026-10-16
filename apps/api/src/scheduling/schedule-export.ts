@@ -57,6 +57,9 @@ export function scheduleRows(
         b = scheduleClock(s.endTime, s.timeZone);
       return {
         id: s.id,
+        officerCategory: s.employee?.officerCategory || null,
+        clientPin: s.clientPinAssignment?.pin || null,
+        classification: s.clientPinAssignment?.classification || null,
         employeeId: s.employeeId || s.employee?.id || null,
         startDay: a.day,
         endDay: b.day,

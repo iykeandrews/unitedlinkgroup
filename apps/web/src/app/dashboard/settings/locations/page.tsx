@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useBusiness } from '../../../../context/business-context';
 
 export default function LocationsSettingsPage() {
@@ -20,8 +21,9 @@ export default function LocationsSettingsPage() {
 
       <div className="mt-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-6">
         <p className="text-slate-600 dark:text-slate-300">
-          Location management setup is coming soon. In the meantime, use the Business Profile page to maintain basic details.
+          Manage site details, billing PINs, officer categories and shift configurations in Location Management.
         </p>
+        <Link href="/dashboard/security/sites" className="mt-4 inline-block rounded-lg bg-indigo-700 px-4 py-2 font-semibold text-white">Open location management</Link>
       </div>
     </div>
   );
