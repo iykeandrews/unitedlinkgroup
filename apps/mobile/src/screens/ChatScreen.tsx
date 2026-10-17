@@ -1,8 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Modal, RefreshControl, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, FlatList, Image, Modal, RefreshControl, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../services/api';
+import { chatFileUrl } from '../services/chatUrls';
 import { useFocusEffect } from '@react-navigation/native';
 import { navigate } from '../navigation/NavigationService';
 import { useAuth } from '../context/AuthContext';
@@ -38,12 +39,13 @@ export default function ChatScreen() {
     []
   );
 
-  const fetchThreads = useCallback(async (opts?: { refresh?: boolean }) => {
-    if (opts?.refresh) setRefreshing(true);
-    else setLoading(true);
+  const fetchThreads = useCallback(async (opts?: { refresh?: boolean; quiet?: boolean }) => {
+    if (!opts?.quiet) { if (opts?.refresh) setRefreshing(true); else setLoading(true); }
     try {
       const res = await api.get('/chats/threads');
       setThreads(res.data || []);
+    } catch (error: any) {
+      if (!opts?.quiet) Alert.alert('Chat unavailable', error?.response?.data?.message || 'Check your connection and try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -55,6 +57,8 @@ export default function ChatScreen() {
     try {
       const res = await api.get('/employees/chat-directory');
       setDirectory(Array.isArray(res.data) ? res.data : []);
+    } catch (error: any) {
+      Alert.alert('Chat unavailable', error?.response?.data?.message || 'Check your connection and try again.');
     } finally {
       setDirectoryLoading(false);
     }
@@ -76,6 +80,8 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchThreads();
+      const interval = setInterval(() => { if (AppState.currentState === 'active') fetchThreads({quiet: true}); }, 10000);
+      return () => clearInterval(interval);
     }, [fetchThreads])
   );
 
@@ -90,20 +96,7 @@ export default function ChatScreen() {
     });
   }, [directory, memberSearch]);
 
-  const getAuthedUrl = useCallback(
-    (path?: string | null) => {
-      const rawPath = String(path || '').trim();
-      if (!rawPath) return '';
-
-      const base = String((api.defaults as any).baseURL || '').replace(/\/$/, '');
-      const url = rawPath.startsWith('http') ? rawPath : `${base}${rawPath.startsWith('/') ? '' : '/'}${rawPath}`;
-      if (!authToken) return url;
-
-      const sep = url.includes('?') ? '&' : '?';
-      return `${url}${sep}token=${encodeURIComponent(authToken)}`;
-    },
-    [authToken]
-  );
+  const getAuthedUrl = useCallback((path?: string | null) => chatFileUrl(path, String(api.defaults.baseURL || ''), authToken), [authToken]);
 
   const startSupportChat = async () => {
     try {
@@ -113,6 +106,8 @@ export default function ChatScreen() {
       if (thread?.id) {
         navigate('ChatThread', { threadId: thread.id });
       }
+    } catch (error: any) {
+      Alert.alert('Chat unavailable', error?.response?.data?.message || 'Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -136,6 +131,8 @@ export default function ChatScreen() {
       if (thread?.id) {
         navigate('ChatThread', { threadId: thread.id });
       }
+    } catch (error: any) {
+      Alert.alert('Chat unavailable', error?.response?.data?.message || 'Check your connection and try again.');
     } finally {
       setCreatingDirect(null);
     }

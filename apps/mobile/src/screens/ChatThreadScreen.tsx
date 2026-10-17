@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Linking, Platform, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, Platform, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../services/api';
+import { chatFileUrl } from '../services/chatUrls';
+import { getChatPresenceSocket } from '../services/chatPresence';
 import { useAuth } from '../context/AuthContext';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useIsFocused } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -12,11 +14,18 @@ export default function ChatThreadScreen() {
   const { user } = useAuth();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+  const isFocused = useIsFocused();
+  const sendLock = useRef(false);
+  const [loadError, setLoadError] = useState('');
   const threadId = String(route.params?.threadId || '');
 
   const [thread, setThread] = useState<any | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasOlder, setHasOlder] = useState(true);
+  const loadingOlderRef = useRef(false);
+  const nearBottom = useRef(true);
   const [sending, setSending] = useState(false);
   const [text, setText] = useState('');
   const [draftAttachments, setDraftAttachments] = useState<
@@ -102,8 +111,20 @@ export default function ChatThreadScreen() {
     }
 
     knownMessageIdsRef.current = nextIds;
-    setMessages(nextMessages);
+    setMessages(prev => [...new Map([...prev, ...nextMessages].map(m => [m.id, m])).values()].sort((a,b) => Date.parse(a.createdAt)-Date.parse(b.createdAt)));
   }, [myEmployeeId, showIncomingBanner, threadId]);
+
+  const loadOlder = async () => {
+    if (loadingOlderRef.current || !messages[0]?.createdAt || !hasOlder) return;
+    loadingOlderRef.current = true; setLoadingOlder(true); nearBottom.current = false;
+    try {
+      const res = await api.get(`/chats/threads/${threadId}/messages`, {params: {take: 80, before: messages[0].createdAt}});
+      const older = Array.isArray(res.data) ? res.data : [];
+      setHasOlder(older.length === 80);
+      setMessages(prev => [...older, ...prev.filter(m => !older.some((n: any) => n.id === m.id))]);
+    } catch { Alert.alert('Unable to load history', 'Check your connection and try again.'); }
+    finally { loadingOlderRef.current = false; setLoadingOlder(false); }
+  };
 
   const markRead = useCallback(async () => {
     if (!threadId) return;
@@ -116,9 +137,13 @@ export default function ChatThreadScreen() {
     let cancelled = false;
     const run = async () => {
       try {
+        knownMessageIdsRef.current = new Set(); hasLoadedMessagesRef.current = false; setMessages([]); setHasOlder(true); nearBottom.current = true;
         setLoading(true);
+        setLoadError('');
         await Promise.all([fetchThread(), fetchMessages()]);
-        if (!cancelled) await markRead();
+        if (!cancelled && isFocused) await markRead();
+      } catch (error: any) {
+        if (!cancelled) setLoadError(error?.response?.data?.message || 'Unable to load this conversation. Try again.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -127,15 +152,30 @@ export default function ChatThreadScreen() {
     return () => {
       cancelled = true;
     };
-  }, [fetchMessages, fetchThread, markRead]);
+  }, [fetchMessages, fetchThread, markRead, isFocused]);
 
   useEffect(() => {
-    if (!threadId) return;
+    if (!threadId || !isFocused) return;
     const id = setInterval(() => {
-      fetchMessages().then(() => markRead()).catch(() => {});
+      if (AppState.currentState === 'active') fetchMessages().then(() => markRead()).catch(() => {});
     }, 5000);
     return () => clearInterval(id);
-  }, [fetchMessages, markRead, threadId]);
+  }, [fetchMessages, markRead, threadId, isFocused]);
+
+  useEffect(() => {
+    if (!isFocused || !threadId) return;
+    const socket = getChatPresenceSocket();
+    if (!socket) return;
+    const join = () => {socket.emit('thread:join', {threadId}); fetchMessages().then(markRead).catch(() => {});};
+    const refresh = (event: any) => {if (event?.threadId === threadId) fetchMessages().then(markRead).catch(() => {});};
+    socket.on('socket:ready', join);
+    socket.on('message:new', refresh); socket.on('message:updated', refresh); socket.on('message:deleted', refresh); socket.on('reactions:updated', refresh);
+    if (socket.connected) join();
+    return () => {
+      socket.emit('thread:leave', {threadId}); socket.off('socket:ready', join);
+      socket.off('message:new', refresh); socket.off('message:updated', refresh); socket.off('message:deleted', refresh); socket.off('reactions:updated', refresh);
+    };
+  }, [threadId, isFocused, fetchMessages, markRead, authToken]);
 
   useEffect(() => {
     return () => {
@@ -143,17 +183,7 @@ export default function ChatThreadScreen() {
     };
   }, []);
 
-  const getAuthedUrl = useCallback(
-    (path: string) => {
-      const base = String((api.defaults as any).baseURL || '').replace(/\/$/, '');
-      const p = String(path || '');
-      const url = p.startsWith('http') ? p : `${base}${p.startsWith('/') ? '' : '/'}${p}`;
-      if (!authToken) return url;
-      const sep = url.includes('?') ? '&' : '?';
-      return `${url}${sep}token=${encodeURIComponent(authToken)}`;
-    },
-    [authToken]
-  );
+  const getAuthedUrl = useCallback((path?: string | null) => chatFileUrl(path, String(api.defaults.baseURL || ''), authToken), [authToken]);
 
   const uploadAttachment = useCallback(async (att: { kind: 'IMAGE' | 'VIDEO'; uri: string; name: string; mimeType: string }) => {
     const form = new FormData();
@@ -173,23 +203,26 @@ export default function ChatThreadScreen() {
 
   const send = async () => {
     const t = text.trim();
-    if ((!t && draftAttachments.length === 0) || sending || !threadId) return;
+    if ((!t && draftAttachments.length === 0) || sendLock.current || !threadId) return;
+    const toUpload = draftAttachments.slice();
+    sendLock.current = true;
     try {
       setSending(true);
-      setText('');
-      const toUpload = draftAttachments.slice();
-      setDraftAttachments([]);
       const uploadedAttachments = toUpload.length ? await Promise.all(toUpload.map(uploadAttachment)) : [];
       const res = await api.post(`/chats/threads/${threadId}/messages`, { text: t || undefined, attachments: uploadedAttachments });
       const m = res.data;
       if (m?.id) {
-        setMessages((prev) => [...prev, m]);
+        setMessages((prev) => prev.some(item => item.id === m.id) ? prev : [...prev, m]);
+        setText(''); setDraftAttachments([]);
         requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
         await markRead();
       } else {
         await fetchMessages();
       }
+    } catch (error: any) {
+      Alert.alert('Message not sent', error?.response?.data?.message || 'Your draft is saved. Check your connection and try again.');
     } finally {
+      sendLock.current = false;
       setSending(false);
     }
   };
@@ -234,6 +267,7 @@ export default function ChatThreadScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.bg }]}>
       <StatusBar barStyle="light-content" />
+      {loadError ? <TouchableOpacity onPress={() => {setLoadError(''); Promise.all([fetchThread(), fetchMessages()]).catch(() => setLoadError('Unable to load this conversation. Tap to retry.'));}}><Text style={{color: palette.red, padding: 12}}>{loadError} Tap to retry.</Text></TouchableOpacity> : null}
       <View style={styles.bgGlowWrap} pointerEvents="none">
         <View style={[styles.bgGlow, { backgroundColor: palette.indigo, top: -160, left: -160, opacity: 0.22 }]} />
         <View style={[styles.bgGlow, { backgroundColor: palette.cyan, bottom: -170, right: -170, opacity: 0.18 }]} />
@@ -299,7 +333,10 @@ export default function ChatThreadScreen() {
             data={messages}
             keyExtractor={(m) => m.id}
             contentContainerStyle={styles.list}
-            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            onScroll={event => {const {contentSize,layoutMeasurement,contentOffset} = event.nativeEvent; nearBottom.current = contentSize.height-contentOffset.y-layoutMeasurement.height < 140;}}
+            scrollEventThrottle={100}
+            ListHeaderComponent={hasOlder && messages.length ? <TouchableOpacity onPress={loadOlder} disabled={loadingOlder}><Text style={{color: palette.cyan, textAlign: 'center', padding: 12}}>{loadingOlder ? 'Loading…' : 'Load earlier messages'}</Text></TouchableOpacity> : null}
+            onContentSizeChange={() => {if (nearBottom.current) listRef.current?.scrollToEnd({ animated: false });}}
             renderItem={({ item }) => {
               const mine = String(item.senderEmployeeId) === myEmployeeId;
               const bubbleBg = mine ? palette.indigo : palette.panel;
@@ -313,7 +350,7 @@ export default function ChatThreadScreen() {
                     </Text>
                   ) : null}
                   <View style={[styles.bubble, { backgroundColor: bubbleBg, borderColor: palette.border }]}>
-                    {item.text ? <Text style={[styles.msgText, { color: palette.text }]}>{item.text || ''}</Text> : null}
+                    {item.deletedAt ? <Text style={[styles.msgText, {color: palette.faint}]}>Message deleted</Text> : item.text ? <Text style={[styles.msgText, { color: palette.text }]}>{item.text}</Text> : null}
                     {attachments.length ? (
                       <View style={styles.attachments}>
                         {attachments.map((a: any) => {
@@ -369,6 +406,7 @@ export default function ChatThreadScreen() {
               </TouchableOpacity>
               <TextInput
                 value={text}
+                editable={!sending}
                 onChangeText={setText}
                 placeholder="Message…"
                 placeholderTextColor={palette.faint}

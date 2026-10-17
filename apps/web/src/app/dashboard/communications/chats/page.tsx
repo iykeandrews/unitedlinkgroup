@@ -21,6 +21,7 @@ import {
   Users
 } from 'lucide-react';
 import api from '../../../../lib/api';
+import { useBusiness } from '../../../../context/business-context';
 import { Modal } from '../../../../components/Modal';
 import { toast } from 'sonner';
 import { UserRole } from '@unitedlinkgroup/types';
@@ -107,7 +108,7 @@ function formatTime(ts: string) {
 
 function formatDay(ts: string) {
   try {
-    return new Date(ts).toLocaleDateString();
+    return new Date(ts).toLocaleDateString('en-US');
   } catch {
     return '';
   }
@@ -116,7 +117,7 @@ function formatDay(ts: string) {
 function fileUrlToAbsolute(url: string) {
   if (!url) return url;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
-  const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+  const base = new URL(String(api.defaults.baseURL || '/api'), window.location.origin).origin;
   const path = `${base}${url.startsWith('/') ? '' : '/'}${url}`;
   if (!url.startsWith('/uploads/')) return path;
   try {
@@ -173,6 +174,7 @@ export default function ChatsPage() {
 function ChatsPageInner() {
   const searchParams = useSearchParams();
   const [profile, setProfile] = useState<any>(null);
+  const { selectedBusiness } = useBusiness();
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
 
@@ -219,6 +221,13 @@ function ChatsPageInner() {
   const canAdmin = role === UserRole.SUPER_ADMIN || role === UserRole.BUSINESS_ADMIN;
 
   const socketRef = useRef<Socket | null>(null);
+  const selectedThreadIdRef = useRef(selectedThreadId);
+  selectedThreadIdRef.current = selectedThreadId;
+  const employeeIdRef = useRef(currentEmployeeId);
+  employeeIdRef.current = currentEmployeeId;
+  const sendingRef = useRef(false);
+  const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const draftsRef = useRef<Record<string, {text: string; attachments: ChatAttachment[]; reply: ChatMessage | null}>>({});
   const listRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -386,6 +395,7 @@ function ChatsPageInner() {
   const fetchThreadDetail = async (threadId: string) => {
     try {
       const res = await api.get(`/chats/threads/${threadId}`);
+      if (selectedThreadIdRef.current !== threadId) return;
       setSelectedThread(res.data || null);
       setManageTitle(res.data?.title || '');
       setManageImageUrl(res.data?.imageUrl || null);
@@ -405,8 +415,9 @@ function ChatsPageInner() {
         }
       }
       const res = await api.get(`/chats/threads/${threadId}/messages`, { params: { take: 50, ...(before ? { before } : {}) } });
+      if (selectedThreadIdRef.current !== threadId) return;
       const incoming = Array.isArray(res.data) ? (res.data as ChatMessage[]) : [];
-      setMessages((prev) => (mode === 'replace' ? incoming : [...incoming, ...prev]));
+      setMessages((prev) => (mode === 'replace' ? incoming : [...incoming, ...prev.filter(m => !incoming.some(n => n.id === m.id))]));
       if (mode === 'prepend') {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -421,7 +432,7 @@ function ChatsPageInner() {
       }
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to load messages');
-      if (mode === 'replace') setMessages([]);
+      if (mode === 'replace' && selectedThreadIdRef.current === threadId) setMessages([]);
     } finally {
       setLoadingMessages(false);
       setLoadingMore(false);
@@ -439,7 +450,7 @@ function ChatsPageInner() {
         if (parsed?.id) businessId = parsed.id;
       } catch {}
     }
-    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+    const base = new URL(String(api.defaults.baseURL || '/api'), window.location.origin).origin;
 
     const socket = io(base, {
       auth: { token, businessId },
@@ -450,8 +461,17 @@ function ChatsPageInner() {
     socket.on('socket:ready', (e: any) => {
       const employeeId = e?.employeeId || null;
       setSocketEmployeeId(employeeId);
+      const threadId = selectedThreadIdRef.current;
+      if (threadId) { socket.emit('thread:join', {threadId}); fetchMessages(threadId); }
+      fetchThreads();
     });
 
+    socket.on('chat:error', (e: any) => toast.error(e?.message || 'Chat action failed'));
+    socket.on('thread:activity', () => fetchThreads());
+    socket.on('member:removed', (e: any) => {
+      if (selectedThreadIdRef.current === e?.threadId) { selectedThreadIdRef.current = null; setSelectedThreadId(null); setSelectedThread(null); setMessages([]); }
+      fetchThreads();
+    });
     socket.on('disconnect', () => {
       setSocketEmployeeId(null);
     });
@@ -485,6 +505,9 @@ function ChatsPageInner() {
         ...prev,
         [threadId]: { ...(prev[threadId] || {}), [employeeId]: isTyping },
       }));
+      const key = `${threadId}:${employeeId}`;
+      clearTimeout(typingTimers.current[key]);
+      if (isTyping) typingTimers.current[key] = setTimeout(() => setTyping(prev => ({...prev, [threadId]: {...prev[threadId], [employeeId]: false}})), 4000);
     });
 
     socket.on('read:update', (e: any) => {
@@ -499,7 +522,7 @@ function ChatsPageInner() {
             : {
                 ...t,
                 participants: t.participants.map((p) => (p.employeeId === employeeId ? { ...p, lastReadAt } : p)),
-                unreadCount: employeeId === currentEmployeeId ? 0 : t.unreadCount,
+                unreadCount: employeeId === employeeIdRef.current ? 0 : t.unreadCount,
               }
         )
       );
@@ -539,7 +562,7 @@ function ChatsPageInner() {
                     })),
                   },
                   unreadCount:
-                    selectedThreadId === message.threadId || message.senderEmployeeId === currentEmployeeId
+                    selectedThreadIdRef.current === message.threadId || message.senderEmployeeId === employeeIdRef.current
                       ? t.unreadCount
                       : (t.unreadCount || 0) + 1,
                 }
@@ -548,7 +571,7 @@ function ChatsPageInner() {
       );
 
       setMessages((prev) => {
-        if (selectedThreadId !== message.threadId) return prev;
+        if (selectedThreadIdRef.current !== message.threadId) return prev;
         if (message.clientId) {
           const idx = prev.findIndex((p) => p.clientId && p.clientId === message.clientId);
           if (idx >= 0) {
@@ -561,8 +584,8 @@ function ChatsPageInner() {
         return [...prev, message];
       });
 
-      if (selectedThreadId === message.threadId) {
-        const shouldAutoscroll = isNearBottomRef.current || message.senderEmployeeId === currentEmployeeId;
+      if (selectedThreadIdRef.current === message.threadId) {
+        const shouldAutoscroll = isNearBottomRef.current || message.senderEmployeeId === employeeIdRef.current;
         if (shouldAutoscroll) {
           requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('smooth')));
         } else {
@@ -630,11 +653,17 @@ function ChatsPageInner() {
   };
 
   const selectThread = async (threadId: string) => {
-    if (selectedThreadId) leaveThreadRoom(selectedThreadId);
+    if (selectedThreadId) {
+      draftsRef.current[selectedThreadId] = {text: draft, attachments: pendingAttachments, reply: replyTo};
+      leaveThreadRoom(selectedThreadId);
+    }
+    const savedDraft = draftsRef.current[threadId];
+    setDraft(savedDraft?.text || ''); setPendingAttachments(savedDraft?.attachments || []);
+    selectedThreadIdRef.current = threadId;
     setSelectedThreadId(threadId);
     setSelectedThread(null);
     setMessages([]);
-    setReplyTo(null);
+    setReplyTo(savedDraft?.reply || null);
     setEmojiOpen(false);
     lastMessagesScrollTopRef.current = null;
 
@@ -694,77 +723,34 @@ function ChatsPageInner() {
   };
 
   const sendMessage = async (attachments?: ChatAttachment[]) => {
+    const threadId = selectedThreadIdRef.current;
     const mergedAttachments = [...pendingAttachments, ...(attachments || [])];
-    if (!selectedThreadId || (!draft.trim() && mergedAttachments.length === 0)) return;
-    const socket = socketRef.current;
-    const clientId = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    if (!threadId || sendingRef.current || (!draft.trim() && !mergedAttachments.length)) return;
     const text = draft.trim();
-    setDraft('');
-    setEmojiOpen(false);
-    setPendingAttachments([]);
-
-    const apiAttachments = mergedAttachments.map((a) => ({
-      type: a.type,
-      url: a.url,
-      filename: a.filename,
-      originalName: a.originalName,
-      mimeType: a.mimeType,
-      size: a.size,
-    }));
-
-    if (!socket || !socket.connected) {
-      try {
-        const res = await api.post(`/chats/threads/${selectedThreadId}/messages`, {
-          text: text || undefined,
-          replyToId: replyTo?.id || undefined,
-          attachments: apiAttachments,
-        });
-        const serverSenderEmployeeId = res.data?.senderEmployeeId || null;
-        if (!currentEmployeeId && serverSenderEmployeeId) {
-          setSocketEmployeeId(serverSenderEmployeeId);
-        }
-        setReplyTo(null);
-        await Promise.all([fetchMessages(selectedThreadId), fetchThreads()]);
+    const originalReply = replyTo;
+    sendingRef.current = true;
+    delete draftsRef.current[threadId];
+    setDraft(''); setPendingAttachments([]); setReplyTo(null); setEmojiOpen(false);
+    try {
+      const res = await api.post(`/chats/threads/${threadId}/messages`, {
+        text: text || undefined, replyToId: originalReply?.id || undefined,
+        attachments: mergedAttachments.map(({type,url,filename,originalName,mimeType,size}) => ({type,url,filename,originalName,mimeType,size})),
+      });
+      if (selectedThreadIdRef.current === threadId) {
+        const message = res.data;
+        setMessages(prev => prev.some(m => m.id === message.id) ? prev : [...prev, message]);
         requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('smooth')));
-      } catch (e: any) {
-        toast.error(e?.response?.data?.message || 'Failed to send message');
-      } finally {
-        sendTyping(false);
       }
-      return;
-    }
-
-    const optimistic: ChatMessage = {
-      id: clientId,
-      threadId: selectedThreadId,
-      senderEmployeeId: currentEmployeeId || 'me',
-      senderName: 'You',
-      text: text || null,
-      createdAt: new Date().toISOString(),
-      editedAt: null,
-      deletedAt: null,
-      replyTo: replyTo
-        ? { id: replyTo.id, senderEmployeeId: replyTo.senderEmployeeId, senderName: replyTo.senderName, text: replyTo.text }
-        : null,
-      attachments: mergedAttachments,
-      reactions: [],
-      pending: true,
-      clientId,
-    };
-
-    setMessages((prev) => [...prev, optimistic]);
-    setReplyTo(null);
-    requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom('smooth')));
-
-    socket.emit('message:send', {
-      threadId: selectedThreadId,
-      clientId,
-      text: text || undefined,
-      replyToId: replyTo?.id || undefined,
-      attachments: apiAttachments,
-    });
-
-    sendTyping(false);
+      fetchThreads();
+    } catch (error: any) {
+      draftsRef.current[threadId] = {text, attachments: mergedAttachments, reply: originalReply};
+      if (selectedThreadIdRef.current === threadId) {
+        setDraft(prev => prev ? `${text}\n${prev}` : text);
+        setPendingAttachments(prev => [...mergedAttachments, ...prev]);
+        setReplyTo(originalReply);
+      }
+      toast.error(error?.response?.data?.message || 'Message not sent. Your draft has been restored.');
+    } finally { sendingRef.current = false; sendTyping(false); }
   };
 
   const insertEmoji = (emoji: string) => {
@@ -926,43 +912,19 @@ function ChatsPageInner() {
   };
 
   const toggleReaction = async (messageId: string, emoji: string) => {
-    const socket = socketRef.current;
-    if (!selectedThreadId) return;
-
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== messageId) return m;
-        const has = m.reactions?.some((r) => r.emoji === emoji && r.employeeId === currentEmployeeId);
-        if (has) {
-          return { ...m, reactions: m.reactions.filter((r) => !(r.emoji === emoji && r.employeeId === currentEmployeeId)) };
-        }
-        return {
-          ...m,
-          reactions: [
-            ...(m.reactions || []),
-            { id: `r_${Date.now()}`, emoji, employeeId: currentEmployeeId || 'me', employeeName: 'You' },
-          ],
-        };
-      })
-    );
-
-    if (!socket || !socket.connected) {
-      const msg = messages.find((m) => m.id === messageId);
-      const has = msg?.reactions?.some((r) => r.emoji === emoji && r.employeeId === currentEmployeeId);
-      try {
-        if (has) {
-          await api.delete(`/chats/messages/${messageId}/reactions`, { params: { emoji } });
-        } else {
-          await api.post(`/chats/messages/${messageId}/reactions`, { emoji });
-        }
-        await fetchMessages(selectedThreadId);
-      } catch (e: any) {
-        toast.error(e?.response?.data?.message || 'Failed to update reaction');
-      }
-      return;
+    const original = messages.find(m => m.id === messageId);
+    if (!original || original.deletedAt) return;
+    const has = original.reactions.some(r => r.emoji === emoji && r.employeeId === currentEmployeeId);
+    setMessages(prev => prev.map(m => m.id !== messageId ? m : {...m, reactions: has
+      ? m.reactions.filter(r => !(r.emoji === emoji && r.employeeId === currentEmployeeId))
+      : [...m.reactions, {id: `r_${Date.now()}`, emoji, employeeId: currentEmployeeId || 'me', employeeName: 'You'}]}));
+    try {
+      if (has) await api.delete(`/chats/messages/${messageId}/reactions`, {params: {emoji}});
+      else await api.post(`/chats/messages/${messageId}/reactions`, {emoji});
+    } catch (error: any) {
+      setMessages(prev => prev.map(m => m.id === messageId ? {...m, reactions: original.reactions} : m));
+      toast.error(error?.response?.data?.message || 'Failed to update reaction');
     }
-
-    socket.emit('reaction:toggle', { messageId, emoji });
   };
 
   const handleDrop = async (files: FileList) => {
@@ -978,11 +940,14 @@ function ChatsPageInner() {
   }, []);
 
   useEffect(() => {
-    fetchProfile().then(() => {
-      connectSocket();
-    });
+    let disposed = false;
+    socketRef.current?.disconnect(); socketRef.current = null;
+    selectedThreadIdRef.current = null;
+    setSelectedThreadId(null); setSelectedThread(null); setMessages([]); setThreads([]); setPresence({});
+    fetchProfile().then(() => { if (!disposed) connectSocket(); });
     fetchThreads();
-  }, []);
+    return () => { disposed = true; socketRef.current?.disconnect(); socketRef.current = null; };
+  }, [selectedBusiness?.id]);
 
   useEffect(() => {
     unseenNewRef.current = 0;
@@ -992,11 +957,30 @@ function ChatsPageInner() {
 
   useEffect(() => {
     return () => {
-      if (selectedThreadId) leaveThreadRoom(selectedThreadId);
+      if (selectedThreadIdRef.current) leaveThreadRoom(selectedThreadIdRef.current);
+      Object.values(typingTimers.current).forEach(clearTimeout);
       socketRef.current?.disconnect();
       socketRef.current = null;
     };
-  }, [selectedThreadId]);
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      api.get('/chats/threads').then(res => setThreads(Array.isArray(res.data) ? res.data : [])).catch(() => {});
+      const threadId = selectedThreadIdRef.current;
+      if (threadId && !socketRef.current?.connected) {
+        api.get(`/chats/threads/${threadId}/messages`, {params: {take: 50}}).then(res => {
+          if (selectedThreadIdRef.current !== threadId || !Array.isArray(res.data)) return;
+          setMessages(prev => Array.from(new Map([...prev, ...res.data].map(m => [m.id, m])).values()).sort((a,b) => Date.parse(a.createdAt)-Date.parse(b.createdAt)));
+          api.post(`/chats/threads/${threadId}/read`).catch(() => {});
+        }).catch(() => {});
+      }
+    };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    return () => {clearInterval(timer); window.removeEventListener('focus', refresh);};
+  }, [selectedBusiness?.id]);
 
   const selectedMemberIds = useMemo(() => new Set((selectedThread?.participants || []).map((p) => p.employeeId)), [selectedThread?.participants]);
 
@@ -1023,7 +1007,7 @@ function ChatsPageInner() {
           </button>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-14rem)] min-h-0">
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100dvh-14rem)] min-h-0">
           <div className={`lg:col-span-4 rounded-2xl border border-gray-200/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl overflow-hidden flex flex-col min-h-0 ${isMobile && selectedThreadId ? 'hidden' : ''}`}>
             <div className="p-4 border-b border-gray-200/60 dark:border-slate-700/60">
               <div className="relative">
@@ -1121,7 +1105,13 @@ function ChatsPageInner() {
                   {isMobile && selectedThreadId && (
                     <button
                       type="button"
+                      aria-label="Back to conversations"
                       onClick={() => {
+                        if (selectedThreadIdRef.current) {
+                          draftsRef.current[selectedThreadIdRef.current] = {text: draft, attachments: pendingAttachments, reply: replyTo};
+                          leaveThreadRoom(selectedThreadIdRef.current);
+                        }
+                        selectedThreadIdRef.current = null;
                         setSelectedThreadId(null);
                         setSelectedThread(null);
                         setMessages([]);
@@ -1291,27 +1281,14 @@ function ChatsPageInner() {
                                   <button
                                     type="button"
                                     onClick={async () => {
-                                      const socket = socketRef.current;
                                       const text = editing.text.trim();
                                       if (!text) return;
-                                      if (!canEditMessage(m)) {
-                                        toast.error('You can only edit within 30 minutes and before any replies');
+                                      if (!canEditMessage(m)) {toast.error('You can only edit within 30 minutes and before any replies'); return;}
+                                      try {
+                                        const res = await api.patch(`/chats/messages/${m.id}`, {text});
+                                        setMessages(prev => prev.map(x => x.id === m.id ? {...x, text, editedAt: res.data.editedAt} : x));
                                         setEditing(null);
-                                        return;
-                                      }
-                                      if (!socket || !socket.connected) {
-                                        try {
-                                          const res = await api.patch(`/chats/messages/${m.id}`, { text });
-                                          const editedAt = res?.data?.editedAt || new Date().toISOString();
-                                          setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, text, editedAt } : x)));
-                                        } catch (e: any) {
-                                          toast.error(e?.response?.data?.message || 'Failed to edit message');
-                                        }
-                                        setEditing(null);
-                                        return;
-                                      }
-                                      socket.emit('message:edit', { messageId: m.id, text });
-                                      setEditing(null);
+                                      } catch (error: any) {toast.error(error?.response?.data?.message || 'Failed to edit message');}
                                     }}
                                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
                                       mine ? 'bg-white text-indigo-700' : 'bg-indigo-600 text-white'
@@ -1504,6 +1481,7 @@ function ChatsPageInner() {
                   <button
                     type="button"
                     disabled={!selectedThreadId}
+                    aria-label="Attach files"
                     onClick={() => attachmentInputRef.current?.click()}
                     className="w-11 h-11 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40 flex items-center justify-center disabled:opacity-50"
                   >
@@ -1512,6 +1490,7 @@ function ChatsPageInner() {
                   <button
                     type="button"
                     disabled={!selectedThreadId}
+                    aria-label="Choose emoji"
                     onClick={() => setEmojiOpen((v) => !v)}
                     className="w-11 h-11 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-700/40 flex items-center justify-center disabled:opacity-50"
                   >
@@ -1854,12 +1833,13 @@ function ChatsPageInner() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                const socket = socketRef.current;
-                if (socket && confirmDelete?.id) {
-                  socket.emit('message:delete', { messageId: confirmDelete.id });
-                }
-                setConfirmDelete(null);
+              onClick={async () => {
+                if (!confirmDelete?.id) return;
+                try {
+                  await api.delete(`/chats/messages/${confirmDelete.id}`);
+                  setMessages(prev => prev.map(m => m.id === confirmDelete.id ? {...m, text: null, deletedAt: new Date().toISOString(), attachments: [], reactions: []} : m));
+                  setConfirmDelete(null);
+                } catch (error: any) { toast.error(error?.response?.data?.message || 'Failed to delete message'); }
               }}
               className="px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold"
             >

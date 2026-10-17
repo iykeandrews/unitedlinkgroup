@@ -10,6 +10,24 @@ import { UpdateThreadDto } from './dto/update-thread.dto';
 
 @Injectable()
 export class ChatsService {
+  realtime?: (event: string, payload: any) => void | Promise<void>;
+
+  async resolveSocketIdentity(user: any, businessIdHeader?: string) {
+    const businessId = await this.getBusinessId(user, businessIdHeader);
+    const employee = await this.requireEmployee(user, businessId);
+    if (employee.status !== 'ACTIVE') throw new ForbiddenException('Employee is inactive');
+    return { businessId, employeeId: employee.id };
+  }
+
+  private async publish(event: string, payload: any) {
+    try { await this.realtime?.(event, payload); } catch { /* The committed record remains available through REST refresh. */ }
+  }
+
+  private async publishReactions(messageId: string, threadId: string) {
+    const reactions = await this.prisma.chatReaction.findMany({where: {messageId}, include: {employee: {select: {firstName: true, lastName: true}}}, orderBy: {createdAt: 'asc'}});
+    await this.publish('reactions:updated', {messageId, threadId, reactions: reactions.map(r => ({id: r.id, emoji: r.emoji, employeeId: r.employeeId, employeeName: `${r.employee.firstName} ${r.employee.lastName}`.trim()}))});
+  }
+
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
@@ -31,7 +49,7 @@ export class ChatsService {
     }
 
     const userId = this.getUserId(user);
-    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: userId } });
+    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: userId, ...(businessIdHeader ? {id: businessIdHeader} : {}) } });
     if (ownedBusiness) {
       if (businessIdHeader && businessIdHeader !== ownedBusiness.id) {
         throw new BadRequestException('Access denied: You cannot access another business data');
@@ -39,7 +57,7 @@ export class ChatsService {
       return ownedBusiness.id;
     }
 
-    const employee = await this.prisma.employee.findFirst({ where: { userId } });
+    const employee = await this.prisma.employee.findFirst({ where: { userId, ...(businessIdHeader ? {businessId: businessIdHeader} : {}) } });
     if (!employee) throw new BadRequestException('User is not associated with a business');
     if (businessIdHeader && businessIdHeader !== employee.businessId) {
       throw new BadRequestException('Access denied: You cannot access another business data');
@@ -55,7 +73,10 @@ export class ChatsService {
 
   private async requireEmployee(user: any, businessId: string) {
     const existing = await this.getEmployeeForUser(user, businessId);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.status !== 'ACTIVE') throw new ForbiddenException('Employee is inactive');
+      return existing;
+    }
 
     if (!this.isAdmin(user)) throw new BadRequestException('Employee profile required for chat actions');
 
@@ -195,14 +216,14 @@ export class ChatsService {
     const metadata = { kind: 'CHAT', threadId: thread.id, messageId: args.messageId };
     const actionUrl = `/dashboard/communications/chats?threadId=${encodeURIComponent(thread.id)}&messageId=${encodeURIComponent(args.messageId)}`;
 
-    for (const p of thread.participants) {
-      if (p.employeeId === args.senderEmployeeId) continue;
-      const userId = p.employee?.userId;
-      if (!userId) continue;
+    await Promise.allSettled(thread.participants.filter(p => p.employeeId !== args.senderEmployeeId && p.employee?.userId).map(async p => {
+      const userId = p.employee!.userId!;
       await this.notifications.createNotification(userId, 'CHAT', title, message, metadata);
-      await this.notifications.sendPush(userId, { type: 'CHAT', title, message, metadata });
-      await this.push.send(userId, { type: 'CHAT', title, message, metadata, actionUrl });
-    }
+      await Promise.allSettled([
+        this.notifications.sendPush(userId, {type: 'CHAT', title, message, metadata}),
+        this.push.send(userId, {type: 'CHAT', title, message, metadata, actionUrl}),
+      ]);
+    }));
   }
 
   async listThreads(user: any, businessIdHeader?: string, opts?: { type?: string }) {
@@ -377,7 +398,7 @@ export class ChatsService {
     memberIds.add(me.id);
 
     const employees = await this.prisma.employee.findMany({ where: { businessId, id: { in: Array.from(memberIds) }, status: 'ACTIVE' } });
-    if (employees.length === 0) throw new BadRequestException('At least one active member required');
+    if (employees.length !== memberIds.size) throw new BadRequestException('Choose active members from this business');
 
     const thread = await this.prisma.chatThread.create({
       data: {
@@ -463,6 +484,7 @@ export class ChatsService {
     if (!this.isAdmin(user) && participant?.role !== 'ADMIN') throw new ForbiddenException('Only admins can remove members');
 
     await this.prisma.chatParticipant.deleteMany({ where: { threadId, employeeId } });
+    await this.publish('member:removed', {threadId, employeeId});
     await this.prisma.chatThread.update({ where: { id: threadId }, data: { updatedAt: new Date() } });
     return { ok: true };
   }
@@ -472,7 +494,11 @@ export class ChatsService {
     await this.requireThreadAccess(user, businessId, threadId);
 
     const where: any = { threadId };
-    if (before) where.createdAt = { lt: new Date(before) };
+    if (before) {
+      if (!Number.isFinite(Date.parse(before))) throw new BadRequestException('Invalid message cursor');
+      where.createdAt = {lt: new Date(before)};
+    }
+    if (!Number.isFinite(take)) throw new BadRequestException('Invalid message limit');
 
     const messages = await this.prisma.chatMessage.findMany({
       where,
@@ -526,7 +552,7 @@ export class ChatsService {
       }));
   }
 
-  async sendMessage(user: any, businessIdHeader: string | undefined, threadId: string, dto: SendChatMessageDto) {
+  async sendMessage(user: any, businessIdHeader: string | undefined, threadId: string, dto: SendChatMessageDto, clientId?: string) {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     const { thread, employee } = await this.requireThreadAccess(user, businessId, threadId);
     const sender = employee || (this.isAdmin(user) ? await this.requireEmployee(user, businessId) : null);
@@ -578,7 +604,7 @@ export class ChatsService {
       hasAttachments: (msg.attachments || []).length > 0,
     });
 
-    return {
+    const result = {
       id: msg.id,
       threadId: msg.threadId,
       senderEmployeeId: msg.senderEmployeeId,
@@ -606,7 +632,10 @@ export class ChatsService {
       })),
       reactions: [],
       thread: { type: thread.type },
+      clientId: clientId || null,
     };
+    await this.publish('message:new', result);
+    return result;
   }
 
   async markRead(user: any, businessIdHeader: string | undefined, threadId: string) {
@@ -627,7 +656,9 @@ export class ChatsService {
         data: { read: true },
       });
     }
-    return { threadId, employeeId: employee.id, lastReadAt };
+    const result = {threadId, employeeId: employee.id, lastReadAt};
+    await this.publish('read:update', result);
+    return result;
   }
 
   async editMessage(user: any, businessIdHeader: string | undefined, messageId: string, dto: EditChatMessageDto) {
@@ -637,6 +668,7 @@ export class ChatsService {
       include: { thread: true },
     });
     if (!msg) throw new NotFoundException('Message not found');
+    await this.requireThreadAccess(user, businessId, msg.threadId);
 
     const employee = await this.requireEmployee(user, businessId);
     if (!this.isAdmin(user) && msg.senderEmployeeId !== employee.id) throw new ForbiddenException('You can only edit your own messages');
@@ -648,26 +680,31 @@ export class ChatsService {
     const text = dto.text?.trim();
     if (!text) throw new BadRequestException('Message text is required');
 
-    return this.prisma.chatMessage.update({
+    const result = await this.prisma.chatMessage.update({
       where: { id: messageId },
       data: { text, editedAt: new Date() },
     });
+    await this.publish('message:updated', {messageId: result.id, threadId: result.threadId, text: result.text, editedAt: result.editedAt});
+    return result;
   }
 
   async deleteMessage(user: any, businessIdHeader: string | undefined, messageId: string) {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     const msg = await this.prisma.chatMessage.findFirst({ where: { id: messageId, thread: { businessId } } });
     if (!msg) throw new NotFoundException('Message not found');
+    await this.requireThreadAccess(user, businessId, msg.threadId);
 
     const employee = await this.requireEmployee(user, businessId);
     if (!this.isAdmin(user) && msg.senderEmployeeId !== employee.id) throw new ForbiddenException('You can only delete your own messages');
 
     await this.prisma.chatAttachment.deleteMany({ where: { messageId } });
     await this.prisma.chatReaction.deleteMany({ where: { messageId } });
-    return this.prisma.chatMessage.update({
+    const result = await this.prisma.chatMessage.update({
       where: { id: messageId },
       data: { deletedAt: new Date(), text: null },
     });
+    await this.publish('message:deleted', {messageId: result.id, threadId: result.threadId, deletedAt: result.deletedAt});
+    return result;
   }
 
   async addReaction(user: any, businessIdHeader: string | undefined, messageId: string, emoji: string) {
@@ -677,6 +714,7 @@ export class ChatsService {
     if (!msg) throw new NotFoundException('Message not found');
     await this.requireThreadAccess(user, businessId, msg.threadId);
 
+    if (msg.deletedAt) throw new BadRequestException('Cannot react to a deleted message');
     const cleaned = String(emoji || '').trim();
     if (!cleaned) throw new BadRequestException('Emoji is required');
 
@@ -685,6 +723,7 @@ export class ChatsService {
       update: {},
       create: { messageId, employeeId: employee.id, emoji: cleaned },
     });
+    await this.publishReactions(messageId, msg.threadId);
     return { ok: true };
   }
 
@@ -695,10 +734,12 @@ export class ChatsService {
     if (!msg) throw new NotFoundException('Message not found');
     await this.requireThreadAccess(user, businessId, msg.threadId);
 
+    if (msg.deletedAt) throw new BadRequestException('Cannot react to a deleted message');
     const cleaned = String(emoji || '').trim();
     if (!cleaned) throw new BadRequestException('Emoji is required');
 
     await this.prisma.chatReaction.deleteMany({ where: { messageId, employeeId: employee.id, emoji: cleaned } });
+    await this.publishReactions(messageId, msg.threadId);
     return { ok: true };
   }
 }

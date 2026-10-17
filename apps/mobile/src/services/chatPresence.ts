@@ -6,7 +6,7 @@ let socket: Socket | null = null;
 let currentKey = '';
 let appStateSubscription: { remove: () => void } | null = null;
 
-const getSocketBaseUrl = () => String((api.defaults as any).baseURL || '').replace(/\/$/, '');
+const getSocketBaseUrl = () => new URL(String(api.defaults.baseURL)).origin;
 
 export function connectChatPresence(token: string, businessId?: string | null) {
   const nextToken = String(token || '').trim();
@@ -52,3 +52,5 @@ export function disconnectChatPresence() {
   }
   currentKey = '';
 }
+
+export function getChatPresenceSocket() { return socket; }
