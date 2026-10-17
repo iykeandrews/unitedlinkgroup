@@ -221,7 +221,7 @@ export function ShiftModal({
     if (!formData.date) return;
     const base = new Date(`${formData.date}T00:00:00`);
     const day = base.getDay();
-    for (let i = 1; i <= (day === 0 ? 0 : 7 - day); i++) {
+    for (let i = 1; i <= (6 - day); i++) {
       const d = new Date(base);
       d.setDate(base.getDate() + i);
       await onSave(buildShiftForDate(d));
@@ -232,9 +232,9 @@ export function ShiftModal({
   const applySpecificDays = async () => {
     if (!formData.date || selectedDays.length === 0) return;
     const base = new Date(`${formData.date}T00:00:00`);
-    const weekStart = startOfWeek(base, { weekStartsOn: 1 });
+    const weekStart = startOfWeek(base, { weekStartsOn: 0 });
     for (const dow of selectedDays) {
-      const offset = dow === 0 ? 6 : dow - 1;
+      const offset = dow;
       const d = new Date(weekStart);
       d.setDate(weekStart.getDate() + offset);
       await onSave(buildShiftForDate(d));
@@ -835,8 +835,8 @@ export function ShiftModal({
                 {(() => {
                   if (!formData.date) return '';
                   const base = new Date(`${formData.date}T00:00:00`);
-                  const start = startOfWeek(base, { weekStartsOn: 1 });
-                  const end = endOfWeek(base, { weekStartsOn: 1 });
+                  const start = startOfWeek(base, { weekStartsOn: 0 });
+                  const end = endOfWeek(base, { weekStartsOn: 0 });
                   return `Select days to repeat shift between ${format(start, 'EEE d/MM/yy')} to ${format(end, 'EEE d/MM/yy')}`;
                 })()}
               </div>
@@ -852,7 +852,7 @@ export function ShiftModal({
                   <span>Select all</span>
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  {[['Mon',1],['Tue',2],['Wed',3],['Thu',4],['Fri',5],['Sat',6],['Sun',0]].map(([label, val]) => (
+                  {[['Sun',0],['Mon',1],['Tue',2],['Wed',3],['Thu',4],['Fri',5],['Sat',6]].map(([label, val]) => (
                     <label key={val as number} className="flex items-center gap-2">
                       <input
                         type="checkbox"

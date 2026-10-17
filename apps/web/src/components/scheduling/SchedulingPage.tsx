@@ -156,8 +156,8 @@ export default function SchedulingPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const rangeStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-      const rangeEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+      const rangeStart = startOfWeek(currentDate, { weekStartsOn: 0 });
+      const rangeEnd = endOfWeek(currentDate, { weekStartsOn: 0 });
       const {start,end} = recordPeriodBounds(format(rangeStart,'yyyy-MM-dd'),format(rangeEnd,'yyyy-MM-dd'));
       
       const locationParams: any = { status: 'ACTIVE' };
@@ -339,8 +339,8 @@ export default function SchedulingPage() {
   const fetchMy = useCallback(async () => {
       setLoading(true);
       try {
-        const start = startOfWeek(currentDate, { weekStartsOn: 1 });
-        const end = endOfWeek(currentDate, { weekStartsOn: 1 });
+        const start = startOfWeek(currentDate, { weekStartsOn: 0 });
+        const end = endOfWeek(currentDate, { weekStartsOn: 0 });
         const res = await api.get('/scheduling/my', {
           params: { start: start.toISOString(), end: end.toISOString() }
         });
@@ -823,8 +823,8 @@ export default function SchedulingPage() {
   const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
   const handleToday = () => setCurrentDate(new Date());
 
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-  const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+  const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 });
+  const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 });
   const unpublishedCount = shifts.filter(s => {
     const st = String(s.status || '').toUpperCase();
     return st === 'DRAFT' || st === 'CANCELLED' || st === 'EMPTY';

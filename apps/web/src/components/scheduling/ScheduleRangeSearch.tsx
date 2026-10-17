@@ -27,10 +27,10 @@ export default function ScheduleRangeSearch({
   locations: Array<{ id: string; name: string }>;
 }) {
   const [start, setStart] = useState(() =>
-    format(startOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd"),
+    format(startOfWeek(new Date(), { weekStartsOn: 0 }), "yyyy-MM-dd"),
   );
   const [end, setEnd] = useState(() =>
-    format(endOfWeek(new Date(), { weekStartsOn: 1 }), "yyyy-MM-dd"),
+    format(endOfWeek(new Date(), { weekStartsOn: 0 }), "yyyy-MM-dd"),
   );
   const [locationId, setLocation] = useState("");
   const [rows, setRows] = useState<Row[] | null>(null);
