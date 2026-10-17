@@ -14,6 +14,7 @@ type PresenceState = { count: number; lastSeenAt: Date | null; businessId: strin
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
   transports: ['websocket', 'polling'],
+  addTrailingSlash: false,
 })
 export class ChatsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server!: Server;

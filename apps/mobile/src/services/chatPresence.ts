@@ -24,6 +24,7 @@ export function connectChatPresence(token: string, businessId?: string | null) {
       businessId: nextBusinessId || undefined,
     },
     transports: ['websocket', 'polling'],
+    addTrailingSlash: false,
   });
   currentKey = nextKey;
 

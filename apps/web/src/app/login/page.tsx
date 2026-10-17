@@ -284,7 +284,7 @@ export default function LoginPage() {
               </div>
             )}
             <div className={styles.field}>
-              <label htmlFor="login-email">Email address</label>
+              <label htmlFor="login-email">Official email address</label>
               <input
                 id="login-email"
                 name="email"
@@ -376,7 +376,7 @@ export default function LoginPage() {
             </button>
             {showHelp && (
               <p className={styles.helpText} id="login-help">
-                Use the email address connected to your account. If you’ve
+                Employees must use the Official Email saved in their employment profile. If you’ve
                 forgotten your password or need access, contact your business
                 administrator.
               </p>

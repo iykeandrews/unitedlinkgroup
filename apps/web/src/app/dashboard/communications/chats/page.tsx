@@ -455,6 +455,7 @@ function ChatsPageInner() {
     const socket = io(base, {
       auth: { token, businessId },
       transports: ['websocket', 'polling'],
+      addTrailingSlash: false,
     });
     socketRef.current = socket;
 
