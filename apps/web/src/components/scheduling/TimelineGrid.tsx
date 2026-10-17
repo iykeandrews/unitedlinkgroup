@@ -1,3 +1,4 @@
+import { sortCalendarShifts } from '../../lib/time/calendar-history';
 import { officerColor } from './officer-color';
 import { recordWallDate } from '../../lib/time/record-zone';
 import React from 'react';
@@ -265,7 +266,7 @@ function DroppableCell({ date, locationId, shifts, onShiftClick, onAddShift, col
       } ${isOver ? 'bg-purple-50 dark:bg-purple-900/30 ring-1 ring-inset ring-purple-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
     >
       <div className={`flex flex-col h-full ${collapsed ? '' : 'gap-2'}`}>
-        {!collapsed && shifts.map(shift => (
+        {!collapsed && sortCalendarShifts(shifts).map(shift => (
           <div key={shift.id} className="min-h-[40px]">
             <ShiftCard
               shift={shift}
@@ -372,7 +373,7 @@ function EmployeeDroppableCell({ date, employeeId, shifts, onShiftClick, onAddSh
       } ${isOver ? 'bg-purple-50 dark:bg-purple-900/30 ring-1 ring-inset ring-purple-400' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
     >
       <div className={`flex flex-col h-full ${collapsed ? '' : 'gap-2'}`}>
-        {!collapsed && shifts.map(shift => (
+        {!collapsed && sortCalendarShifts(shifts).map(shift => (
           <div key={shift.id} className="min-h-[40px]">
             <ShiftCard
               shift={shift}

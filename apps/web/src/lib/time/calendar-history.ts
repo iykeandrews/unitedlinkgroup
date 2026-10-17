@@ -24,3 +24,13 @@ export function shiftDayPresentation(shift: {startTime:string;endTime?:string|nu
     ? `Continued from ${formatRecordTime(shift.startTime,'EEE, MM/dd',shift.timeZone)}`
     : `Ends ${formatRecordTime(shift.endTime!,'EEE, MM/dd',shift.timeZone)} (+${days} ${days===1?'day':'days'})`};
 }
+
+/** Order by the recorded local start, including overnight continuations from the prior day. */
+export function sortCalendarShifts<T extends {id: string; startTime: string; timeZone?: string | null; employee?: {firstName: string; lastName: string} | null}>(shifts: T[]): T[] {
+  return [...shifts].sort((a, b) => {
+    const startOrder = formatRecordTime(a.startTime, 'yyyy-MM-dd HH:mm', a.timeZone).localeCompare(formatRecordTime(b.startTime, 'yyyy-MM-dd HH:mm', b.timeZone));
+    if (startOrder) return startOrder;
+    const name = (shift: T) => `${shift.employee?.lastName || ''} ${shift.employee?.firstName || ''}`.trim();
+    return name(a).localeCompare(name(b)) || a.id.localeCompare(b.id);
+  });
+}
