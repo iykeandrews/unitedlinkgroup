@@ -799,7 +799,7 @@ export class SchedulingService {
       },
       orderBy: { createdAt: 'desc' },
       include: {
-        employee: true,
+        employee: { include: { department: { select: { name: true } } } },
         location: { include: { client: true } } as any,
         applications: { include: { employee: true } } as any,
         callout: { include: { absentEmployee: true } } as any,

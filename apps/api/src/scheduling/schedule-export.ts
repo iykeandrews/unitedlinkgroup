@@ -58,6 +58,7 @@ export function scheduleRows(
       return {
         id: s.id,
         employeeId: s.employeeId || s.employee?.id || null,
+        department: String(s.employee?.department?.name || "").trim(),
         startDay: a.day,
         endDay: b.day,
         locationId: s.locationId,

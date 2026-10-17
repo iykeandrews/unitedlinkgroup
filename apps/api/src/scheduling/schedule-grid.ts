@@ -16,8 +16,21 @@ const military = (time: string) => {
 };
 const offset = (r: Row) =>
   Math.round((Date.parse(r.endDay) - Date.parse(r.startDay)) / dayMs);
+const normalizedDepartment = (r: Row) => r.department.toLowerCase().replace(/\s+/g, " ").trim();
+const departmentRank = (r: Row) => {
+  const name = normalizedDepartment(r);
+  if (/^armed special police officer(?: \(spo\))?$/.test(name)) return "00";
+  if (/^security officer(?: \(so\))?$/.test(name)) return "01";
+  return name ? "02" : "99";
+};
+const departmentLabel = (r: Row) => {
+  const name = normalizedDepartment(r);
+  if (/^armed special police officer(?: \(spo\))?$/.test(name)) return "ARMED SPO";
+  if (/^unarmed special police officer(?: \(spo\))?$/.test(name)) return "UNARMED SPO";
+  return r.department.toUpperCase() || "UNCLASSIFIED";
+};
 const slotKey = (r: Row) =>
-  `${military(r.startTime)}|${military(r.endTime)}|${offset(r)}`;
+  `${departmentRank(r)}|${normalizedDepartment(r)}|${military(r.startTime)}|${military(r.endTime)}|${offset(r)}`;
 export function scheduleOfficerRgb(id: string): [number, number, number] {
   // Same stable employee palette as the on-screen calendar.
   let hash = 2166136261;
@@ -76,7 +89,7 @@ export function calendarScheduleGrids(
         columns.push({
           key,
           lane,
-          label: `${military(sample.startTime)} - ${military(sample.endTime)}${next}\n(${sample.startTime} - ${sample.endTime})${count > 1 ? `\nCoverage ${lane + 1}` : ""}`,
+          label: `${sample.department ? departmentLabel(sample) + "\n" : ""}${military(sample.startTime)} - ${military(sample.endTime)}${next}\n(${sample.startTime} - ${sample.endTime})${count > 1 ? `\nCoverage ${lane + 1}` : ""}`,
         });
     }
     if (!columns.length)
@@ -257,7 +270,7 @@ export async function buildCalendarScheduleExport(
         "Schedule dates",
         ...grid.columns.map((c) => c.label),
       ];
-      sheet.getRow(7).height = 44;
+      sheet.getRow(7).height = grid.columns.some(c => c.label.split("\n").length > 3) ? 60 : 48;
       for (let index = 0; index < grid.days.length; index++) {
         const row = sheet.getRow(8 + index);
         row.values = [
@@ -378,6 +391,14 @@ export async function buildCalendarScheduleExport(
       y += lines.length * 3 + 5;
     }
     const columnWidth = (w - 20 - 32) / grid.columns.length;
+    let headerFont = 7;
+    doc.setFont("helvetica", "bold");
+    while (headerFont > 3) {
+      doc.setFontSize(headerFont);
+      const lines = Math.max(...grid.columns.map(c => doc.splitTextToSize(c.label, columnWidth - 1.2).length));
+      if (lines * headerFont * 0.35278 * 1.15 + 1.2 <= 14) break;
+      headerFont -= 0.25;
+    }
     const rowHeight = (h - 23 - y - 14) / grid.days.length;
     const body = grid.days.map((day, i) => [
       dayLabel(day),
@@ -420,7 +441,7 @@ export async function buildCalendarScheduleExport(
       headStyles: {
         fillColor: [255, 255, 255],
         textColor: [15, 15, 15],
-        fontSize: 7,
+        fontSize: headerFont,
         minCellHeight: 14,
       },
       columnStyles: Object.fromEntries(

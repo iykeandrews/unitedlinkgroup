@@ -79,7 +79,7 @@ async function main() {
     scheduleOfficerRgb("stable"),
     scheduleOfficerRgb("different"),
   );
-  const fixture = [];
+  const fixture: Array<typeof night & {employee: {id: string; firstName: string; lastName: string}}> = [];
   for (let day = 27; day <= 30; day++)
     for (let position = 0; position < 6; position++) {
       const startHour = position % 2 ? 14 : 6;
@@ -200,6 +200,34 @@ async function main() {
       fs.writeFileSync(`/private/tmp/schedule-${count}-days.xlsx`, x);
     }
   }
+  // Mixed departments retain separate concurrent posts and stay grouped across the entire period.
+  const departmentFixture = Array.from({length: 16}, (_, day) => fixture.slice(0,6).map((shift, post) => {
+    const date = `2026-10-${String(day + 1).padStart(2, '0')}`;
+    const hour = post % 2 ? 18 : 10;
+    return {...shift, id: `department-${day}-${post}`, employee: {...shift.employee, department: {name: post < 4 ? 'Armed Special Police Officer' : 'Security Officer'}}, startTime: `${date}T${hour}:00:00Z`, endTime: new Date(Date.parse(`${date}T${hour}:00:00Z`) + 8*3600000).toISOString()};
+  })).flat();
+  const departmentRows = scheduleRows(departmentFixture, '2026-10-01', '2026-10-16', 'a');
+  const departmentGrid = calendarScheduleGrids(departmentRows, '2026-10-01', '2026-10-16')[0];
+  assert.equal(departmentGrid.columns.length, 6);
+  assert(departmentGrid.columns.slice(0,4).every(c => c.label.startsWith('ARMED SPO\n')));
+  assert(departmentGrid.columns.slice(4).every(c => c.label.startsWith('SECURITY OFFICER\n')));
+  assert(departmentGrid.columns[2].label.includes('14:00'));
+  assert(departmentGrid.columns[4].label.includes('06:00'));
+  for (const cells of departmentGrid.cells) {
+    assert.equal(cells.filter(Boolean).length, 6);
+    assert(cells.slice(0,4).every(r => r?.department === 'Armed Special Police Officer'));
+    assert(cells.slice(4).every(r => r?.department === 'Security Officer'));
+  }
+  const groupedXlsx = await buildScheduleExport(business, location, departmentRows, '2026-10-01', '2026-10-16', 'xlsx');
+  const groupedWorkbook = new ExcelJS.Workbook(); await groupedWorkbook.xlsx.load(groupedXlsx as any);
+  assert.equal(groupedWorkbook.worksheets.length, 1);
+  for (let col=2;col<=5;col++) assert.match(String(groupedWorkbook.worksheets[0].getRow(7).getCell(col).value), /^ARMED SPO/);
+  for (let col=6;col<=7;col++) assert.match(String(groupedWorkbook.worksheets[0].getRow(7).getCell(col).value), /^SECURITY OFFICER/);
+  const groupedPdf = await buildScheduleExport(business, location, departmentRows, '2026-10-01', '2026-10-16', 'pdf');
+  assert.equal((await PDFDocument.load(groupedPdf)).getPages().length, 1);
+  fs.writeFileSync('/private/tmp/schedule-departments.xlsx', groupedXlsx);
+  fs.writeFileSync('/private/tmp/schedule-departments.pdf', groupedPdf);
+
   const pdf = await buildScheduleExport(
     business,
     location,
