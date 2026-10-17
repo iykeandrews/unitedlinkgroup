@@ -1,7 +1,7 @@
 import ScheduleRangeSearch from './ScheduleRangeSearch';
 import { calendarEmployees, recordPeriodBounds } from '../../lib/time/calendar-history';
 import { formatRecordTime, moveRecordRange } from '../../lib/time/record-zone';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
   DndContext, 
   DragOverlay, 
@@ -71,6 +71,9 @@ export default function SchedulingPage() {
   const [duplicating, setDuplicating] = useState(false);
   const [autoScheduling, setAutoScheduling] = useState(false);
   const [activeDragItem, setActiveDragItem] = useState<any>(null);
+  const [dragMode, setDragMode] = useState<'move' | 'copy'>('move');
+  const [dragSaving, setDragSaving] = useState(false);
+  const dragSaveLock = useRef(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [rangeSearchOpen, setRangeSearchOpen] = useState(false);
   useEffect(() => {
@@ -534,7 +537,7 @@ export default function SchedulingPage() {
     const { active, over } = event;
     setActiveDragItem(null);
 
-    if (!over) return;
+    if (!over || dragSaveLock.current || userRole === 'EMPLOYEE') return;
 
     const activeData = active.data.current;
     const overData = over.data.current;
@@ -587,8 +590,10 @@ export default function SchedulingPage() {
       if (!shift.endTime) return;
       const oldStart = new Date(shift.startTime);
       const oldEnd = new Date(shift.endTime);
-      const durationMs = oldEnd.getTime() - oldStart.getTime();
+      const copying = dragMode === 'copy';
       const {start: newStart, end: newEnd} = moveRecordRange(oldStart,oldEnd,format(newDate,'yyyy-MM-dd'),shift.timeZone);
+
+      if (!copying && +newStart === +oldStart && +newEnd === +oldEnd && (newLocationId ?? shift.locationId) === shift.locationId && targetEmployeeId === shift.employeeId) return;
 
       // Check conflict for target employee on target date
       let conflict: LeaveRequest | undefined;
@@ -607,7 +612,10 @@ export default function SchedulingPage() {
           employee: employees.find(e => e.id === targetEmployeeId) || shift.employee
         };
 
-        setShifts(prev => prev.map(s => s.id === shift.id ? updatedShift : s));
+        if (dragSaveLock.current) return;
+        dragSaveLock.current = true;
+        if (!copying) setShifts(prev => prev.map(s => s.id === shift.id ? updatedShift : s));
+        setDragSaving(true);
 
         const payload: any = {
           startTime: newStart.toISOString(),
@@ -627,14 +635,28 @@ export default function SchedulingPage() {
         }
 
         try {
-          await api.put(`/scheduling/shifts/${shift.id}`, payload);
-          toast.success('Change saved as draft');
+          if (copying) {
+            await api.post('/scheduling/shifts', {
+              startTime: payload.startTime, endTime: payload.endTime,
+              timeZone: shift.timeZone || 'America/New_York',
+              notes: shift.notes, breakMinutes: shift.breakMinutes || 0, status: 'DRAFT',
+              ...(targetEmployeeId ? {employee: {connect: {id: targetEmployeeId}}} : {}),
+              location: {connect: {id: nextLocationId}},
+              business: {connect: {id: selectedBusiness?.id}},
+            });
+          } else {
+            await api.put(`/scheduling/shifts/${shift.id}`, payload);
+          }
+          toast.success(copying ? 'Shift duplicated as draft; original kept' : 'Shift moved and saved as draft');
           fetchData();
         } catch (error) {
           console.error('Failed to move shift', error);
-          const msg = (error as any)?.response?.data?.message || 'Failed to move shift';
+          const msg = (error as any)?.response?.data?.message || (copying ? 'Failed to duplicate shift' : 'Failed to move shift');
           toast.error(msg);
           fetchData(); // Revert
+        } finally {
+          dragSaveLock.current = false;
+          setDragSaving(false);
         }
       };
 
@@ -884,6 +906,7 @@ export default function SchedulingPage() {
           sensors={sensors}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveDragItem(null)}
         >
           <div className="flex flex-1 min-h-0">
             {/* No employee sidebar for employee view */}
@@ -1449,6 +1472,14 @@ export default function SchedulingPage() {
         </div>
       </div>
 
+      <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800">
+        <span className="text-sm font-medium">Drag shifts to:</span>
+        <div className="inline-flex rounded-lg border border-slate-300 p-1 dark:border-slate-600" role="group" aria-label="Calendar drag action">
+          {(['move', 'copy'] as const).map(mode => <button key={mode} type="button" disabled={dragSaving} aria-pressed={dragMode === mode} onClick={() => setDragMode(mode)} className={`rounded-md px-3 py-1.5 text-sm font-semibold ${dragMode === mode ? 'bg-purple-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}>{mode === 'move' ? 'Move shift' : 'Duplicate shift'}</button>)}
+        </div>
+        <span className="text-xs text-slate-500" role="status">{dragSaving ? 'Saving shift…' : dragMode === 'copy' ? 'Drag to another day to create a draft copy. The original stays in place.' : 'Drag to another day to move. Times and breaks are retained.'} On touch screens, hold the shift briefly, then drag.</span>
+      </div>
+
       {rangeSearchOpen && <ScheduleRangeSearch key={selectedBusiness?.id} businessId={selectedBusiness?.id} locations={locations} onClose={() => setRangeSearchOpen(false)} />}
 
       {(userRole === 'BUSINESS_ADMIN' || userRole === 'SUPER_ADMIN') && pendingCallouts.length > 0 ? (
@@ -1520,6 +1551,7 @@ export default function SchedulingPage() {
         sensors={sensors} 
         onDragStart={handleDragStart} 
         onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveDragItem(null)}
       >
         <div className="flex flex-1 min-h-0">
             {/* Sidebar - Employees */}
@@ -1577,7 +1609,7 @@ export default function SchedulingPage() {
                     {activeDragItem?.type === 'shift' && (
                     <div className="bg-purple-100 dark:bg-purple-900/40 border-l-4 border-purple-500 p-2 rounded shadow-xl w-32 h-14 opacity-90 cursor-grabbing">
                         <div className="font-semibold text-purple-900 dark:text-purple-100 truncate">
-                        {activeDragItem.shift.employee?.firstName}
+                        {dragMode === 'copy' ? 'Copy: ' : 'Move: '}{activeDragItem.shift.employee?.firstName}
                         </div>
                         <div className="text-xs text-purple-700 dark:text-purple-300">
                         {formatRecordTime(activeDragItem.shift.startTime, 'h:mm a', activeDragItem.shift.timeZone)}

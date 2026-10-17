@@ -120,7 +120,7 @@ export function ShiftCard({ shift, onEdit, draggable = true, isMine = false, emp
   return (
     <div
       ref={setNodeRef}
-      style={cardStyle}
+      style={{...cardStyle, touchAction: draggable && !presentation.continuation ? 'none' : undefined}}
       {...listeners}
       {...attributes}
       aria-label={`${shift.employee ? `${shift.employee.firstName} ${shift.employee.lastName}` : 'Unassigned shift'}, ${formatRecordTime(start, 'EEE d MMM h:mm a', shift.timeZone)}, ${String(shift.status || 'DRAFT').toLowerCase()}, ${presentation.label}`}
