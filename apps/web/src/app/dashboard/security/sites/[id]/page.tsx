@@ -17,6 +17,7 @@ const empty = {
   workOrder: "",
   billingPins: [] as string[],
     incidentReportEmails: [] as string[],
+    incidentReportCcEmails: [] as string[],
   startDate: "",
   endDate: "",
   address: "",
@@ -61,6 +62,7 @@ export default function LocationDetails() {
         workOrder: data.workOrder || "",
         billingPins: stringList(data.billingPins),
         incidentReportEmails: stringList(data.incidentReportEmails),
+        incidentReportCcEmails: stringList(data.incidentReportCcEmails),
         startDate: data.startDate?.slice(0, 10) || "",
         endDate: data.endDate?.slice(0, 10) || "",
         address: data.address || "",
@@ -256,7 +258,7 @@ export default function LocationDetails() {
               onChange={(billingPins) => setForm({ ...form, billingPins })}
             />
           </section>
-<section className="rounded-xl border border-slate-200 p-4 mb-4"><h2 className="font-semibold mb-2">Incident report delivery</h2><p className="text-sm text-slate-500 mb-3">New incident reports at this location are emailed to these client recipients. Optional; separate from invoice emails. Internal investigation notes are excluded.</p><ReferenceList label="Incident report emails" email purpose="incident" values={form.incidentReportEmails} onChange={incidentReportEmails => setForm({...form, incidentReportEmails})} /></section>
+<section className="rounded-xl border border-slate-200 p-4 mb-4"><h2 className="font-semibold mb-2">Incident report delivery</h2><p className="text-sm text-slate-500 mb-3">New incident reports at this location are emailed to these client recipients. Optional; separate from invoice emails. Internal investigation notes are excluded.</p><ReferenceList label="Incident report emails" email purpose="incident" values={form.incidentReportEmails} onChange={incidentReportEmails => setForm({...form, incidentReportEmails})} /><ReferenceList label="Incident report CC emails" email purpose="incident-cc" values={form.incidentReportCcEmails} onChange={incidentReportCcEmails => setForm({...form, incidentReportCcEmails})} /></section>
           <section className="rounded-xl border border-slate-200 bg-white p-6 dark:bg-slate-800 dark:border-slate-700">
             <h2 className="font-semibold">Location coordinates</h2>
             <p className="text-sm text-slate-500 my-2">

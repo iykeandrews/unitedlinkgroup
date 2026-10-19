@@ -22,6 +22,7 @@ function NewSiteForm() {
     workOrder: '',
     billingPins: [] as string[],
     incidentReportEmails: [] as string[],
+    incidentReportCcEmails: [] as string[],
     startDate: '',
     endDate: '',
     clientId: preSelectedClientId || '',
@@ -181,7 +182,7 @@ function NewSiteForm() {
                 placeholder="e.g. WO-2024-001"
               />
             </div>
-<section className="rounded-xl border border-slate-200 p-4 mb-4"><h2 className="font-semibold mb-2">Incident report delivery</h2><p className="text-sm text-slate-500 mb-3">New incident reports at this location are emailed to these client recipients. Optional; separate from invoice emails. Internal investigation notes are excluded.</p><ReferenceList label="Incident report emails" email purpose="incident" values={formData.incidentReportEmails} onChange={incidentReportEmails => setFormData(prev => ({...prev, incidentReportEmails}))} /></section>
+<section className="rounded-xl border border-slate-200 p-4 mb-4"><h2 className="font-semibold mb-2">Incident report delivery</h2><p className="text-sm text-slate-500 mb-3">New incident reports at this location are emailed to these client recipients. Optional; separate from invoice emails. Internal investigation notes are excluded.</p><ReferenceList label="Incident report emails" email purpose="incident" values={formData.incidentReportEmails} onChange={incidentReportEmails => setFormData(prev => ({...prev, incidentReportEmails}))} /><ReferenceList label="Incident report CC emails" email purpose="incident-cc" values={formData.incidentReportCcEmails} onChange={incidentReportCcEmails => setFormData(prev => ({...prev, incidentReportCcEmails}))} /></section>
             <ReferenceList label="Billing reference pins" values={formData.billingPins} onChange={billingPins => setFormData(prev => ({...prev, billingPins}))} />
 
             <div>

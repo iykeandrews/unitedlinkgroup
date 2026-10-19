@@ -50,7 +50,7 @@ export function ReferenceList({
   values: string[];
   onChange: (values: string[]) => void;
   email?: boolean;
-  purpose?: 'invoice' | 'incident';
+  purpose?: 'invoice' | 'incident' | 'incident-cc';
 }) {
   return (
     <section className="col-span-full rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
@@ -60,7 +60,7 @@ export function ReferenceList({
         </h3>
         <button
           type="button"
-          disabled={values.length >= 50}
+          disabled={purpose === "invoice" && values.length >= 50}
           onClick={() => onChange([...values, ""])}
           className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
@@ -68,7 +68,9 @@ export function ReferenceList({
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        {email && purpose === 'incident'
+        {email && purpose === 'incident-cc'
+          ? "Add as many CC recipients as needed. They receive automatic and manually sent incident reports. Duplicate addresses are removed."
+          : email && purpose === 'incident'
           ? "New reports at this location are sent to these addresses with a PDF attachment. Investigation notes are excluded."
           : email
           ? "Invoices go to the billing and contact emails, with all additional recipients and invoice@unitedlinksecurity.com copied. Duplicate recipients are removed."

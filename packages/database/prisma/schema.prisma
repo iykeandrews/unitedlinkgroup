@@ -557,6 +557,7 @@ model Location {
   workOrder   String?
   billingPins String @default("[]") // Billing references only; unrelated to timekeeping
   incidentReportEmails String @default("[]") // Client recipients for incident reports
+  incidentReportCcEmails String @default("[]") // Additional incident report CC recipients
   startDate   DateTime?
   endDate     DateTime?
   

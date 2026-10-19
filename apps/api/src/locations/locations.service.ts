@@ -48,7 +48,7 @@ export class LocationsService {
   }
 
   private incidentEmails(value:any) {
-    if(!Array.isArray(value)||value.length>30||value.some(email=>typeof email!=='string'||email.length>254||!(/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email.trim())))) throw new BadRequestException('Enter up to 30 valid incident report email addresses');
+    if(!Array.isArray(value)||value.some(email=>typeof email!=='string'||email.length>254||!(/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email.trim())))) throw new BadRequestException('Enter valid incident report email addresses');
     return JSON.stringify([...new Set(value.map(email=>email.trim().toLowerCase()))]);
   }
   private billingPins(value: any) {
@@ -90,6 +90,7 @@ export class LocationsService {
         workOrder: data.workOrder?.trim() || null,
         billingPins: this.billingPins(data.billingPins ?? []),
         incidentReportEmails: this.incidentEmails(data.incidentReportEmails ?? []),
+        incidentReportCcEmails: this.incidentEmails(data.incidentReportCcEmails ?? []),
         startDate: data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
         address: data.address.trim(),
@@ -153,6 +154,7 @@ export class LocationsService {
         workOrder: data.workOrder === undefined ? loc.workOrder : data.workOrder?.trim() || null,
         billingPins: data.billingPins === undefined ? loc.billingPins : this.billingPins(data.billingPins),
         incidentReportEmails: data.incidentReportEmails === undefined ? loc.incidentReportEmails : this.incidentEmails(data.incidentReportEmails),
+        incidentReportCcEmails: data.incidentReportCcEmails === undefined ? loc.incidentReportCcEmails : this.incidentEmails(data.incidentReportCcEmails),
         startDate: data.startDate === undefined ? loc.startDate : data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate === undefined ? loc.endDate : data.endDate ? new Date(data.endDate) : null,
         code: data.code ?? loc.code,

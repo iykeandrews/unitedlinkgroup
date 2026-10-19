@@ -35,7 +35,8 @@ async function main(){
   assert.ok(!JSON.stringify(sheet.getRow(5).values).includes('INTERNAL NOTE'));
   const pdf=await service.exportIncidents(admin,'business','pdf',filters);assert.ok(Buffer.isBuffer(pdf.data));assert.equal(pdf.data.toString('ascii',0,4),'%PDF');
   const directory=process.cwd()+'/tmp/incident-qa';mkdirSync(directory,{recursive:true});writeFileSync(directory+'/sample-report.pdf',pdf.data);
-  assert.equal((await service.deliverToClient('report',admin)).status,'SENT');assert.equal(mail.to,'client@example.com');assert.deepEqual(mail.cc,['security@example.com']);assert.equal(mail.attachments[0].contentType,'application/pdf');
+  report.location.incidentReportCcEmails=JSON.stringify(['CLIENT@example.com','cc@example.com','SECURITY@example.com']);
+  assert.equal((await service.deliverToClient('report',admin)).status,'SENT');assert.equal(mail.to,'client@example.com');assert.deepEqual(mail.cc,['security@example.com','cc@example.com']);assert.equal(mail.attachments[0].contentType,'application/pdf');
   assert.ok(!mail.text.includes('INTERNAL NOTE'));assert.equal(events[events.length-1].eventType,'EMAIL_SENT');
   const failing=new IncidentReportsService(prisma,{} as any,{send:async()=>{throw Error('SMTP unavailable');}} as any);
   let automaticSends=0;
@@ -53,6 +54,7 @@ async function main(){
   await assert.rejects(()=>service.exportIncidents({role:'MANAGER',userId:'other'},'business','xlsx',filters),/not associated|Access denied/);
   const locations:any=new LocationsService({} as any,{} as any);
   assert.equal(locations.incidentEmails([' CLIENT@example.com ','client@example.com']),'["client@example.com"]');
+  assert.equal(JSON.parse(locations.incidentEmails(Array.from({length:75},(_,i)=>'cc'+i+'@example.com'))).length,75);
   assert.throws(()=>locations.incidentEmails(['bad-address']));assert.throws(()=>locations.incidentEmails(['bad@example.com\nBcc:other@example.com']));
   // Only this isolated test controller bypasses authentication; production guards are unchanged.
   Reflect.defineMetadata(GUARDS_METADATA,[],IncidentReportsController);
