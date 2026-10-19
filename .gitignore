@@ -38,3 +38,6 @@ android/app/build/
 
 # Local recovery copies contain private data
 packages/database/backups/
+
+# Private local verification and build scratch files
+tmp/
