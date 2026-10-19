@@ -37,7 +37,10 @@ export class IncidentReportsController {
     @Query('status') status?: string,
     @Query('reportingOfficerEmployeeId') reportingOfficerEmployeeId?: string,
     @Query('from') from?: string,
-    @Query('to') to?: string
+    @Query('to') to?: string,
+    @Query('sort') sort?:string,
+    @Query('direction') direction?:string,
+    @Query('dateField') dateField?:string
   ) {
     return this.incidentReportsService.findAll(req.user, headerBusinessId, {
       page: page ? parseInt(page, 10) : undefined,
@@ -50,6 +53,7 @@ export class IncidentReportsController {
       reportingOfficerEmployeeId,
       from,
       to,
+      sort, direction, dateField,
     });
   }
 
@@ -61,6 +65,12 @@ export class IncidentReportsController {
     @Query('status') status?: string
   ) {
     return this.incidentReportsService.getSummaryByLocation(req.user, headerBusinessId, status);
+  }
+
+  @Get('workspace')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN, UserRole.MANAGER)
+  workspace(@Request() req:any, @Headers('x-business-id') businessId?:string) {
+    return this.incidentReportsService.workspace(req.user,businessId);
   }
 
   @Get('analytics')
@@ -85,9 +95,13 @@ export class IncidentReportsController {
     @Query('status') status?: string,
     @Query('reportingOfficerEmployeeId') reportingOfficerEmployeeId?: string,
     @Query('from') from?: string,
-    @Query('to') to?: string
+    @Query('to') to?: string,
+    @Query('sort') sort?:string,
+    @Query('direction') direction?:string,
+    @Query('dateField') dateField?:string,
+    @Query('id') id?:string
   ) {
-    const f = format === 'xlsx' ? 'xlsx' : 'csv';
+    const f = format === 'xlsx' ? 'xlsx' : format === 'pdf' ? 'pdf' : 'csv';
     const out = await this.incidentReportsService.exportIncidents(req.user, headerBusinessId, f, {
       search,
       locationId,
@@ -97,6 +111,7 @@ export class IncidentReportsController {
       reportingOfficerEmployeeId,
       from,
       to,
+      sort, direction, dateField, id,
     });
     res.setHeader('Content-Type', out.mime);
     res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
@@ -107,6 +122,12 @@ export class IncidentReportsController {
   @Roles(UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN, UserRole.MANAGER, UserRole.EMPLOYEE)
   findOne(@Param('id') id: string, @Request() req: any) {
     return this.incidentReportsService.findOne(id, req.user);
+  }
+
+  @Post(':id/email-client')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN, UserRole.MANAGER)
+  emailClient(@Param('id') id:string,@Request() req:any) {
+    return this.incidentReportsService.deliverToClient(id,req.user);
   }
 
   @Patch(':id')

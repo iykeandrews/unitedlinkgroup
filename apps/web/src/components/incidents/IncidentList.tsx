@@ -138,7 +138,7 @@ const downloadCsv = (rows: Array<Record<string, any>>, filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-export default function IncidentList() {
+export default function IncidentList({detailId, onClose}: {detailId:string; onClose:()=>void}) {
   const [profile, setProfile] = useState<{ role?: string; employeeId?: string } | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
   const [employees, setEmployees] = useState<EmployeeLite[]>([]);
@@ -171,8 +171,11 @@ export default function IncidentList() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingIncident, setEditingIncident] = useState<any>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const [assigningInvestigatorId, setAssigningInvestigatorId] = useState('');
+
+  useEffect(() => {setSelectedId(detailId);}, [detailId]);
 
   const listAbortRef = useRef<AbortController | null>(null);
 
@@ -238,7 +241,6 @@ export default function IncidentList() {
   }, [loadAdminData]);
 
   useEffect(() => {
-    loadAnalytics();
   }, [loadAnalytics]);
 
   useEffect(() => {
@@ -284,7 +286,6 @@ export default function IncidentList() {
   }, [from, locationId, page, pageSize, reportingOfficerEmployeeId, search, severity, status, to, type]);
 
   useEffect(() => {
-    fetchIncidents();
   }, [fetchIncidents]);
 
   const fetchDetail = useCallback(async (id: string) => {
@@ -401,58 +402,11 @@ export default function IncidentList() {
   };
 
   const exportSelectedPdf = async () => {
-    if (!canManage) return;
-    if (!selected) {
-      toast.error('Select an incident to export');
-      return;
-    }
+    if(!canManage || !selected) return;
     try {
-      const jsPDF = (await import('jspdf')).default;
-      const autoTable = (await import('jspdf-autotable')).default;
-      const doc = new jsPDF();
-      const evidenceRefs = (selected.evidence || []).map((e) => e.url).join(' | ');
-      const persons = (selected.persons || []).map((p) => `${p.role}: ${p.name}${p.contactInfo ? ` (${p.contactInfo})` : ''}`).join(' | ');
-
-      doc.setFontSize(16);
-      doc.text('Incident Report', 14, 18);
-      doc.setFontSize(10);
-      doc.text(String(selected.reportNumber || selected.id), 14, 24);
-
-      autoTable(doc, {
-        startY: 30,
-        head: [['Field', 'Value']],
-        body: [
-          ['Title', selected.title],
-          ['Incident Type', selected.type],
-          ['Severity', selected.severity],
-          ['Status', selected.status],
-          ['Location', selected.location?.name || ''],
-          ['Incident Date/Time', new Date(selected.incidentAt || selected.date).toLocaleString()],
-          ['Reporting Officer', employeeName(selected.reportingOfficer || undefined)],
-          ['Submitted By', fullName(selected.submittedBy || undefined)],
-          ['Assigned Supervisor', employeeName(selected.assignedSupervisor || undefined)],
-          ['Assigned Investigator', employeeName(selected.assignedInvestigator || undefined)],
-          ['Response Action', selected.responseAction || ''],
-          ['Witness Present', selected.witnessPresent ? 'YES' : 'NO'],
-          ['Law Enforcement Involved', selected.lawEnforcementInvolved ? 'YES' : 'NO'],
-          ['Persons Involved', persons],
-          ['Evidence References', evidenceRefs],
-        ],
-        styles: { fontSize: 9, cellPadding: 2 },
-        columnStyles: { 0: { cellWidth: 45 }, 1: { cellWidth: 135 } },
-      });
-
-      autoTable(doc, {
-        startY: (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 6 : 120,
-        head: [['Incident Narrative']],
-        body: [[selected.description || '']],
-        styles: { fontSize: 9, cellPadding: 3 },
-      });
-
-      doc.save(`incident-${selected.reportNumber || selected.id}.pdf`);
-    } catch {
-      toast.error('Failed to export PDF');
-    }
+      const response=await api.get('/incident-reports/export',{params:{format:'pdf',id:selected.id},responseType:'blob'});
+      const url=URL.createObjectURL(response.data);const a=document.createElement('a');a.href=url;a.download='incident-report.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch {toast.error('Unable to export report');}
   };
 
   const addNote = async () => {
@@ -482,7 +436,9 @@ export default function IncidentList() {
 
   const downloadEvidence = async (e: Evidence) => {
     try {
-      const res = await api.get(e.url, { responseType: 'blob' });
+      const target=new URL(e.url,window.location.origin);
+      if(!['http:','https:'].includes(target.protocol))throw Error('Invalid attachment URL');
+      const res=target.origin===window.location.origin?await api.get(target.pathname+target.search,{responseType:'blob'}):{data:await fetch(target.href,{credentials:'omit'}).then(response=>{if(!response.ok)throw Error('Download failed');return response.blob();})};
       const blob = new Blob([res.data], { type: e.mimeType || 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -497,484 +453,24 @@ export default function IncidentList() {
 
   const COLORS = ['#2563eb', '#7c3aed', '#06b6d4', '#f97316', '#ef4444', '#10b981', '#eab308'];
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-wider text-slate-500">Security Command Center</div>
-          <div className="mt-1 flex items-center gap-2">
-            <Shield className="h-5 w-5 text-slate-500" />
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Incident Reports</h2>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 justify-end">
-          <button
-            type="button"
-            onClick={() => setFiltersOpen((v) => !v)}
-            className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40 flex items-center gap-2"
-          >
-            <Filter className="h-4 w-4" />
-            Filters
-          </button>
-
-          {canManage && (
-            <>
-              <button
-                type="button"
-                onClick={exportCsv}
-                className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40 flex items-center gap-2"
-              >
-                <Download className="h-4 w-4" />
-                Export CSV
-              </button>
-              <button
-                type="button"
-                onClick={exportXlsx}
-                className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40 flex items-center gap-2"
-              >
-                <Download className="h-4 w-4" />
-                Export Excel
-              </button>
-              <button
-                type="button"
-                onClick={exportSelectedPdf}
-                className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40 flex items-center gap-2"
-              >
-                <Download className="h-4 w-4" />
-                Export PDF
-              </button>
-            </>
-          )}
-
-          <button
-            type="button"
-            onClick={refreshAll}
-            className="px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/40 flex items-center gap-2"
-          >
-            <RefreshCcw className="h-4 w-4" />
-            Refresh
-          </button>
-
-          <button
-            type="button"
-            onClick={openCreate}
-            className="px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm flex items-center gap-2"
-          >
-            <AlertTriangle className="h-4 w-4" />
-            New Report
-          </button>
-        </div>
-      </div>
-
-      <AnimatePresence initial={false}>
-        {filtersOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                <div className="md:col-span-4">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Search</label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                    <input
-                      type="text"
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
-                      placeholder="Uploader, description, upload date (YYYY-MM-DD)…"
-                      className="pl-9 w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    />
-                  </div>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Location</label>
-                  <select
-                    value={locationId}
-                    onChange={(e) => setLocationId(e.target.value)}
-                    className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                  >
-                    <option value="">All</option>
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Type</label>
-                  <select
-                    value={type}
-                    onChange={(e) => setType(e.target.value)}
-                    className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                  >
-                    <option value="">All</option>
-                    {TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Severity</label>
-                  <select
-                    value={severity}
-                    onChange={(e) => setSeverity(e.target.value)}
-                    className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                  >
-                    <option value="">All</option>
-                    {SEVERITIES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Status</label>
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                  >
-                    <option value="">All</option>
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {canManage && (
-                  <div className="md:col-span-3">
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Reporting Officer</label>
-                    <select
-                      value={reportingOfficerEmployeeId}
-                      onChange={(e) => setReportingOfficerEmployeeId(e.target.value)}
-                      className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                    >
-                      <option value="">All</option>
-                      {employees
-                        .filter((e) => e.status === 'ACTIVE')
-                        .sort((a, b) => (a.lastName || '').localeCompare(b.lastName || '') || (a.firstName || '').localeCompare(b.firstName || ''))
-                        .map((e) => (
-                          <option key={e.id} value={e.id}>
-                            {employeeName(e)}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
-
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">From</label>
-                  <input
-                    type="date"
-                    value={from}
-                    onChange={(e) => setFrom(e.target.value)}
-                    className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">To</label>
-                  <input
-                    type="date"
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                  />
-                </div>
-
-                <div className="md:col-span-3">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Rows</label>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => setPageSize(parseInt(e.target.value, 10))}
-                    className="w-full rounded-lg border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm"
-                  >
-                    {[10, 20, 30, 50].map((n) => (
-                      <option key={n} value={n}>
-                        {n} per page
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {canManage && locationCards.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-              <MapPin className="h-4 w-4 text-slate-500" />
-              Location Overview
-            </div>
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1">
-              {(['ACTIVE', 'INACTIVE', 'ALL'] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setLocationOverviewStatus(v)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                    locationOverviewStatus === v
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/40'
-                  }`}
-                >
-                  {v === 'ACTIVE' ? 'Active' : v === 'INACTIVE' ? 'Inactive' : 'All'}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {locationCards.map((c) => (
-              <button
-                key={c.locationId}
-                type="button"
-                onClick={() => showLocationIncidents(c.locationId)}
-                className={`text-left rounded-xl border p-4 transition-colors ${
-                  locationId === c.locationId
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/10'
-                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/40'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900 dark:text-white">{c.locationName}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      Last: {c.lastIncidentDate ? new Date(c.lastIncidentDate).toLocaleString() : '—'}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <div className={`px-2 py-1 rounded-full text-xs font-semibold ${c.criticalIncidents ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200'}`}>
-                      {c.criticalIncidents ? `${c.criticalIncidents} Critical` : 'Normal'}
-                    </div>
-                    {c.locationStatus && (
-                      <div className={`px-2 py-1 rounded-full text-[11px] font-semibold ${c.locationStatus === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200'}`}>
-                        {c.locationStatus}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <div className="rounded-lg bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-500">Total</div>
-                    <div className="text-lg font-bold text-slate-900 dark:text-white">{c.totalIncidents}</div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-500">Open</div>
-                    <div className="text-lg font-bold text-slate-900 dark:text-white">{c.openIncidents}</div>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 px-3 py-2">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-500">Team</div>
-                    <div className="text-lg font-bold text-slate-900 dark:text-white">{c.assignedSecurityTeam.length}</div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {canManage && (
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setAnalyticsOpen((v) => !v)}
-            className="w-full px-4 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/40"
-          >
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-              <BarChart3 className="h-4 w-4 text-slate-500" />
-              Incident Analysis
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <select
-                value={analyticsPeriod}
-                onChange={(e) => setAnalyticsPeriod(e.target.value as any)}
-                className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-2 py-1"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-            </div>
-          </button>
-
-          <AnimatePresence initial={false}>
-            {analyticsOpen && (
-              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                <div className="p-4 grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 p-3">
-                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Trend</div>
-                    <div className="h-56 mt-2">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={analytics?.trend || []}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                          <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                          <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                          <Tooltip />
-                          <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} dot={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 p-3">
-                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Type Distribution</div>
-                    <div className="h-56 mt-2">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Tooltip />
-                          <Legend />
-                          <Pie data={analytics?.byType || []} dataKey="count" nameKey="type" outerRadius={80}>
-                            {(analytics?.byType || []).map((_, idx) => (
-                              <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 p-3">
-                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Incidents per Location</div>
-                    <div className="h-56 mt-2">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={analytics?.byLocation || []}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                          <XAxis dataKey="locationName" tick={{ fontSize: 11 }} interval={0} height={60} angle={-25} textAnchor="end" />
-                          <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                          <Tooltip />
-                          <Bar dataKey="count" fill="#7c3aed" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 p-3">
-                    <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Officer Activity</div>
-                    <div className="h-56 mt-2">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={(analytics?.byOfficer || []).slice(0, 10)}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                          <XAxis dataKey="officerName" tick={{ fontSize: 11 }} interval={0} height={60} angle={-25} textAnchor="end" />
-                          <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                          <Tooltip />
-                          <Bar dataKey="count" fill="#06b6d4" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-slate-900 dark:text-white">Incident Queue</div>
-            <div className="text-xs text-slate-500">{data.total} total</div>
-          </div>
-
-          {loading ? (
-            <div className="py-10 text-center text-slate-500">Loading incidents…</div>
-          ) : data.items.length === 0 ? (
-            <div className="py-10 text-center text-slate-500">No incident reports found.</div>
-          ) : (
-            <div className="divide-y divide-slate-200 dark:divide-slate-700">
-              {groupedQueue.map((group) => (
-                <div key={group.key}>
-                  <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900/40 text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <MapPin className="h-3.5 w-3.5" />
-                      {group.label}
-                    </span>
-                    <span className="text-slate-500">{group.items.length}</span>
-                  </div>
-                  {group.items.map((i) => (
-                    <button
-                      key={i.id}
-                      type="button"
-                      onClick={() => setSelectedId(i.id)}
-                      className={`w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${
-                        selectedId === i.id ? 'bg-slate-50 dark:bg-slate-700/30' : ''
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono text-slate-500">{i.reportNumber || i.id.slice(0, 8)}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${severityPill(i.severity)}`}>{i.severity}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusPill(i.status)}`}>{i.status}</span>
-                          </div>
-                          <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white truncate">{i.title}</div>
-                          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                            <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" />{new Date(i.createdAt || i.incidentAt || i.date).toLocaleString()}</span>
-                            <span className="flex items-center gap-1"><User className="h-3.5 w-3.5" />{fullName(i.submittedBy || undefined)}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-slate-500">
-                          <Activity className="h-4 w-4" />
-                          <span>{i.type}</span>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
-            <div className="text-xs text-slate-500">
-              Page {page} of {totalPages}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className={`px-3 py-1.5 rounded-md text-sm border border-slate-200 dark:border-slate-700 ${
-                  page <= 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'
-                }`}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className={`px-3 py-1.5 rounded-md text-sm border border-slate-200 dark:border-slate-700 ${
-                  page >= totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'
-                }`}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-slate-900 dark:text-white">Incident Detail</div>
+  const exportSelectedExcel = async () => {
+    try {
+      const response=await api.get('/incident-reports/export',{params:{format:'xlsx',id:detailId},responseType:'blob'});
+      const url=URL.createObjectURL(response.data);const a=document.createElement('a');a.href=url;a.download='incident-report.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch {toast.error('Unable to export report');}
+  };
+  const emailClient = async () => {
+    if(emailBusy)return;setEmailBusy(true);
+    try {
+      const response=await api.post('/incident-reports/'+detailId+'/email-client');
+      if(response.data.status==='SENT') toast.success('Report accepted by the mail server');
+      else toast.error('Email failed or partially accepted. Check delivery details before retrying.');
+      await fetchDetail(detailId);
+    } catch(error:any) {toast.error(error?.response?.data?.message||'Unable to email client');} finally {setEmailBusy(false);}
+  };
+  return (<div className="space-y-4">        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-slate-900 dark:text-white">Incident Detail</div><button onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-700">Close</button>{canManage && <><button onClick={exportSelectedPdf} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-700">PDF</button><button onClick={exportSelectedExcel} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-700">Excel</button></>}{canManage && <button disabled={emailBusy} onClick={emailClient} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold dark:border-slate-700">Email client</button>}
             <div className="flex items-center gap-2">
               {canManage && selected && (
                 <button
@@ -1002,7 +498,7 @@ export default function IncidentList() {
                   <div className="min-w-0">
                     <div className="text-xs font-mono text-slate-500">{selected.reportNumber || selected.id}</div>
                     <div className="mt-1 text-base font-bold text-slate-900 dark:text-white">{selected.title}</div>
-                    <div className="mt-1 text-xs text-slate-500">{new Date(selected.incidentAt || selected.date).toLocaleString()}</div>
+                    <div className="mt-1 text-xs text-slate-500">{new Date(selected.incidentAt || selected.date).toLocaleString("en-US",{timeZone:"America/New_York"})}</div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${severityPill(selected.severity)}`}>{selected.severity}</span>
@@ -1010,7 +506,7 @@ export default function IncidentList() {
                   </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 px-3 py-2 text-sm text-slate-700 dark:text-slate-200">
-                  {selected.description}
+                  <span className="whitespace-pre-wrap break-words">{selected.description}</span>
                 </div>
               </div>
 
@@ -1046,10 +542,10 @@ export default function IncidentList() {
                         <div key={ev.id} className="flex items-start gap-3">
                           <div className="mt-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
                           <div className="flex-1">
-                            <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">{ev.eventType}</div>
-                            <div className="text-[11px] text-slate-500">{new Date(ev.createdAt).toLocaleString()} • {fullName(ev.actorUser || undefined)}</div>
+                            <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">{ev.eventType.replaceAll('_',' ')}</div>
+                            <div className="text-[11px] text-slate-500">{new Date(ev.createdAt).toLocaleString("en-US", {timeZone:"America/New_York"})} • {fullName(ev.actorUser || undefined)}</div>
                             {ev.payload && (
-                              <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-300 break-words">{ev.payload}</div>
+                              <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-300 break-words">{(() => {try {const payload=JSON.parse(ev.payload);if(payload.note)return payload.note;if(payload.message)return payload.message+(payload.recipients?' Recipients: '+payload.recipients.join(', '):'');if(payload.after?.status)return 'Status: '+payload.after.status.replaceAll('_',' ');if(payload.originalName)return payload.originalName;if(payload.investigatorEmployeeId)return 'Investigator assigned';return 'Report details updated';}catch{return ev.payload;}})()}</div>
                             )}
                           </div>
                         </div>
@@ -1072,7 +568,7 @@ export default function IncidentList() {
                         <div key={e.id} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 dark:border-slate-700 px-3 py-2">
                           <div className="min-w-0">
                             <div className="text-xs font-semibold text-slate-900 dark:text-white truncate">{e.originalName}</div>
-                            <div className="text-[11px] text-slate-500">{e.kind} • {new Date(e.createdAt).toLocaleString()}</div>
+                            <div className="text-[11px] text-slate-500">{e.kind} • {new Date(e.createdAt).toLocaleString("en-US", {timeZone:"America/New_York"})}</div>
                           </div>
                           <button
                             type="button"
@@ -1147,8 +643,6 @@ export default function IncidentList() {
             </div>
           )}
         </div>
-      </div>
-
       <IncidentModal
         isOpen={isModalOpen}
         onClose={closeModal}

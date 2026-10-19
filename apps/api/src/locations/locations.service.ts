@@ -47,6 +47,10 @@ export class LocationsService {
     return employee.businessId;
   }
 
+  private incidentEmails(value:any) {
+    if(!Array.isArray(value)||value.length>30||value.some(email=>typeof email!=='string'||email.length>254||!(/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email.trim())))) throw new BadRequestException('Enter up to 30 valid incident report email addresses');
+    return JSON.stringify([...new Set(value.map(email=>email.trim().toLowerCase()))]);
+  }
   private billingPins(value: any) {
     if (!Array.isArray(value) || value.length > 50 || value.some(pin => typeof pin !== 'string' || !pin.trim() || pin.trim().length > 100)) throw new BadRequestException('Enter up to 50 non-empty billing pins (100 characters each)');
     return JSON.stringify([...new Set(value.map(pin => pin.trim()))]);
@@ -85,6 +89,7 @@ export class LocationsService {
         code: data.code,
         workOrder: data.workOrder?.trim() || null,
         billingPins: this.billingPins(data.billingPins ?? []),
+        incidentReportEmails: this.incidentEmails(data.incidentReportEmails ?? []),
         startDate: data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
         address: data.address.trim(),
@@ -147,6 +152,7 @@ export class LocationsService {
         name: data.name ?? loc.name,
         workOrder: data.workOrder === undefined ? loc.workOrder : data.workOrder?.trim() || null,
         billingPins: data.billingPins === undefined ? loc.billingPins : this.billingPins(data.billingPins),
+        incidentReportEmails: data.incidentReportEmails === undefined ? loc.incidentReportEmails : this.incidentEmails(data.incidentReportEmails),
         startDate: data.startDate === undefined ? loc.startDate : data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate === undefined ? loc.endDate : data.endDate ? new Date(data.endDate) : null,
         code: data.code ?? loc.code,

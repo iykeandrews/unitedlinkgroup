@@ -3,12 +3,17 @@ import { PrismaService } from '../prisma.service';
 import { CreateIncidentReportDto } from './dto/create-incident-report.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as XLSX from 'xlsx';
+import {ReportQuery, reportWhere, reportOrder} from './report-query';
+import {reportPdf, reportDate} from './report-document';
+import {Workbook} from 'exceljs';
+import {SmtpMailerService} from '../common/email/smtp-mailer.service';
 
 @Injectable()
 export class IncidentReportsService {
   constructor(
     private prisma: PrismaService,
-    private notifications: NotificationsService
+    private notifications: NotificationsService,
+    private mailer: SmtpMailerService
   ) {}
 
   private getUserId(user: any): string {
@@ -19,7 +24,7 @@ export class IncidentReportsService {
     if (user.role === 'SUPER_ADMIN') return;
     
     // Check if user owns the business
-    const ownedBusiness = await this.prisma.business.findFirst({ where: { ownerId: this.getUserId(user) } });
+    const ownedBusiness = await this.prisma.business.findFirst({ where: { id: targetBusinessId, ownerId: this.getUserId(user) } });
     if (ownedBusiness && ownedBusiness.id === targetBusinessId) return;
 
     // Check if user is an employee of the business
@@ -44,7 +49,7 @@ export class IncidentReportsService {
 
   private async resolveBusinessId(user: any, businessIdHeader?: string): Promise<string> {
     let businessId = businessIdHeader;
-    if (!businessId || user.role !== 'SUPER_ADMIN') {
+    if (!businessId) {
         businessId = await this.getBusinessId(user);
     }
     
@@ -268,27 +273,37 @@ export class IncidentReportsService {
       }
     }
 
-    return created;
+    const clientDelivery = await this.deliverToClient(created.id, user, true);
+    return {...created, clientDelivery};
+  }
+
+  async deliverToClient(id:string,user:any,initial=false) {
+    const report=await this.findOne(id,user);
+    const recipients:string[]=JSON.parse(report.location?.incidentReportEmails||'[]');
+    if(!recipients.length) {
+      if(initial) return {status:'NOT_CONFIGURED'};
+      throw new BadRequestException('Add incident report emails to this location first');
+    }
+    const business=await this.prisma.business.findUnique({where:{id:report.businessId}});
+    let status='EMAIL_SENT';
+    try {
+      const text=[business?.name,'Incident report '+(report.reportNumber||report.id),report.title,'Location: '+report.location?.name,'Occurred: '+reportDate(report.incidentAt||report.date),'Severity: '+report.severity,report.description,'Response: '+(report.responseAction||''),'The full report is attached as a PDF.'].filter(Boolean).join('\n\n');
+      const escaped=text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+      await this.mailer.send({to:recipients[0],cc:recipients.slice(1),subject:`Incident ${report.reportNumber||report.id} · ${report.location?.name||business?.name}`,text,html:`<div style="font-family:Arial;color:#142d47;white-space:pre-wrap">${escaped}</div>`,attachments:[{filename:`incident-${report.reportNumber||report.id}.pdf`,content:reportPdf([report],business),contentType:'application/pdf'}]});
+    } catch {
+      status='EMAIL_FAILED';
+    }
+    await this.prisma.incidentTimelineEvent.create({data:{incidentId:id,actorUserId:this.getUserId(user),eventType:status,payload:JSON.stringify({recipients,message:status==='EMAIL_SENT'?'Accepted by mail server':'Delivery failed or partially accepted. Check recipients and email configuration before retrying.'})}});
+    return {status:status==='EMAIL_SENT'?'SENT':'FAILED'};
   }
 
   async findAll(
     user: any,
     businessIdHeader?: string,
-    query?: {
-      page?: number;
-      pageSize?: number;
-      search?: string;
-      locationId?: string;
-      type?: string;
-      severity?: string;
-      status?: string;
-      reportingOfficerEmployeeId?: string;
-      from?: string;
-      to?: string;
-    }
+    query?: ReportQuery
   ) {
     let businessId = businessIdHeader;
-    if (!businessId || user.role !== 'SUPER_ADMIN') {
+    if (!businessId) {
       try {
         businessId = await this.getBusinessId(user);
       } catch (e) {
@@ -301,58 +316,11 @@ export class IncidentReportsService {
 
     await this.validateBusinessAccess(businessId, user);
 
-    const page = Math.max(1, query?.page || 1);
-    const pageSize = Math.min(100, Math.max(5, query?.pageSize || 20));
+    const page = Number.isFinite(query?.page) ? Math.max(1, Math.floor(query!.page!)) : 1;
+    const pageSize = Number.isFinite(query?.pageSize) ? Math.min(100, Math.max(5, Math.floor(query!.pageSize!))) : 20;
     const skip = (page - 1) * pageSize;
 
-    const where: any = { businessId };
-    if (query?.locationId) where.locationId = query.locationId;
-    if (query?.type) where.type = query.type;
-    if (query?.severity) where.severity = query.severity;
-    if (query?.status) where.status = query.status;
-    if (query?.reportingOfficerEmployeeId) where.reportingOfficerEmployeeId = query.reportingOfficerEmployeeId;
-
-    const fromDate = this.parseIsoDate(query?.from || null);
-    const toDate = this.parseIsoDate(query?.to || null);
-    if (fromDate || toDate) {
-      where.date = {};
-      if (fromDate) where.date.gte = fromDate;
-      if (toDate) where.date.lte = toDate;
-    }
-
-    if (query?.search) {
-      const s = query.search.trim();
-      if (s) {
-        const createdAtRange = this.parseSearchDayRange(s);
-        where.OR = [
-          { title: { contains: s, mode: 'insensitive' } },
-          { description: { contains: s, mode: 'insensitive' } },
-          { reportNumber: { contains: s, mode: 'insensitive' } },
-          {
-            submittedBy: {
-              is: {
-                OR: [
-                  { firstName: { contains: s, mode: 'insensitive' } },
-                  { lastName: { contains: s, mode: 'insensitive' } },
-                  { email: { contains: s, mode: 'insensitive' } },
-                ],
-              },
-            },
-          },
-          {
-            reportingOfficer: {
-              is: {
-                OR: [
-                  { firstName: { contains: s, mode: 'insensitive' } },
-                  { lastName: { contains: s, mode: 'insensitive' } },
-                ],
-              },
-            },
-          },
-          ...(createdAtRange ? [{ createdAt: { gte: createdAtRange.start, lt: createdAtRange.end } }] : []),
-        ];
-      }
-    }
+    const where = reportWhere(businessId, query);
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.incidentReport.count({ where }),
@@ -366,7 +334,7 @@ export class IncidentReportsService {
           assignedInvestigator: true,
           evidence: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: reportOrder(query),
         skip,
         take: pageSize,
       }),
@@ -632,6 +600,18 @@ export class IncidentReportsService {
     return created;
   }
 
+  async workspace(user:any, businessIdHeader?:string) {
+    const businessId=await this.resolveBusinessId(user,businessIdHeader);
+    await this.validateBusinessAccess(businessId,user);
+    const [locations, reports, officers] = await Promise.all([
+      this.getSummaryByLocation(user,businessIdHeader,'ALL'),
+      this.prisma.incidentReport.findMany({where:{businessId},select:{createdAt:true}}),
+      this.prisma.employee.findMany({where:{businessId},select:{id:true,firstName:true,lastName:true,status:true,badgeNumber:true},orderBy:[{lastName:'asc'},{firstName:'asc'}]}),
+    ]);
+    const years=[...new Set([Number(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric'}).format(new Date())),...reports.map(r=>Number(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric'}).format(r.createdAt)))])].sort((a,b)=>b-a);
+    return {locations,officers,years};
+  }
+
   async getSummaryByLocation(user: any, businessIdHeader?: string, status?: string) {
     const businessId = await this.resolveBusinessId(user, businessIdHeader);
     await this.validateBusinessAccess(businessId, user);
@@ -769,47 +749,13 @@ export class IncidentReportsService {
   async exportIncidents(
     user: any,
     businessIdHeader: string | undefined,
-    format: 'csv' | 'xlsx',
-    query?: {
-      search?: string;
-      locationId?: string;
-      type?: string;
-      severity?: string;
-      status?: string;
-      reportingOfficerEmployeeId?: string;
-      from?: string;
-      to?: string;
-    }
+    format: 'csv' | 'xlsx' | 'pdf',
+    query?: ReportQuery
   ) {
     const businessId = await this.resolveBusinessId(user, businessIdHeader);
     await this.validateBusinessAccess(businessId, user);
 
-    const where: any = { businessId };
-    if (query?.locationId) where.locationId = query.locationId;
-    if (query?.type) where.type = query.type;
-    if (query?.severity) where.severity = query.severity;
-    if (query?.status) where.status = query.status;
-    if (query?.reportingOfficerEmployeeId) where.reportingOfficerEmployeeId = query.reportingOfficerEmployeeId;
-
-    const fromDate = this.parseIsoDate(query?.from || null);
-    const toDate = this.parseIsoDate(query?.to || null);
-    if (fromDate || toDate) {
-      where.date = {};
-      if (fromDate) where.date.gte = fromDate;
-      if (toDate) where.date.lte = toDate;
-    }
-
-    if (query?.search) {
-      const s = query.search.trim();
-      if (s) {
-        where.OR = [
-          { title: { contains: s, mode: 'insensitive' } },
-          { description: { contains: s, mode: 'insensitive' } },
-          { reportNumber: { contains: s, mode: 'insensitive' } },
-        ];
-      }
-    }
-
+    const where = reportWhere(businessId, query);
     const incidents = await this.prisma.incidentReport.findMany({
       where,
       include: {
@@ -821,10 +767,12 @@ export class IncidentReportsService {
         evidence: true,
         persons: true,
       },
-      orderBy: { createdAt: 'desc' },
-      take: 5000,
+      orderBy: reportOrder(query),
+
     });
 
+    const business=await this.prisma.business.findUnique({where:{id:businessId}});
+    if(format==='pdf') return {mime:'application/pdf',filename:`incident-reports-${new Date().toISOString().slice(0,10)}.pdf`,data:reportPdf(incidents,business)};
     const rows = incidents.map((i: any) => {
       const officer = i.reportingOfficer ? `${i.reportingOfficer.firstName} ${i.reportingOfficer.lastName}`.trim() : '';
       const officerBadge = i.reportingOfficer?.badgeNumber || '';
@@ -845,8 +793,8 @@ export class IncidentReportsService {
         incidentType: i.type,
         severity: i.severity,
         status: i.status,
-        incidentAt: (i.incidentAt || i.date)?.toISOString?.() || '',
-        reportedAt: i.reportedAt?.toISOString?.() || '',
+        incidentAt: reportDate(i.incidentAt || i.date),
+        reportedAt: reportDate(i.createdAt),
         shift: i.shift || '',
         buildingArea: i.buildingArea || '',
         location: i.location?.name || '',
@@ -869,10 +817,19 @@ export class IncidentReportsService {
     });
 
     if (format === 'xlsx') {
-      const ws = XLSX.utils.json_to_sheet(rows);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Incident Reports');
-      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+      const wb=new Workbook();wb.creator=business?.name||'United Link Group';
+      const ws=wb.addWorksheet('Incident Reports',{views:[{state:'frozen',ySplit:4}],pageSetup:{orientation:'landscape',paperSize:1 as any,fitToPage:true,fitToWidth:1,fitToHeight:0}});
+      const keys=Object.keys(rows[0]||{reportNumber:'',title:'',location:'',reportingOfficer:'',narrative:''});
+      ws.mergeCells(1,1,1,keys.length);ws.getCell(1,1).value=business?.name||'Incident reports';ws.getRow(1).font={bold:true,size:18,color:{argb:'FF142D47'}};ws.getRow(1).height=32;
+      ws.mergeCells(2,1,2,keys.length);ws.getCell(2,1).value=[business?.address,business?.city,business?.state,business?.zip].filter(Boolean).join(', ');
+      ws.mergeCells(3,1,3,keys.length);ws.getCell(3,1).value=`Incident reports · ${rows.length} reports · Submitted ${query?.from||'all dates'} through ${query?.to||'present'}`;
+      ws.addRow(keys.map(key=>key.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase())));
+      ws.getRow(4).height=30;ws.getRow(4).font={bold:true,color:{argb:'FFFFFFFF'}};ws.getRow(4).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF142D47'}};
+      for(const row of rows) ws.addRow(keys.map(key=>(row as any)[key]));
+      ws.columns.forEach((column,index)=>{column.width=['narrative','responseAction','evidenceReferences','personsInvolved'].includes(keys[index])?65:24;});
+      ws.eachRow((row,n)=>{if(n>4){row.alignment={vertical:'top',wrapText:true};if(n%2===1)row.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF1F5F9'}};}});
+      ws.autoFilter={from:{row:4,column:1},to:{row:Math.max(ws.rowCount,4),column:keys.length}};
+      const buf=Buffer.from(await wb.xlsx.writeBuffer());
       return {
         mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         filename: `incident-reports-${new Date().toISOString().slice(0, 10)}.xlsx`,

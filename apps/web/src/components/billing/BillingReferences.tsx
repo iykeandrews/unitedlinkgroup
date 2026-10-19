@@ -44,11 +44,13 @@ export function ReferenceList({
   values,
   onChange,
   email = false,
+  purpose = 'invoice',
 }: {
   label: string;
   values: string[];
   onChange: (values: string[]) => void;
   email?: boolean;
+  purpose?: 'invoice' | 'incident';
 }) {
   return (
     <section className="col-span-full rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
@@ -62,17 +64,19 @@ export function ReferenceList({
           onClick={() => onChange([...values, ""])}
           className="rounded-lg bg-teal-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Add {email ? "CC email" : "billing pin"}
+          Add {email ? purpose === 'incident' ? "email" : "CC email" : "billing pin"}
         </button>
       </div>
       <p className="text-sm text-slate-500">
-        {email
+        {email && purpose === 'incident'
+          ? "New reports at this location are sent to these addresses with a PDF attachment. Investigation notes are excluded."
+          : email
           ? "Invoices go to the billing and contact emails, with all additional recipients and invoice@unitedlinksecurity.com copied. Duplicate recipients are removed."
           : "Reference codes shown on invoices for this location. These pins are used only for billing and never for clock-in or clock-out."}
       </p>
       {!values.length && (
         <p className="text-sm text-slate-500">
-          No {email ? "additional CC recipients" : "billing pins"} added.
+          No {email ? purpose === 'incident' ? "incident report recipients" : "additional CC recipients" : "billing pins"} added.
         </p>
       )}
       {values.map((value, index) => (

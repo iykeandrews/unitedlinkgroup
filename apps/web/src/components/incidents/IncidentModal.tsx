@@ -289,12 +289,14 @@ export default function IncidentModal({ isOpen, onClose, onSuccess, initialData 
     setLoading(true);
     try {
       let incidentId: string;
+      let clientDelivery: string | undefined;
       if (initialData?.id) {
         const res = await api.patch(`/incident-reports/${initialData.id}`, payload);
         incidentId = res.data?.id || initialData.id;
       } else {
         const res = await api.post('/incident-reports', payload);
         incidentId = res.data?.id;
+        clientDelivery = res.data?.clientDelivery?.status;
       }
 
       if (incidentId && files.length) {
@@ -310,6 +312,7 @@ export default function IncidentModal({ isOpen, onClose, onSuccess, initialData 
       }
 
       toast.success(initialData ? 'Incident report updated' : 'Incident report submitted');
+      if (clientDelivery === 'FAILED') toast.warning('Report saved, but client email delivery failed. Ask an administrator to check the delivery timeline.');
       onSuccess();
       onClose();
     } catch (err: any) {
