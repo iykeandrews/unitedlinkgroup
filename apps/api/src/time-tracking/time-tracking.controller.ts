@@ -144,6 +144,12 @@ export class TimeTrackingController {
     return this.timeTrackingService.createManualTimesheet(body, user);
   }
 
+  @Get('untracked-shifts')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  async getUntrackedShifts(@Query('employeeId') employeeId: string, @User() user: any) {
+    return this.timeTrackingService.getUntrackedShifts(employeeId, user);
+  }
+
   @Patch('timesheets/:id')
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
   async updateTimesheet(

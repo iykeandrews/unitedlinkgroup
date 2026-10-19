@@ -30,6 +30,25 @@ export class TimeTrackingService {
     throw new BadRequestException('Access denied: You do not have access to this business data');
   }
 
+  async getUntrackedShifts(employeeId: string, user: any) {
+    if (!['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(user?.role)) throw new ForbiddenException('Only administrators can view missing attendance');
+    const employee = await this.prisma.employee.findUnique({where: {id: String(employeeId || '')}});
+    if (!employee) throw new BadRequestException('Choose an employee');
+    await this.validateBusinessAccess(employee.businessId, user);
+    const shifts = await this.prisma.shift.findMany({where: {businessId: employee.businessId, employeeId: employee.id, locationId: {not: null}, endTime: {lte: new Date()}, status: {in: ['DRAFT','PUBLISHED','OPEN','COMPLETED']}}, include: {location: true}, orderBy: {startTime: 'desc'}});
+    if (!shifts.length) return [];
+    const drafts = await this.prisma.shift.findMany({where: {businessId: employee.businessId, status: 'DRAFT', groupId: {in: shifts.map(s => s.groupId || s.id)}}});
+    const byGroup = new Map(drafts.map(s => [s.groupId || s.id, s.id]));
+    const records = await this.prisma.timesheet.findMany({where: {employeeId: employee.id, status: {notIn: ['DISCARDED','REJECTED']}}});
+    const groups = new Set<string>();
+    return shifts.filter(shift => {
+      const group = shift.groupId || shift.id;
+      if (groups.has(group) || (byGroup.has(group) && byGroup.get(group) !== shift.id)) return false;
+      groups.add(group);
+      return !records.some(record => record.locationId === shift.locationId && record.startTime < shift.endTime && (!record.endTime || record.endTime > shift.startTime));
+    }).map(shift => ({id: shift.id, locationId: shift.locationId, locationName: shift.location?.name || 'Location', startTime: shift.startTime, endTime: shift.endTime, timeZone: shift.timeZone || shift.location?.timeZone || 'America/New_York', breakMinutes: shift.breakMinutes}));
+  }
+
   async createManualTimesheet(data: any, user: any) {
     if (!['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(user?.role)) throw new ForbiddenException('Only administrators can add manual timesheets');
     const employee = await this.prisma.employee.findUnique({where: {id: String(data.employeeId || '')}});
@@ -54,6 +73,9 @@ export class TimeTrackingService {
       if (data.shiftId) {
         const shift = await tx.shift.findFirst({where: {id: data.shiftId, businessId: employee.businessId}});
         if (!shift || shift.employeeId !== employee.id || shift.locationId !== location.id || ['ARCHIVED','CANCELLED'].includes(shift.status)) throw new BadRequestException('The shift assignment changed; review the employee and location before recording time');
+        if (shift.endTime > new Date()) throw new BadRequestException('Choose a completed scheduled shift');
+        const tracked = await tx.timesheet.findFirst({where: {employeeId: employee.id, locationId: location.id, status: {notIn: ['DISCARDED','REJECTED']}, startTime: {lt: shift.endTime}, OR: [{endTime: null},{endTime: {gt: shift.startTime}}]}});
+        if (tracked) throw new BadRequestException('This scheduled shift already has a clock-in record; refresh the list');
       }
       const overlap = await tx.timesheet.findFirst({where: {employeeId: employee.id, status: {notIn: ['DISCARDED','REJECTED']}, startTime: {lt: endTime}, OR: [{endTime: null},{endTime: {gt: startTime}}]}});
       if (overlap) throw new BadRequestException('This employee already has an overlapping attendance record');

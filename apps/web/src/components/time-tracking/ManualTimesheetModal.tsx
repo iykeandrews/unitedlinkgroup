@@ -10,7 +10,7 @@ type ClockInput = {date: string; time: string};
 type BreakInput = {startTime: string; endTime: string; type: string};
 function ClockFields({label, value, onChange}: {label: string; value: ClockInput; onChange: (value: ClockInput) => void}) {
   return <div className="grid grid-cols-2 gap-3">
-    <label className="text-sm font-medium">{label} date<input required placeholder="MM/DD/YYYY" aria-label={`${label} date`} value={value.date} onChange={e => onChange({...value, date: e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" /></label>
+    <label className="text-sm font-medium">{label} date<input required type="date" aria-label={`${label} date`} value={value.date} onChange={e => onChange({...value, date: e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" /></label>
     <label className="text-sm font-medium">{label} time<input required type="time" aria-label={`${label} time`} value={value.time} onChange={e => onChange({...value, time: e.target.value})} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" /></label>
   </div>;
 }
@@ -26,22 +26,48 @@ export function ManualTimesheetModal({isOpen, onClose, employees, locations, wor
   const [breaks, setBreaks] = useState<BreakInput[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const timeZone = locations.find(location => location.id === locationId)?.timeZone || 'America/New_York';
+  const [shifts, setShifts] = useState<any[]>([]);
+  const [shiftId, setShiftId] = useState('');
+  const [loadingShifts, setLoadingShifts] = useState(false);
+  const [shiftError, setShiftError] = useState('');
+  const selectedShift = shifts.find(shift => shift.id === shiftId);
+  const timeZone = selectedShift?.timeZone || locations.find(location => location.id === locationId)?.timeZone || 'America/New_York';
   useEffect(() => {
     if (!isOpen) return;
-    const date = formatRecordTime(new Date(), 'MM/dd/yyyy', 'America/New_York');
+    const date = formatRecordTime(new Date(), 'yyyy-MM-dd', 'America/New_York');
     setEmployeeId(''); setLocationId(''); setStart({date, time: ''}); setEnd({date, time: ''}); setBreaks([]); setNote('');
   }, [isOpen]);
+  useEffect(() => {
+    let active = true;
+    setShifts([]); setShiftId(''); setLocationId(''); setBreaks([]); setShiftError('');
+    setStart({date: '', time: ''}); setEnd({date: '', time: ''});
+    if (!isOpen || !employeeId) { setLoadingShifts(false); return; }
+    setLoadingShifts(true);
+    api.get('/time-tracking/untracked-shifts', {params: {employeeId}}).then(response => {
+      if (active) setShifts(response.data);
+    }).catch(() => { if (active) setShiftError('Unable to load scheduled shifts. Please select the employee again to retry.'); })
+      .finally(() => { if (active) setLoadingShifts(false); });
+    return () => { active = false; };
+  }, [employeeId, isOpen]);
+  const chooseShift = (id: string) => {
+    setShiftId(id); setBreaks([]);
+    const shift = shifts.find(entry => entry.id === id);
+    setLocationId(shift?.locationId || '');
+    const fields = (value: string) => ({date: formatRecordTime(value, 'yyyy-MM-dd', shift.timeZone), time: formatRecordTime(value, 'HH:mm', shift.timeZone)});
+    setStart(shift ? fields(shift.startTime) : {date: '', time: ''});
+    setEnd(shift ? fields(shift.endTime) : {date: '', time: ''});
+  };
   const instant = (input: ClockInput) => {
-    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(input.date);
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.date);
     if (!match || !/^\d{2}:\d{2}$/.test(input.time)) throw Error('Enter dates as MM/DD/YYYY and complete every time field');
-    const result = recordInputDate(`${match[3]}-${match[1]}-${match[2]}T${input.time}`, timeZone);
-    if (!Number.isFinite(+result) || formatRecordTime(result, 'MM/dd/yyyy', timeZone) !== input.date || formatRecordTime(result, 'HH:mm', timeZone) !== input.time) throw Error('Enter a valid date and time at the work location');
+    const result = recordInputDate(`${input.date}T${input.time}`, timeZone);
+    if (!Number.isFinite(+result) || formatRecordTime(result, 'yyyy-MM-dd', timeZone) !== input.date || formatRecordTime(result, 'HH:mm', timeZone) !== input.time) throw Error('Enter a valid date and time at the work location');
     return result.toISOString();
   };
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return;
     try {
+      if (loadingShifts || !selectedShift) throw Error('Choose a scheduled shift without a clock-in record');
       const startTime = instant(start), endTime = instant(end);
       if (Date.parse(endTime) <= Date.parse(startTime) || Date.parse(endTime) > Date.now()) throw Error('Clock-out must be after clock-in and cannot be in the future');
       const entries = breaks.map(entry => {
@@ -50,7 +76,7 @@ export function ManualTimesheetModal({isOpen, onClose, employees, locations, wor
         return {type: entry.type, startTime: range.start.toISOString(), endTime: range.end!.toISOString()};
       });
       setBusy(true);
-      const response = await api.post('/time-tracking/timesheets', {employeeId, locationId, startTime, endTime, timeZone, workerType, employeeNote: note, breaks: entries});
+      const response = await api.post('/time-tracking/timesheets', {employeeId, locationId, shiftId, startTime, endTime, timeZone, workerType, employeeNote: note, breaks: entries});
       toast.success('Timesheet added and awaiting approval'); onSaved(response.data); onClose();
     } catch (error: any) { toast.error(error?.response?.data?.message || error?.message || 'Unable to add timesheet'); }
     finally { setBusy(false); }
@@ -62,8 +88,11 @@ export function ManualTimesheetModal({isOpen, onClose, employees, locations, wor
       <fieldset disabled={busy} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm font-medium">Employee<select required value={employeeId} onChange={e => setEmployeeId(e.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800"><option value="">Choose employee</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.firstName} {employee.lastName}</option>)}</select></label>
-          <label className="text-sm font-medium">Location<select required value={locationId} onChange={e => setLocationId(e.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800"><option value="">Choose location</option>{locations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+          <label className="text-sm font-medium">Scheduled shift<select required disabled={!employeeId || loadingShifts} value={shiftId} onChange={e => chooseShift(e.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800"><option value="">{loadingShifts ? 'Loading shifts…' : 'Choose day and location'}</option>{shifts.map(shift => <option key={shift.id} value={shift.id}>{formatRecordTime(shift.startTime, 'MM/dd/yyyy', shift.timeZone)} · {shift.locationName} · {formatRecordTime(shift.startTime, 'h:mm a', shift.timeZone)} – {formatRecordTime(shift.endTime, 'MM/dd/yyyy h:mm a', shift.timeZone)}</option>)}</select></label>
         </div>
+        {shiftError && <p role="alert" className="text-sm text-red-600">{shiftError}</p>}
+        {employeeId && !loadingShifts && !shiftError && shifts.length === 0 && <p className="text-sm text-slate-500">No past scheduled shifts without clock-in records were found for this employee.</p>}
+        {selectedShift && <p className="text-sm text-slate-500">Location: <strong>{selectedShift.locationName}</strong>. Scheduled times are filled in below; edit them to reflect the actual time worked.{selectedShift.breakMinutes > 0 ? ` Scheduled break: ${selectedShift.breakMinutes} minutes. Enter the actual break times below.` : ''}</p>}
         <ClockFields label="Clock-in" value={start} onChange={setStart} />
         <ClockFields label="Clock-out" value={end} onChange={setEnd} />
         <p className="text-xs text-slate-500">Break dates follow the worked period automatically, including overnight shifts.</p>
