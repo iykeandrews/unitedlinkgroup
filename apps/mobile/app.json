@@ -2,11 +2,13 @@
   "expo": {
     "name": "United Link Group",
     "slug": "unitedlinkgroup",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "./assets/logo.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.unitedlinkgroup.mobile",
