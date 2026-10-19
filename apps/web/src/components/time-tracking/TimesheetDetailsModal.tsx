@@ -167,10 +167,14 @@ export function TimesheetDetailsModal({
     try {
       setLoading(true);
 
-      const start = recordInputDate(formData.startTime, timesheet?.timeZone);
+      const start = formData.startTime === formatRecordTime(timesheet.startTime, "yyyy-MM-dd'T'HH:mm", timesheet?.timeZone)
+        ? new Date(timesheet.startTime)
+        : recordInputDate(formData.startTime, timesheet?.timeZone);
       let end = null;
       if (formData.endTime) {
-        end = recordInputDate(formData.endTime, timesheet?.timeZone);
+        end = timesheet.endTime && formData.endTime === formatRecordTime(timesheet.endTime, "yyyy-MM-dd'T'HH:mm", timesheet?.timeZone)
+          ? new Date(timesheet.endTime)
+          : recordInputDate(formData.endTime, timesheet?.timeZone);
       }
 
       if (
@@ -180,7 +184,13 @@ export function TimesheetDetailsModal({
         throw new Error("Enter valid times with end after start");
       const processedBreaks = formData.breaks.map((b) => {
         if (!b.startTime) throw new Error("Every break needs a start time");
-        const range = enteredBreakRange(start, end || new Date(), b.startTime, b.endTime, timesheet?.timeZone);
+        const original = timesheet.breaks?.find((entry: any) =>
+          new Date(entry.startTime) >= start && (!end || new Date(entry.startTime) < end)
+          && (!entry.endTime || !end || new Date(entry.endTime) <= end)
+          && formatRecordTime(entry.startTime, 'HH:mm', timesheet?.timeZone) === b.startTime
+          && (entry.endTime ? formatRecordTime(entry.endTime, 'HH:mm', timesheet?.timeZone) : '') === b.endTime);
+        const range = original ? {start:new Date(original.startTime),end:original.endTime ? new Date(original.endTime) : null}
+          : enteredBreakRange(start, end || new Date(), b.startTime, b.endTime, timesheet?.timeZone);
         return {
           startTime: range.start.toISOString(),
           endTime: range.end?.toISOString() || null,

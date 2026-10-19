@@ -827,11 +827,10 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
         });
         toast.success('Clocked out successfully');
       } else {
-        await api.post('/time-tracking/admin/clock-in', {
-          employeeId: employee.id,
-          locationId: locations[0]?.id 
+        const result = await api.post('/time-tracking/admin/clock-in', {
+          employeeId: employee.id
         });
-        toast.success('Shift started successfully');
+        toast.success(result.data?.locationId ? 'Clocked in successfully' : 'Clocked in. Location pending assignment in Time & Attendance.');
       }
       await fetchShiftStatus();
       await fetchShifts();

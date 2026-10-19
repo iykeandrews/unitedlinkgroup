@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import {adminClockInShift} from '../src/time-tracking/admin-shift-location';
+import {TimeTrackingService} from '../src/time-tracking/time-tracking.service';
+async function main(){
+  const now=new Date('2026-10-19T14:00:00Z');
+  const shift=(id:string,start:string,end:string,locationId='scheduled',extra:any={})=>({id,employeeId:'employee',businessId:'business',status:'PUBLISHED',locationId,location:{id:locationId,businessId:'business',timeZone:'America/New_York'},startTime:new Date(start),endTime:new Date(end),...extra});
+  const current=shift('current','2026-10-19T10:00:00Z','2026-10-19T18:00:00Z');
+  const ended=shift('ended','2026-10-19T08:00:00Z','2026-10-19T14:00:00Z');
+  const upcoming=shift('upcoming','2026-10-19T18:00:00Z','2026-10-20T02:00:00Z');
+  const tomorrow=shift('tomorrow','2026-10-20T10:00:00Z','2026-10-20T18:00:00Z');
+  for(const zone of ['Africa/Lagos','America/Los_Angeles']){
+    process.env.TZ=zone;
+    assert.equal(adminClockInShift([current],now,'business').id,'current');
+    assert.equal(adminClockInShift([ended],now,'business'),null);
+    assert.equal(adminClockInShift([],now,'business'),null);
+    assert.equal(adminClockInShift([upcoming,current],now,'business').id,'current');
+    assert.equal(adminClockInShift([upcoming],now,'business').id,'upcoming');
+    assert.equal(adminClockInShift([tomorrow],now,'business'),null);
+    assert.equal(adminClockInShift([{...current,status:'DRAFT'}],now,'business'),null);
+    assert.equal(adminClockInShift([{...current,notes:'Unscheduled shift started by Admin'}],now,'business'),null);
+    assert.equal(adminClockInShift([{...current,location:{businessId:'other'}}],now,'business'),null);
+    assert.equal(adminClockInShift([current,{...current,locationId:'other'}],now,'business'),null);
+    const overnight=shift('overnight','2026-10-19T03:00:00Z','2026-10-19T11:00:00Z');
+    assert.equal(adminClockInShift([overnight],new Date('2026-10-19T07:00:00Z'),'business').id,'overnight');
+  }
+  let candidates:any[]=[],saved:any;
+  const employee={id:'employee',businessId:'business',workerType:'W2'};
+  const prisma:any={employee:{findUnique:async()=>employee,findFirst:async()=>null},business:{findFirst:async()=>null},shift:{findMany:async()=>candidates},timesheet:{findFirst:async()=>null,create:async(args:any)=>{saved=args.data;return {...saved,id:'record'};}}};
+  const service=new TimeTrackingService(prisma,{} as any,{} as any);
+  const admin={role:'SUPER_ADMIN',userId:'admin'};
+  await service.adminClockIn('employee','arbitrary-browser-default',admin);
+  assert.equal(saved.locationId,undefined);
+  const clockNow=Date.now();
+  candidates=[{...current,startTime:new Date(clockNow-3600000),endTime:new Date(clockNow+3600000)}];
+  await service.adminClockIn('employee','arbitrary-browser-default',admin);
+  assert.equal(saved.locationId,'scheduled');
+  candidates=[{...current,startTime:new Date(clockNow-7200000),endTime:new Date(clockNow-3600000)}];
+  await service.adminClockIn('employee','arbitrary-browser-default',admin);
+  assert.equal(saved.locationId,undefined);
+  await assert.rejects(()=>service.adminClockIn('employee',undefined,{role:'EMPLOYEE'}),/Only administrators/);
+  await assert.rejects(()=>service.adminClockIn('employee',undefined,{role:'BUSINESS_ADMIN',userId:'outside'}),/Access denied/);
+  prisma.timesheet.findFirst=async()=>({id:'running'});
+  await assert.rejects(()=>service.adminClockIn('employee',undefined,admin),/already clocked in/);
+  console.log('Admin clock-in location, timezone, blank site, tenant, and duplicate checks passed');
+}
+main().catch(error=>{console.error(error);process.exitCode=1;});

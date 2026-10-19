@@ -1,3 +1,4 @@
+import {adminClockInShift} from './admin-shift-location';
 import { Injectable, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma.service';
@@ -437,101 +438,19 @@ export class TimeTrackingService {
     return shift;
   }
 
-  async adminClockIn(employeeId: string, locationId?: string, user?: any): Promise<any> {
-    if (user) {
-        const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
-        if (!employee) throw new BadRequestException('Employee not found');
-        await this.validateBusinessAccess(employee.businessId, user);
-    }
-
-    // 1. Clock In (create timesheet)
-    // We bypass geofencing checks for admin overrides
-    const timesheet = await this.clockIn(employeeId, locationId, undefined, undefined, undefined, { bypassGeofence: true });
-
-    // 2. Check if there is an active shift for this time
-    const now = new Date();
-    const existingShift = await this.prisma.shift.findFirst({
-      where: {
-        employeeId,
-        startTime: { lte: now },
-        endTime: { gte: now },
-      },
-    });
-
-    // 3. If no shift exists, create an "Unscheduled" shift
-    if (!existingShift) {
-      const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
-      if (!employee) throw new BadRequestException('Employee not found');
-
-      const records = await (this.prisma as any).availability.findMany({
-        where: { employeeId },
-        orderBy: { createdAt: 'desc' }
-      });
-      if (records && records.length > 0) {
-        const dayKey = ['sun','mon','tue','wed','thu','fri','sat'][now.getDay()];
-        const applies = (rec: any, date: Date) => {
-          const rep = String(rec.repeat || '').toUpperCase();
-          if (rep === 'WEEKLY') {
-            const days = typeof rec.repeatDays === 'string' ? rec.repeatDays.split(',') : [];
-            if (!days.includes(dayKey)) return false;
-            if (String(rec.endOption || '').toUpperCase() === 'ENDS_ON' && rec.endOn) {
-              if (date > new Date(rec.endOn)) return false;
-            }
-            return true;
-          }
-          const sd = rec.startDate ? new Date(rec.startDate) : null;
-          const ed = rec.endDate ? new Date(rec.endDate) : null;
-          if (!sd) return false;
-          const d0 = new Date(sd);
-          d0.setHours(0,0,0,0);
-          if (ed) {
-            return date >= d0 && date <= ed;
-          }
-          return date.toDateString() === sd.toDateString();
-        };
-        const overlapsTime = (rec: any, s: Date) => {
-          if (!!rec.allDay) return true;
-          const sd = new Date(rec.startDate);
-          const ed = rec.endDate ? new Date(rec.endDate) : null;
-          const startMinutes = sd.getHours()*60 + sd.getMinutes();
-          const endMinutes = ed ? (ed.getHours()*60 + ed.getMinutes()) : (23*60+59);
-          const sMin = s.getHours()*60 + s.getMinutes();
-          return sMin < endMinutes && sMin > startMinutes;
-        };
-        let blocked = false;
-        for (const r of records) {
-          if (!applies(r, now)) continue;
-          if (!r.isAvailable) {
-            const overlaps = !!r.allDay || overlapsTime(r, now);
-            if (overlaps) {
-              blocked = true;
-              break;
-            }
-          }
-        }
-        if (blocked) {
-          throw new BadRequestException('Employee is not available for this time');
-        }
-      }
-
-      // Create an open-ended shift (placeholder 8h)
-      const endTime = new Date(now);
-      endTime.setHours(endTime.getHours() + 8);
-      
-      await this.prisma.shift.create({
-        data: {
-          businessId: employee.businessId,
-          employeeId: employee.id,
-          locationId: locationId,
-          startTime: now,
-          endTime: endTime,
-          status: 'PUBLISHED',
-          notes: 'Unscheduled shift started by Admin',
-        },
-      });
-    }
-
-    return timesheet;
+  async adminClockIn(employeeId: string, _locationId?: string, user?: any): Promise<any> {
+    if (!['SUPER_ADMIN','BUSINESS_ADMIN'].includes(user?.role)) throw new ForbiddenException('Only administrators can clock in an employee');
+    const employee=await this.prisma.employee.findUnique({where:{id:employeeId}});
+    if(!employee) throw new BadRequestException('Employee not found');
+    await this.validateBusinessAccess(employee.businessId,user);
+    const now=new Date();
+    const shifts=await this.prisma.shift.findMany({where:{
+      employeeId,businessId:employee.businessId,status:'PUBLISHED',
+      endTime:{gt:now},startTime:{lte:new Date(+now+86400000)},
+    },include:{location:true},orderBy:{startTime:'asc'}});
+    const shift=adminClockInShift(shifts,now,employee.businessId);
+    // No default site or synthetic schedule: unassigned time can be reviewed by an admin.
+    return this.clockIn(employeeId,shift?.locationId || undefined,undefined,undefined,undefined,{bypassGeofence:true});
   }
 
   async adminClockOut(employeeId: string, user?: any): Promise<any> {
