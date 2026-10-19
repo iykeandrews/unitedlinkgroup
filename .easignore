@@ -28,3 +28,5 @@ apps/mobile/android/
 packages/database/prisma/client-sqlite/
 apps/api/apps/
 apps/mobile/apps/
+
+.home/
