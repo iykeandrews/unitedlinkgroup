@@ -19,3 +19,12 @@ tmp/
 outputs/
 apps/mobile/ios/
 apps/mobile/android/
+
+# Backend data and local uploads are never part of mobile binaries.
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/uploads/
+packages/database/prisma/client-sqlite/
+apps/api/apps/
+apps/mobile/apps/
