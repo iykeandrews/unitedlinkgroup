@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, UsePipes, ValidationPipe, Headers, Query, BadRequestException, UseInterceptors, UploadedFile, Res } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request, UsePipes, ValidationPipe, Headers, Query, BadRequestException, UseInterceptors, UploadedFile, Res, StreamableFile } from '@nestjs/common';
 import { IncidentReportsService } from './incident-reports.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -115,7 +115,7 @@ export class IncidentReportsController {
     });
     res.setHeader('Content-Type', out.mime);
     res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
-    return out.data;
+    return new StreamableFile(Buffer.isBuffer(out.data) ? out.data : Buffer.from(out.data, 'utf8'));
   }
 
   @Get(':id')

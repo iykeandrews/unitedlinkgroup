@@ -4,6 +4,11 @@ import {Workbook} from 'exceljs';
 import {reportWhere,reportOrder} from '../src/incident-reports/report-query';
 import {IncidentReportsService} from '../src/incident-reports/incident-reports.service';
 import {LocationsService} from '../src/locations/locations.service';
+import {Module} from '@nestjs/common';
+import {NestFactory} from '@nestjs/core';
+import {GUARDS_METADATA} from '@nestjs/common/constants';
+import {IncidentReportsController} from '../src/incident-reports/incident-reports.controller';
+import {UploadsService} from '../src/uploads/uploads.service';
 async function main(){
   const admin={role:'SUPER_ADMIN',userId:'admin'};
   const filters={locationId:'site',reportingOfficerEmployeeId:'officer',from:'2026-07-01',to:'2026-09-30',dateField:'submitted',search:'door',sort:'officer',direction:'asc'};
@@ -33,6 +38,14 @@ async function main(){
   assert.equal((await service.deliverToClient('report',admin)).status,'SENT');assert.equal(mail.to,'client@example.com');assert.deepEqual(mail.cc,['security@example.com']);assert.equal(mail.attachments[0].contentType,'application/pdf');
   assert.ok(!mail.text.includes('INTERNAL NOTE'));assert.equal(events[events.length-1].eventType,'EMAIL_SENT');
   const failing=new IncidentReportsService(prisma,{} as any,{send:async()=>{throw Error('SMTP unavailable');}} as any);
+  let automaticSends=0;
+  const createPrisma:any={...prisma,location:{findUnique:async()=>({id:'site',businessId:'business'})},incidentReport:{...prisma.incidentReport,findFirst:async()=>null,create:async()=>report}};
+  createPrisma.$transaction=async(fn:any)=>fn(createPrisma);
+  const submitting=new IncidentReportsService(createPrisma,{} as any,{send:async()=>{automaticSends++;}} as any);
+  const submitted=await submitting.create({title:report.title,description:report.description,type:report.type,severity:report.severity,locationId:'site'} as any,admin,'business');
+  assert.equal(automaticSends,1);assert.equal(submitted.clientDelivery.status,'SENT');
+  await submitting.deliverToClient('report',admin);
+  assert.equal(automaticSends,2,'Manual send remains available after automatic sending');
   assert.equal((await failing.deliverToClient('report',admin)).status,'FAILED');assert.equal(events[events.length-1].eventType,'EMAIL_FAILED');
   report.location.incidentReportEmails='[]';
   assert.equal((await service.deliverToClient('report',admin,true)).status,'NOT_CONFIGURED');
@@ -41,6 +54,25 @@ async function main(){
   const locations:any=new LocationsService({} as any,{} as any);
   assert.equal(locations.incidentEmails([' CLIENT@example.com ','client@example.com']),'["client@example.com"]');
   assert.throws(()=>locations.incidentEmails(['bad-address']));assert.throws(()=>locations.incidentEmails(['bad@example.com\nBcc:other@example.com']));
+  // Only this isolated test controller bypasses authentication; production guards are unchanged.
+  Reflect.defineMetadata(GUARDS_METADATA,[],IncidentReportsController);
+  @Module({controllers:[IncidentReportsController],providers:[{provide:IncidentReportsService,useValue:service},{provide:UploadsService,useValue:{}}]})
+  class DownloadTestModule {}
+  const app=await NestFactory.create(DownloadTestModule,{logger:false});
+  app.use((req:any,_res:any,next:any)=>{req.user=admin;next();});
+  try{
+    await app.listen(0,'127.0.0.1');
+    const url=await app.getUrl();
+    for(const format of ['pdf','xlsx']){
+      const response=await fetch(url+'/incident-reports/export?format='+format+'&locationId=site',{headers:{'x-business-id':'business'}});
+      assert.equal(response.status,200);
+      assert.ok(response.headers.get('content-disposition')?.includes('.'+format));
+      const bytes=Buffer.from(await response.arrayBuffer());
+      assert.notEqual(bytes.toString('utf8',0,1),'{','Downloads must not serialize Buffer as JSON');
+      if(format==='pdf'){assert.equal(bytes.toString('ascii',0,4),'%PDF');assert.equal(response.headers.get('content-type'),'application/pdf');}
+      else {assert.equal(bytes.toString('ascii',0,2),'PK');const opened=new Workbook();await opened.xlsx.load(bytes as any);assert.equal(opened.worksheets[0].getCell(1,1).value,business.name);}
+    }
+  }finally{await app.close();}
   console.log('Incident workspace filters, exports, access, recipients, and delivery checks passed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
