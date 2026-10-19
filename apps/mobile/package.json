@@ -29,6 +29,7 @@
     "expo-location": "~19.0.8",
     "expo-modules-core": "^3.0.30",
     "expo-notifications": "~0.32.17",
+    "expo-secure-store": "~15.0.8",
     "expo-sharing": "~14.0.1",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",

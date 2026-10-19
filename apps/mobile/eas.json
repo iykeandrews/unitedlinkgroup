@@ -14,7 +14,18 @@
     },
     "production": {
       "autoIncrement": true,
-      "credentialsSource": "remote"
+      "credentialsSource": "remote",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://www.unitedlinkgroup.com/api"
+      }
+    },
+    "download": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "environment": "production"
     }
   },
   "submit": {

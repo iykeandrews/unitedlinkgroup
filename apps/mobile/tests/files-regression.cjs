@@ -1,0 +1,109 @@
+const assert = require("node:assert/strict"),
+  fs = require("node:fs"),
+  vm = require("node:vm"),
+  ts = require("typescript");
+const calls = [];
+let status = 200,
+  signature = "%PDF-",
+  refreshed = false,
+  shared = 0;
+const modules = {
+  "react-native": { Platform: { OS: "ios" } },
+  "expo-file-system/legacy": {
+    cacheDirectory: "cache/",
+    EncodingType: { UTF8: "utf8" },
+    downloadAsync: async (url, path, options) => {
+      calls.push({ url, headers: { ...options.headers } });
+      const code = status;
+      if (code === 401) {
+        status = 200;
+      }
+      return { uri: path, status: code };
+    },
+    readAsStringAsync: async () => signature,
+    deleteAsync: async () => {},
+  },
+  "expo-sharing": {
+    isAvailableAsync: async () => true,
+    shareAsync: async () => {
+      shared++;
+    },
+  },
+  "./api": {
+    __esModule: true,
+    default: { defaults: { baseURL: "https://example.com/api" } },
+    refreshSession: async () => {
+      refreshed = true;
+      return "renewed";
+    },
+  },
+  "./sessionStore": { getAccessToken: async () => "private-token" },
+};
+const exportsObject = {};
+const source = fs.readFileSync(
+  require("node:path").join(__dirname, "../src/services/mobileFiles.ts"),
+  "utf8",
+);
+vm.runInNewContext(
+  ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText,
+  {
+    exports: exportsObject,
+    require: (name) => {
+      assert.ok(modules[name], name);
+      return modules[name];
+    },
+    URL,
+    setTimeout,
+  },
+);
+(async () => {
+  await exportsObject.shareMobileFile(
+    "/payroll/paystubs/1/download",
+    "pay.pdf",
+    true,
+  );
+  assert.equal(shared, 1);
+  assert.equal(
+    calls[0].url,
+    "https://example.com/api/payroll/paystubs/1/download",
+  );
+  assert.equal(calls[0].headers.Authorization, "Bearer private-token");
+  await exportsObject.shareMobileFile("/uploads/sop.pdf", "sop.pdf", true);
+  assert.equal(calls[1].url, "https://example.com/uploads/sop.pdf");
+  await exportsObject.shareMobileFile(
+    "https://other.example/sop.pdf",
+    "sop.pdf",
+    true,
+  );
+  assert.equal(calls[2].headers.Authorization, undefined);
+  status = 401;
+  await exportsObject.shareMobileFile(
+    "/payroll/paystubs/1/download",
+    "pay.pdf",
+    true,
+  );
+  assert.ok(refreshed);
+  assert.equal(calls.at(-1).headers.Authorization, "Bearer renewed");
+  signature = "error";
+  await assert.rejects(
+    () =>
+      exportsObject.shareMobileFile(
+        "/payroll/paystubs/1/download",
+        "pay.pdf",
+        true,
+      ),
+    /valid PDF/,
+  );
+  assert.equal(shared, 4);
+  console.log(
+    "Mobile file checks passed: PDF validation, native sharing, token renewal, upload paths, no credentials sent to external hosts.",
+  );
+})().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

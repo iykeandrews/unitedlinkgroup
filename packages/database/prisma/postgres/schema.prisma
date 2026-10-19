@@ -10,6 +10,7 @@ datasource db {
 
 // Global Users (Super Admins / Owners)
 model User {
+  mobileSessions MobileSession[]
   id        String   @id @default(uuid())
   email     String   @unique
   password  String   // Hashed
@@ -1563,4 +1564,17 @@ model InvoicePayment {
 
   @@unique([invoiceId, idempotencyKey])
   @@index([invoiceId, paidAt])
+}
+
+
+model MobileSession {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  tokenHash String @unique
+  credentialHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, expiresAt])
 }

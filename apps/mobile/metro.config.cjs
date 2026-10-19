@@ -1,31 +1,40 @@
-const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
-const exclusionListModule = require('metro-config/private/defaults/exclusionList');
+const { getDefaultConfig } = require("expo/metro-config");
+const path = require("path");
+const exclusionListModule = require("metro-config/private/defaults/exclusionList");
 const exclusionList = exclusionListModule.default || exclusionListModule;
 
 const config = getDefaultConfig(__dirname);
+// Prefer maintained TypeScript sources over old emitted JavaScript siblings.
+config.resolver.sourceExts = [
+  "tsx",
+  "ts",
+  ...config.resolver.sourceExts.filter((ext) => !["ts", "tsx"].includes(ext)),
+];
 
 // Opt out of package.json exports to avoid dual package hazard causing default undefined
 config.resolver.unstable_enablePackageExports = false;
 config.resolver.useWatchman = false;
 
 // Root node_modules path
-const rootNodeModules = path.resolve(__dirname, '../../node_modules');
+const rootNodeModules = path.resolve(__dirname, "../../node_modules");
 
 // Force Metro to resolve 'react' and 'react-native' from the mobile app's node_modules
 // This prevents "Invalid hook call" errors caused by multiple React instances
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
-  'react': path.resolve(__dirname, 'node_modules/react'),
-  'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
-  'react-native': path.resolve(__dirname, 'node_modules/react-native'),
-  'react-native-screens': path.resolve(__dirname, 'node_modules/react-native-screens'),
-  'react-native-web': path.resolve(__dirname, 'node_modules/react-native-web'),
+  react: path.resolve(__dirname, "node_modules/react"),
+  "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
+  "react-native": path.resolve(__dirname, "node_modules/react-native"),
+  "react-native-screens": path.resolve(
+    __dirname,
+    "node_modules/react-native-screens",
+  ),
+  "react-native-web": path.resolve(__dirname, "node_modules/react-native-web"),
 };
 
 // Ensure we search the local node_modules first
 config.resolver.nodeModulesPaths = [
-  path.resolve(__dirname, 'node_modules'),
+  path.resolve(__dirname, "node_modules"),
   rootNodeModules,
 ];
 

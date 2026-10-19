@@ -1,60 +1,95 @@
-import React from 'react';
-import { enableScreens } from 'react-native-screens';
-import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
-import { ActivityIndicator, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAccessToken } from "../services/sessionStore";
+import React from "react";
+import { enableScreens } from "react-native-screens";
+import { NavigationContainer } from "@react-navigation/native";
+import { createStackNavigator } from "@react-navigation/stack";
+import { ActivityIndicator, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import LoginScreen from '../screens/LoginScreen';
-import MainTabNavigator from './MainTabNavigator';
-import AvailabilityScreen from '../screens/AvailabilityScreen';
-import SettingsScreen from '../screens/SettingsScreen';
-import ChatThreadScreen from '../screens/ChatThreadScreen';
-import IncidentReportCreateScreen from '../screens/IncidentReportCreateScreen';
-import IncidentReportHistoryScreen from '../screens/IncidentReportHistoryScreen';
-import IncidentReportDetailScreen from '../screens/IncidentReportDetailScreen';
-import { useAuth } from '../context/AuthContext';
-import { addNotificationResponseListener, configureExpoNotifications } from '../services/push';
-import { connectChatPresence, disconnectChatPresence } from '../services/chatPresence';
-import { navigationRef, navigate } from './NavigationService';
-import { useEffect } from 'react';
+import InformationScreen from "../screens/InformationScreen";
+import LoginScreen from "../screens/LoginScreen";
+import MainTabNavigator from "./MainTabNavigator";
+import AvailabilityScreen from "../screens/AvailabilityScreen";
+import SettingsScreen from "../screens/SettingsScreen";
+import ChatThreadScreen from "../screens/ChatThreadScreen";
+import IncidentReportCreateScreen from "../screens/IncidentReportCreateScreen";
+import IncidentReportHistoryScreen from "../screens/IncidentReportHistoryScreen";
+import IncidentReportDetailScreen from "../screens/IncidentReportDetailScreen";
+import { useAuth } from "../context/AuthContext";
+import {
+  addNotificationResponseListener,
+  configureExpoNotifications,
+} from "../services/push";
+import {
+  connectChatPresence,
+  disconnectChatPresence,
+} from "../services/chatPresence";
+import { navigationRef, navigate } from "./NavigationService";
+import { useEffect } from "react";
 
 enableScreens(false);
 const Stack = createStackNavigator();
 
 export default function AppNavigator() {
   const { user, loading } = useAuth();
-  console.log('AppNavigator render', { loading, hasUser: !!user });
+  const pendingOperations = React.useRef(false),
+    signedIn = React.useRef(user);
+  signedIn.current = user;
+  const flushOperations = () => {
+    if (
+      pendingOperations.current &&
+      signedIn.current &&
+      navigationRef.isReady()
+    ) {
+      pendingOperations.current = false;
+      navigate("Main", {
+        screen: "Schedule",
+        params: { screen: "TeamOperations" },
+      });
+    }
+  };
+  useEffect(() => {
+    if (user && !loading) flushOperations();
+  }, [user, loading]);
+  console.log("AppNavigator render", { loading, hasUser: !!user });
   useEffect(() => {
     let sub: any;
     const setup = async () => {
       await configureExpoNotifications();
       sub = await addNotificationResponseListener((url?: string) => {
-        const raw = String(url || '');
+        const raw = String(url || "");
         const threadIdMatch = raw.match(/[?&]threadId=([^&]+)/);
         if (threadIdMatch?.[1]) {
           const threadId = decodeURIComponent(threadIdMatch[1]);
-          navigate('ChatThread', { threadId });
+          navigate("ChatThread", { threadId });
           return;
         }
-        if (raw.includes('/dashboard/time')) {
-          navigate('Home');
+        if (raw.includes("/mobile/operations")) {
+          pendingOperations.current = true;
+          flushOperations();
           return;
         }
-        if (raw.includes('/dashboard/communications/chats')) {
-          navigate('Chat');
+        if (raw.includes("/dashboard/time")) {
+          navigate("Home");
           return;
         }
-        if (raw.includes('/dashboard/profile') || raw.includes('qualifications')) {
-          navigate('Profile');
+        if (raw.includes("/dashboard/communications/chats")) {
+          navigate("Chat");
           return;
         }
-        navigate('Schedule');
+        if (
+          raw.includes("/dashboard/profile") ||
+          raw.includes("qualifications")
+        ) {
+          navigate("Profile");
+          return;
+        }
+        navigate("Schedule");
       });
     };
     setup();
     return () => {
-      if (sub && typeof sub.remove === 'function') {
+      if (sub && typeof sub.remove === "function") {
         sub.remove();
       }
     };
@@ -70,11 +105,11 @@ export default function AppNavigator() {
 
     (async () => {
       const [token, storedBusinessId] = await Promise.all([
-        AsyncStorage.getItem('token'),
-        AsyncStorage.getItem('businessId'),
+        getAccessToken(),
+        AsyncStorage.getItem("businessId"),
       ]);
       if (cancelled || !token) return;
-      connectChatPresence(token, user?.businessId || storedBusinessId || '');
+      connectChatPresence(token, user?.businessId || storedBusinessId || "");
     })();
 
     return () => {
@@ -85,29 +120,42 @@ export default function AppNavigator() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator size="large" color="#4f46e5" />
       </View>
     );
   }
 
-  const initialRouteName = user ? 'Main' : 'Login';
+  const initialRouteName = user ? "Main" : "Login";
   return (
     <NavigationContainer
       ref={navigationRef}
-      onReady={() => console.log('Navigation ready')}
-      onStateChange={() => console.log('Navigation state changed')}
+      onReady={flushOperations}
+      onStateChange={flushOperations}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName={initialRouteName}>
+      <Stack.Navigator
+        screenOptions={{ headerShown: false }}
+        initialRouteName={initialRouteName}
+      >
         {user ? (
           <>
             <Stack.Screen name="Main" component={MainTabNavigator} />
             <Stack.Screen name="Availability" component={AvailabilityScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="Information" component={InformationScreen} />
             <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
-            <Stack.Screen name="IncidentReportCreate" component={IncidentReportCreateScreen} />
-            <Stack.Screen name="IncidentReportHistory" component={IncidentReportHistoryScreen} />
-            <Stack.Screen name="IncidentReportDetail" component={IncidentReportDetailScreen} />
+            <Stack.Screen
+              name="IncidentReportCreate"
+              component={IncidentReportCreateScreen}
+            />
+            <Stack.Screen
+              name="IncidentReportHistory"
+              component={IncidentReportHistoryScreen}
+            />
+            <Stack.Screen
+              name="IncidentReportDetail"
+              component={IncidentReportDetailScreen}
+            />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />

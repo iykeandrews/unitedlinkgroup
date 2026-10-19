@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import webpush, { PushSubscription } from 'web-push';
-import axios from 'axios';
-import { PrismaService } from '../prisma.service';
+import { Injectable, Logger } from "@nestjs/common";
+import webpush, { PushSubscription } from "web-push";
+import axios from "axios";
+import { PrismaService } from "../prisma.service";
 
 interface PushPayload {
   type: string;
@@ -19,7 +19,8 @@ export class PushService {
   constructor(private prisma: PrismaService) {
     const publicKey = process.env.VAPID_PUBLIC_KEY;
     const privateKey = process.env.VAPID_PRIVATE_KEY;
-    const mailto = process.env.VAPID_MAILTO || 'mailto:notifications@unitedlinkgroup.local';
+    const mailto =
+      process.env.VAPID_MAILTO || "mailto:notifications@unitedlinkgroup.local";
     if (publicKey && privateKey) {
       webpush.setVapidDetails(mailto, publicKey, privateKey);
     }
@@ -34,34 +35,44 @@ export class PushService {
     if (!endpoint || !p256dh || !auth) {
       return Promise.resolve();
     }
-    return this.prisma.webPushSubscription.upsert({
-      where: { endpoint },
-      update: { userId, p256dh, auth, lastUsedAt: new Date() },
-      create: { userId, endpoint, p256dh, auth, lastUsedAt: new Date() },
-    }).then(() => undefined);
+    return this.prisma.webPushSubscription
+      .upsert({
+        where: { endpoint },
+        update: { userId, p256dh, auth, lastUsedAt: new Date() },
+        create: { userId, endpoint, p256dh, auth, lastUsedAt: new Date() },
+      })
+      .then(() => undefined);
   }
 
   unregisterWeb(userId: string): Promise<void> {
-    return this.prisma.webPushSubscription.deleteMany({ where: { userId } }).then(() => undefined);
+    return this.prisma.webPushSubscription
+      .deleteMany({ where: { userId } })
+      .then(() => undefined);
   }
 
   registerExpo(userId: string, token: string): Promise<void> {
-    return this.prisma.expoPushToken.upsert({
-      where: { token },
-      update: { userId, lastUsedAt: new Date() },
-      create: { userId, token, lastUsedAt: new Date() },
-    }).then(() => undefined);
+    return this.prisma.expoPushToken
+      .upsert({
+        where: { token },
+        update: { userId, lastUsedAt: new Date() },
+        create: { userId, token, lastUsedAt: new Date() },
+      })
+      .then(() => undefined);
   }
 
-  unregisterExpo(userId: string): Promise<void> {
-    return this.prisma.expoPushToken.deleteMany({ where: { userId } }).then(() => undefined);
+  unregisterExpo(userId: string, token?: string): Promise<void> {
+    return this.prisma.expoPushToken
+      .deleteMany({ where: { userId, ...(token ? { token } : {}) } })
+      .then(() => undefined);
   }
 
   async send(userId: string, payload: PushPayload) {
     const iconUrl = payload.iconUrl || this.iconForType(payload.type);
     // Send browser push via Web Push if configured and subscription exists
     if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-      const subs = await this.prisma.webPushSubscription.findMany({ where: { userId } });
+      const subs = await this.prisma.webPushSubscription.findMany({
+        where: { userId },
+      });
       for (const s of subs) {
         try {
           const pushSub = {
@@ -76,43 +87,59 @@ export class PushService {
             tag: this.makeTag(payload),
           };
           await webpush.sendNotification(pushSub, JSON.stringify(webPayload));
-          await this.prisma.webPushSubscription.update({ where: { endpoint: s.endpoint }, data: { lastUsedAt: new Date() } });
+          await this.prisma.webPushSubscription.update({
+            where: { endpoint: s.endpoint },
+            data: { lastUsedAt: new Date() },
+          });
         } catch (err) {
-          this.logger.warn(`Web push failed for user ${userId}: ${(err as any)?.message || String(err)}`);
+          this.logger.warn(
+            `Web push failed for user ${userId}: ${(err as any)?.message || String(err)}`,
+          );
         }
       }
     }
 
     // Send native push via Expo if token exists
-    const expoTokens = await this.prisma.expoPushToken.findMany({ where: { userId } });
+    const expoTokens = await this.prisma.expoPushToken.findMany({
+      where: { userId },
+    });
     for (const t of expoTokens) {
       try {
-        await axios.post('https://exp.host/--/api/v2/push/send', {
+        await axios.post("https://exp.host/--/api/v2/push/send", {
           to: t.token,
           title: payload.title,
           body: payload.message,
-          sound: 'default',
-          data: { ...payload.metadata, actionUrl: payload.actionUrl, type: payload.type },
+          sound: "default",
+          data: {
+            ...payload.metadata,
+            actionUrl: payload.actionUrl,
+            type: payload.type,
+          },
         });
-        await this.prisma.expoPushToken.update({ where: { token: t.token }, data: { lastUsedAt: new Date() } });
+        await this.prisma.expoPushToken.update({
+          where: { token: t.token },
+          data: { lastUsedAt: new Date() },
+        });
       } catch (err) {
-        this.logger.warn(`Expo push failed for user ${userId}: ${(err as any)?.message || String(err)}`);
+        this.logger.warn(
+          `Expo push failed for user ${userId}: ${(err as any)?.message || String(err)}`,
+        );
       }
     }
   }
-  
+
   private iconForType(type: string) {
     // Map types to icons; using favicon as default placeholder
     switch (type) {
-      case 'SUCCESS':
-        return '/favicon.ico';
-      case 'WARNING':
-        return '/favicon.ico';
-      case 'ERROR':
-        return '/favicon.ico';
-      case 'INFO':
+      case "SUCCESS":
+        return "/favicon.ico";
+      case "WARNING":
+        return "/favicon.ico";
+      case "ERROR":
+        return "/favicon.ico";
+      case "INFO":
       default:
-        return '/favicon.ico';
+        return "/favicon.ico";
     }
   }
 
@@ -127,6 +154,6 @@ export class PushService {
       payload.metadata?.start,
       payload.metadata?.end,
     ].filter(Boolean);
-    return parts.join(':');
+    return parts.join(":");
   }
 }

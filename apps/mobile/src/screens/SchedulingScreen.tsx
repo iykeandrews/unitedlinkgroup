@@ -1,31 +1,73 @@
-import React, { useMemo, useState, useCallback } from 'react';
-import { Alert, FlatList, Linking, Modal, Platform, RefreshControl, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import api from '../services/api';
-import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../context/AuthContext';
-import * as DocumentPicker from 'expo-document-picker';
-import { navigate } from '../navigation/NavigationService';
+import React, { useMemo, useState, useCallback } from "react";
+import {
+  Alert,
+  FlatList,
+  Linking,
+  Modal,
+  Platform,
+  RefreshControl,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import api from "../services/api";
+import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "../context/AuthContext";
+import * as DocumentPicker from "expo-document-picker";
+import { navigate } from "../navigation/NavigationService";
 
 export default function SchedulingScreen() {
   const { user, displayName, designation } = useAuth();
+  const [teamAccess, setTeamAccess] = useState(false);
+  React.useEffect(() => {
+    let active = true;
+    api
+      .get("/time-tracking/operations/access")
+      .then((response) => {
+        if (active) setTeamAccess(!!response.data.canView);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyYear, setHistoryYear] = useState(new Date().getFullYear());
+  const [loadError, setLoadError] = useState("");
   const [shifts, setShifts] = useState<any[]>([]);
-  const [summary, setSummary] = useState<{ totalHours?: number; totalBreakMinutes?: number; payableHours?: number; estimatedEarnings?: number } | null>(null);
+  const [summary, setSummary] = useState<{
+    totalHours?: number;
+    totalBreakMinutes?: number;
+    payableHours?: number;
+    estimatedEarnings?: number;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<'UPCOMING' | 'ALL' | 'PAST'>('ALL');
+  const [filter, setFilter] = useState<"UPCOMING" | "ALL" | "PAST">("ALL");
   const [calloutShiftId, setCalloutShiftId] = useState<string | null>(null);
-  const [calloutReasonCode, setCalloutReasonCode] = useState<'SICK' | 'EMERGENCY' | 'PERSONAL'>('SICK');
-  const [calloutReasonNote, setCalloutReasonNote] = useState('');
-  const [calloutSubmittingId, setCalloutSubmittingId] = useState<string | null>(null);
-  const [calloutAttachment, setCalloutAttachment] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
+  const [calloutReasonCode, setCalloutReasonCode] = useState<
+    "SICK" | "EMERGENCY" | "PERSONAL"
+  >("SICK");
+  const [calloutReasonNote, setCalloutReasonNote] = useState("");
+  const [calloutSubmittingId, setCalloutSubmittingId] = useState<string | null>(
+    null,
+  );
+  const [calloutAttachment, setCalloutAttachment] = useState<{
+    uri: string;
+    name: string;
+    mimeType: string;
+  } | null>(null);
   const [calloutUploading, setCalloutUploading] = useState(false);
 
   const roleUpper = useMemo(
-    () => String(user?.employeeRole || user?.role || '').toUpperCase(),
-    [user?.employeeRole, user?.role]
+    () => String(user?.employeeRole || user?.role || "").toUpperCase(),
+    [user?.employeeRole, user?.role],
   );
-  const isEmployee = roleUpper === 'EMPLOYEE';
+  const isEmployee = !!user?.employeeId;
 
   const fetchShifts = async () => {
     if (!isEmployee) {
@@ -43,16 +85,23 @@ export default function SchedulingScreen() {
       const end = new Date();
       end.setDate(now.getDate() + 30);
 
-      const res = await api.get('/scheduling/my', {
+      const res = await api.get("/scheduling/my", {
         params: {
           start: start.toISOString(),
-          end: end.toISOString()
-        }
+          end: end.toISOString(),
+        },
       });
+      const attendance = await api.get("/time-tracking/my-history", {
+        params: { year: historyYear },
+      });
+      setHistory(attendance.data || []);
+      setLoadError("");
       setShifts(res.data.shifts || []);
       setSummary(res.data.summary || null);
     } catch (e) {
-      console.log('Error fetching shifts', e);
+      setLoadError(
+        "Unable to load your schedule and attendance. Tap refresh to retry.",
+      );
     } finally {
       setLoading(false);
     }
@@ -61,34 +110,43 @@ export default function SchedulingScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchShifts();
-    }, [])
+    }, [historyYear, isEmployee]),
   );
 
-  const formatTime = (dateStr: string) => {
-    return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formatTime = (dateStr: string, timeZone = "America/New_York") => {
+    return new Date(dateStr).toLocaleTimeString("en-US", {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const formatDate = (dateStr: string, timeZone = "America/New_York") => {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      timeZone,
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
   };
 
   const palette = useMemo(
     () => ({
-      bg: '#050816',
-      panel: 'rgba(255,255,255,0.08)',
-      panelStrong: 'rgba(255,255,255,0.11)',
-      border: 'rgba(255,255,255,0.14)',
-      text: '#E8EEF9',
-      muted: 'rgba(232,238,249,0.70)',
-      faint: 'rgba(232,238,249,0.48)',
-      faint2: 'rgba(232,238,249,0.34)',
-      indigo: '#4F46E5',
-      cyan: '#22D3EE',
-      green: '#34D399',
-      amber: '#FBBF24',
-      red: '#FB7185',
+      bg: "#050816",
+      panel: "rgba(255,255,255,0.08)",
+      panelStrong: "rgba(255,255,255,0.11)",
+      border: "rgba(255,255,255,0.14)",
+      text: "#E8EEF9",
+      muted: "rgba(232,238,249,0.70)",
+      faint: "rgba(232,238,249,0.48)",
+      faint2: "rgba(232,238,249,0.34)",
+      indigo: "#4F46E5",
+      cyan: "#22D3EE",
+      green: "#34D399",
+      amber: "#FBBF24",
+      red: "#FB7185",
     }),
-    []
+    [],
   );
 
   const openMaps = async (address: string) => {
@@ -106,22 +164,16 @@ export default function SchedulingScreen() {
   const filteredShifts = useMemo(() => {
     const now = Date.now();
     const list = (shifts || []).slice();
-    if (filter === 'UPCOMING') {
+    if (filter === "UPCOMING") {
       return list.filter((s) => {
         const endMs = new Date(s.endTime ?? s.startTime ?? 0).getTime();
         if (!Number.isFinite(endMs)) return true;
         return endMs >= now;
       });
     }
-    if (filter === 'PAST') {
-      return list.filter((s) => {
-        const endMs = new Date(s.endTime ?? s.startTime ?? 0).getTime();
-        if (!Number.isFinite(endMs)) return false;
-        return endMs < now;
-      });
-    }
+    if (filter === "PAST") return history;
     return list;
-  }, [filter, shifts]);
+  }, [filter, shifts, history]);
 
   const handleSubmitCallout = async (shiftId: string) => {
     try {
@@ -129,28 +181,42 @@ export default function SchedulingScreen() {
       let documentationUrl: string | undefined;
       if (calloutAttachment) {
         const form = new FormData();
-        form.append('file', { uri: calloutAttachment.uri, name: calloutAttachment.name, type: calloutAttachment.mimeType } as any);
-        const endpoint = calloutAttachment.mimeType.startsWith('image/') ? '/uploads/images' : '/uploads';
-        const upload = await api.post(endpoint, form, { headers: { 'Content-Type': 'multipart/form-data' } });
-        documentationUrl = String(upload.data?.url || '') || undefined;
+        form.append("file", {
+          uri: calloutAttachment.uri,
+          name: calloutAttachment.name,
+          type: calloutAttachment.mimeType,
+        } as any);
+        const endpoint = calloutAttachment.mimeType.startsWith("image/")
+          ? "/uploads/images"
+          : "/uploads";
+        const upload = await api.post(endpoint, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        documentationUrl = String(upload.data?.url || "") || undefined;
       }
       await api.post(`/scheduling/shifts/${shiftId}/callout`, {
         reasonCode: calloutReasonCode,
         reasonNote: calloutReasonNote.trim() || undefined,
-        type: 'EXCUSED',
+        type: "EXCUSED",
         noticeAt: new Date().toISOString(),
         documentationUrl,
       });
-      Alert.alert('Submitted', 'Your call-out has been submitted for approval.');
+      Alert.alert(
+        "Submitted",
+        "Your call-out has been submitted for approval.",
+      );
       setCalloutShiftId(null);
-      setCalloutReasonCode('SICK');
-      setCalloutReasonNote('');
+      setCalloutReasonCode("SICK");
+      setCalloutReasonNote("");
       setCalloutAttachment(null);
       fetchShifts();
     } catch (e: any) {
       const apiMessage = e?.response?.data?.message;
-      const msg = typeof apiMessage === 'string' ? apiMessage : 'Failed to submit call-out';
-      Alert.alert('Call-out failed', msg);
+      const msg =
+        typeof apiMessage === "string"
+          ? apiMessage
+          : "Failed to submit call-out";
+      Alert.alert("Call-out failed", msg);
     } finally {
       setCalloutSubmittingId(null);
     }
@@ -159,8 +225,8 @@ export default function SchedulingScreen() {
   const closeCalloutModal = () => {
     if (calloutSubmittingId) return;
     setCalloutShiftId(null);
-    setCalloutReasonCode('SICK');
-    setCalloutReasonNote('');
+    setCalloutReasonCode("SICK");
+    setCalloutReasonNote("");
     setCalloutAttachment(null);
   };
 
@@ -168,7 +234,7 @@ export default function SchedulingScreen() {
     try {
       setCalloutUploading(true);
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['image/*', 'application/pdf'],
+        type: ["image/*", "application/pdf"],
         copyToCacheDirectory: true,
         multiple: false,
       });
@@ -178,79 +244,198 @@ export default function SchedulingScreen() {
       setCalloutAttachment({
         uri: asset.uri,
         name: String(asset.name || `callout-${Date.now()}`),
-        mimeType: String(asset.mimeType || 'application/octet-stream'),
+        mimeType: String(asset.mimeType || "application/octet-stream"),
       });
     } catch (e: any) {
-      Alert.alert('Attachment', String(e?.message || 'Unable to pick document'));
+      Alert.alert(
+        "Attachment",
+        String(e?.message || "Unable to pick document"),
+      );
     } finally {
       setCalloutUploading(false);
     }
   };
 
   const renderItem = ({ item }: { item: any }) => {
+    const zone = item.timeZone || item.location?.timeZone || "America/New_York";
     const start = new Date(item.startTime);
     const end = new Date(item.endTime ?? item.startTime);
-    const address = String(item.location?.address || '').trim();
-    const locationName = String(item.location?.name || 'No Location').trim();
-    const fullLocation = address ? `${locationName} • ${address}` : locationName;
+    const address = String(item.location?.address || "").trim();
+    const locationName = String(item.location?.name || "No Location").trim();
+    const fullLocation = address
+      ? `${locationName} • ${address}`
+      : locationName;
     const isToday = start.toDateString() === new Date().toDateString();
-    const isActive = start.getTime() <= Date.now() && end.getTime() >= Date.now();
-    const canCallOut = end.getTime() >= Date.now();
-    const hasPendingCallout = !!item?.callout && !item?.callout?.resolvedAt && String(item?.status || '').toUpperCase() !== 'OPEN';
-    const accent = isActive ? palette.green : isToday ? palette.cyan : palette.indigo;
+    const isActive =
+      start.getTime() <= Date.now() && end.getTime() >= Date.now();
+    const canCallOut = filter !== "PAST" && end.getTime() >= Date.now();
+    const hasPendingCallout =
+      !!item?.callout &&
+      !item?.callout?.resolvedAt &&
+      String(item?.status || "").toUpperCase() !== "OPEN";
+    const accent = isActive
+      ? palette.green
+      : isToday
+        ? palette.cyan
+        : palette.indigo;
 
     return (
-      <View style={[styles.shiftCard, { backgroundColor: palette.panel, borderColor: palette.border }]}>
+      <View
+        style={[
+          styles.shiftCard,
+          { backgroundColor: palette.panel, borderColor: palette.border },
+        ]}
+      >
         <View style={[styles.cardLeft, { borderRightColor: palette.border }]}>
-          <Text style={[styles.dateDay, { color: palette.text }]}>{start.getDate()}</Text>
-          <Text style={[styles.dateMonth, { color: palette.muted }]}>{start.toLocaleDateString([], { month: 'short' }).toUpperCase()}</Text>
+          <Text style={[styles.dateDay, { color: palette.text }]}>
+            {start.toLocaleDateString("en-US", {
+              day: "numeric",
+              timeZone: zone,
+            })}
+          </Text>
+          <Text style={[styles.dateMonth, { color: palette.muted }]}>
+            {start
+              .toLocaleDateString("en-US", { month: "short", timeZone: zone })
+              .toUpperCase()}
+          </Text>
           <View style={[styles.line, { backgroundColor: accent }]} />
         </View>
         <View style={styles.cardRight}>
           <View style={styles.topRow}>
             <Text style={[styles.timeText, { color: palette.text }]}>
-              {formatDate(item.startTime)} • {formatTime(item.startTime)} - {formatTime(item.endTime ?? item.startTime)}
+              {formatDate(item.startTime, zone)} •{" "}
+              {formatTime(item.startTime, zone)} -{" "}
+              {formatTime(item.endTime ?? item.startTime, zone)}
+              {start.toLocaleDateString("en-US", { timeZone: zone }) !==
+              end.toLocaleDateString("en-US", { timeZone: zone })
+                ? " (next day)"
+                : ""}
             </Text>
             {address ? (
               <TouchableOpacity
-                style={[styles.mapBtn, { borderColor: palette.border, backgroundColor: palette.panelStrong }]}
+                style={[
+                  styles.mapBtn,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: palette.panelStrong,
+                  },
+                ]}
                 onPress={() => openMaps(address)}
               >
-                <Ionicons name="navigate-outline" size={16} color={palette.text as any} />
+                <Ionicons
+                  name="navigate-outline"
+                  size={16}
+                  color={palette.text as any}
+                />
               </TouchableOpacity>
             ) : null}
           </View>
 
-          <Text style={[styles.locationText, { color: palette.text }]} numberOfLines={2}>
+          <Text
+            style={[styles.locationText, { color: palette.text }]}
+            numberOfLines={2}
+          >
             {fullLocation}
           </Text>
 
           <View style={styles.metaRow}>
             {item.role ? (
-              <View style={[styles.pill, { borderColor: palette.border, backgroundColor: palette.panelStrong }]}>
-                <Ionicons name="shield-outline" size={14} color={palette.cyan as any} />
-                <Text style={[styles.pillText, { color: palette.text }]}>{String(item.role).replace(/_/g, ' ')}</Text>
+              <View
+                style={[
+                  styles.pill,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: palette.panelStrong,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="shield-outline"
+                  size={14}
+                  color={palette.cyan as any}
+                />
+                <Text style={[styles.pillText, { color: palette.text }]}>
+                  {String(item.role).replace(/_/g, " ")}
+                </Text>
               </View>
             ) : null}
             {isActive ? (
-              <View style={[styles.pill, { borderColor: palette.border, backgroundColor: palette.panelStrong }]}>
-                <View style={[styles.dot, { backgroundColor: palette.green }]} />
-                <Text style={[styles.pillText, { color: palette.text }]}>Active</Text>
+              <View
+                style={[
+                  styles.pill,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: palette.panelStrong,
+                  },
+                ]}
+              >
+                <View
+                  style={[styles.dot, { backgroundColor: palette.green }]}
+                />
+                <Text style={[styles.pillText, { color: palette.text }]}>
+                  Active
+                </Text>
               </View>
             ) : isToday ? (
-              <View style={[styles.pill, { borderColor: palette.border, backgroundColor: palette.panelStrong }]}>
+              <View
+                style={[
+                  styles.pill,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: palette.panelStrong,
+                  },
+                ]}
+              >
                 <View style={[styles.dot, { backgroundColor: palette.cyan }]} />
-                <Text style={[styles.pillText, { color: palette.text }]}>Today</Text>
+                <Text style={[styles.pillText, { color: palette.text }]}>
+                  Today
+                </Text>
               </View>
             ) : null}
             {hasPendingCallout ? (
-              <View style={[styles.pill, { borderColor: palette.border, backgroundColor: 'rgba(251,113,133,0.16)' }]}>
+              <View
+                style={[
+                  styles.pill,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: "rgba(251,113,133,0.16)",
+                  },
+                ]}
+              >
                 <View style={[styles.dot, { backgroundColor: palette.red }]} />
-                <Text style={[styles.pillText, { color: palette.text }]}>Call-out Pending</Text>
+                <Text style={[styles.pillText, { color: palette.text }]}>
+                  Call-out Pending
+                </Text>
               </View>
             ) : null}
           </View>
 
+          {filter === "PAST" && (
+            <View style={{ marginTop: 12, gap: 6 }}>
+              <Text style={{ color: palette.cyan, fontWeight: "800" }}>
+                {item.status === "APPROVED"
+                  ? "Approved · " +
+                    Number(item.approvedHours).toFixed(2) +
+                    " paid hours"
+                  : item.status === "PENDING"
+                    ? "Awaiting approval"
+                    : "Attendance rejected"}
+              </Text>
+              {item.status === "APPROVED" && (
+                <Text style={{ color: palette.text }}>
+                  {item.estimatedGross != null
+                    ? "Estimated gross: $" +
+                      Number(item.estimatedGross).toFixed(2)
+                    : "See your payslip for earnings"}
+                </Text>
+              )}
+              <Text style={{ color: palette.muted, fontSize: 11 }}>
+                Approved hours include paid breaks and exclude unpaid breaks.
+                Gross estimates are before taxes; final pay appears on your
+                payslip.
+              </Text>
+            </View>
+          )}
           {canCallOut ? (
             <View style={styles.calloutWrap}>
               <TouchableOpacity
@@ -258,20 +443,32 @@ export default function SchedulingScreen() {
                   styles.calloutToggle,
                   {
                     borderColor: palette.border,
-                    backgroundColor: hasPendingCallout ? 'rgba(251,113,133,0.18)' : calloutShiftId === item.id ? 'rgba(251,113,133,0.18)' : palette.panelStrong,
+                    backgroundColor: hasPendingCallout
+                      ? "rgba(251,113,133,0.18)"
+                      : calloutShiftId === item.id
+                        ? "rgba(251,113,133,0.18)"
+                        : palette.panelStrong,
                     opacity: hasPendingCallout ? 0.72 : 1,
                   },
                 ]}
                 disabled={hasPendingCallout}
                 onPress={() => {
-                  setCalloutReasonCode('SICK');
-                  setCalloutReasonNote('');
+                  setCalloutReasonCode("SICK");
+                  setCalloutReasonNote("");
                   setCalloutAttachment(null);
                   setCalloutShiftId(item.id);
                 }}
               >
-                <Ionicons name="alert-circle-outline" size={15} color={palette.red as any} />
-                <Text style={[styles.calloutToggleText, { color: palette.text }]}>{hasPendingCallout ? 'Awaiting Approval' : 'Call Out'}</Text>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={15}
+                  color={palette.red as any}
+                />
+                <Text
+                  style={[styles.calloutToggleText, { color: palette.text }]}
+                >
+                  {hasPendingCallout ? "Awaiting Approval" : "Call Out"}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -284,29 +481,95 @@ export default function SchedulingScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: palette.bg }]}>
       <StatusBar barStyle="light-content" />
       <View style={styles.bgGlowWrap} pointerEvents="none">
-        <View style={[styles.bgGlow, { backgroundColor: palette.indigo, top: -160, left: -160, opacity: 0.22 }]} />
-        <View style={[styles.bgGlow, { backgroundColor: palette.cyan, bottom: -180, right: -180, opacity: 0.16 }]} />
-        <View style={[styles.bgGlow, { backgroundColor: palette.green, top: 240, right: -210, opacity: 0.10 }]} />
+        <View
+          style={[
+            styles.bgGlow,
+            {
+              backgroundColor: palette.indigo,
+              top: -160,
+              left: -160,
+              opacity: 0.22,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.bgGlow,
+            {
+              backgroundColor: palette.cyan,
+              bottom: -180,
+              right: -180,
+              opacity: 0.16,
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.bgGlow,
+            {
+              backgroundColor: palette.green,
+              top: 240,
+              right: -210,
+              opacity: 0.1,
+            },
+          ]}
+        />
       </View>
 
       <View style={styles.header}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.headerTitle, { color: palette.text }]}>Schedule</Text>
-          <Text style={[styles.headerSubtitle, { color: palette.muted }]}>Your published shifts</Text>
-          <Text style={[styles.headerSubtitle, { color: palette.faint }]} numberOfLines={1}>
-            {displayName}{designation ? ` • ${designation}` : ''}
+          <Text style={[styles.headerTitle, { color: palette.text }]}>
+            Schedule
+          </Text>
+          <Text style={[styles.headerSubtitle, { color: palette.muted }]}>
+            Your published shifts
+          </Text>
+          <Text
+            style={[styles.headerSubtitle, { color: palette.faint }]}
+            numberOfLines={1}
+          >
+            {displayName}
+            {designation ? ` • ${designation}` : ""}
           </Text>
         </View>
         <View style={styles.headerActions}>
+          {teamAccess && (
+            <TouchableOpacity
+              accessibilityLabel="Team operations"
+              onPress={() => navigate("Schedule", { screen: "TeamOperations" })}
+              style={[styles.historyBtn, { borderColor: palette.border }]}
+            >
+              <Ionicons name="people-outline" size={18} color={palette.cyan} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
-            style={[styles.historyBtn, { borderColor: palette.border, backgroundColor: palette.panelStrong }]}
-            onPress={() => navigate('Schedule', { screen: 'CalloutHistory' })}
+            style={[
+              styles.historyBtn,
+              {
+                borderColor: palette.border,
+                backgroundColor: palette.panelStrong,
+              },
+            ]}
+            onPress={() => navigate("Schedule", { screen: "CalloutHistory" })}
           >
-            <Ionicons name="time-outline" size={15} color={palette.cyan as any} />
-            <Text style={[styles.historyBtnText, { color: palette.text }]}>Call-Outs</Text>
+            <Ionicons
+              name="time-outline"
+              size={15}
+              color={palette.cyan as any}
+            />
+            <Text style={[styles.historyBtnText, { color: palette.text }]}>
+              Call-Outs
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.refreshBtn, { borderColor: palette.border, backgroundColor: palette.panelStrong, opacity: loading ? 0.7 : 1 }]}
+            style={[
+              styles.refreshBtn,
+              {
+                borderColor: palette.border,
+                backgroundColor: palette.panelStrong,
+                opacity: loading ? 0.7 : 1,
+              },
+            ]}
             onPress={fetchShifts}
             disabled={loading}
           >
@@ -316,9 +579,10 @@ export default function SchedulingScreen() {
       </View>
 
       <View style={styles.filters}>
-        {(['UPCOMING', 'ALL', 'PAST'] as const).map((k) => {
+        {(["UPCOMING", "ALL", "PAST"] as const).map((k) => {
           const active = filter === k;
-          const label = k === 'UPCOMING' ? 'Upcoming' : k === 'PAST' ? 'Past' : 'All';
+          const label =
+            k === "UPCOMING" ? "Upcoming" : k === "PAST" ? "Past" : "All";
           return (
             <TouchableOpacity
               key={k}
@@ -333,61 +597,150 @@ export default function SchedulingScreen() {
               onPress={() => setFilter(k)}
               disabled={loading}
             >
-              <Text style={[styles.filterText, { color: active ? '#ffffff' : palette.text }]}>{label}</Text>
+              <Text
+                style={[
+                  styles.filterText,
+                  { color: active ? "#ffffff" : palette.text },
+                ]}
+              >
+                {label}
+              </Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      {summary ? (
-        <View style={[styles.summaryCard, { backgroundColor: palette.panel, borderColor: palette.border }]}>
+      {!!loadError && (
+        <Text style={{ color: palette.red, padding: 18 }}>{loadError}</Text>
+      )}
+      {filter === "PAST" && (
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-around",
+            padding: 12,
+          }}
+        >
+          <TouchableOpacity onPress={() => setHistoryYear((y) => y - 1)}>
+            <Text style={{ color: palette.cyan }}>‹ Previous year</Text>
+          </TouchableOpacity>
+          <Text style={{ color: palette.text }}>{historyYear}</Text>
+          <TouchableOpacity
+            disabled={historyYear >= new Date().getFullYear()}
+            onPress={() => setHistoryYear((y) => y + 1)}
+          >
+            <Text style={{ color: palette.cyan }}>Next year ›</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {summary && filter !== "PAST" ? (
+        <View
+          style={[
+            styles.summaryCard,
+            { backgroundColor: palette.panel, borderColor: palette.border },
+          ]}
+        >
           <View style={styles.summaryItem}>
-            <Text style={[styles.summaryLabel, { color: palette.muted }]}>Total</Text>
-            <Text style={[styles.summaryValue, { color: palette.text }]}>{Number(summary.totalHours ?? 0).toFixed(1)}h</Text>
+            <Text style={[styles.summaryLabel, { color: palette.muted }]}>
+              Total
+            </Text>
+            <Text style={[styles.summaryValue, { color: palette.text }]}>
+              {Number(summary.totalHours ?? 0).toFixed(1)}h
+            </Text>
           </View>
           <View style={styles.summaryItem}>
-            <Text style={[styles.summaryLabel, { color: palette.muted }]}>Payable</Text>
-            <Text style={[styles.summaryValue, { color: palette.text }]}>{Number(summary.payableHours ?? 0).toFixed(1)}h</Text>
+            <Text style={[styles.summaryLabel, { color: palette.muted }]}>
+              Payable
+            </Text>
+            <Text style={[styles.summaryValue, { color: palette.text }]}>
+              {Number(summary.payableHours ?? 0).toFixed(1)}h
+            </Text>
           </View>
           <View style={styles.summaryItem}>
-            <Text style={[styles.summaryLabel, { color: palette.muted }]}>Est.</Text>
-            <Text style={[styles.summaryValue, { color: palette.text }]}>${Number(summary.estimatedEarnings ?? 0).toFixed(0)}</Text>
+            <Text style={[styles.summaryLabel, { color: palette.muted }]}>
+              Est.
+            </Text>
+            <Text style={[styles.summaryValue, { color: palette.text }]}>
+              ${Number(summary.estimatedEarnings ?? 0).toFixed(0)}
+            </Text>
           </View>
         </View>
       ) : null}
-      
+
       {!isEmployee ? (
-         <View style={styles.emptyContainer}>
-            <Ionicons name="lock-closed-outline" size={52} color={palette.faint as any} />
-            <Text style={[styles.emptyText, { color: palette.muted }]}>Employee access only.</Text>
-            <Text style={[styles.emptyHint, { color: palette.faint }]}>Schedule is available for employee accounts on the mobile app.</Text>
-         </View>
+        <View style={styles.emptyContainer}>
+          <Ionicons
+            name="lock-closed-outline"
+            size={52}
+            color={palette.faint as any}
+          />
+          <Text style={[styles.emptyText, { color: palette.muted }]}>
+            Employee access only.
+          </Text>
+          <Text style={[styles.emptyHint, { color: palette.faint }]}>
+            Schedule is available for employee accounts on the mobile app.
+          </Text>
+        </View>
       ) : filteredShifts.length === 0 && !loading ? (
-         <View style={styles.emptyContainer}>
-            <Ionicons name="calendar-outline" size={52} color={palette.faint as any} />
-            <Text style={[styles.emptyText, { color: palette.muted }]}>No shifts found.</Text>
-            <Text style={[styles.emptyHint, { color: palette.faint }]}>Pull to refresh or change the filter.</Text>
-         </View>
+        <View style={styles.emptyContainer}>
+          <Ionicons
+            name="calendar-outline"
+            size={52}
+            color={palette.faint as any}
+          />
+          <Text style={[styles.emptyText, { color: palette.muted }]}>
+            No shifts found.
+          </Text>
+          <Text style={[styles.emptyHint, { color: palette.faint }]}>
+            Pull to refresh or change the filter.
+          </Text>
+        </View>
       ) : (
         <FlatList
           data={filteredShifts}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchShifts} tintColor={palette.cyan as any} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={fetchShifts}
+              tintColor={palette.cyan as any}
+            />
+          }
         />
       )}
 
-      <Modal visible={!!calloutShiftId} transparent animationType="fade" onRequestClose={closeCalloutModal}>
+      <Modal
+        visible={!!calloutShiftId}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCalloutModal}
+      >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { borderColor: palette.border, backgroundColor: '#0B1020' }]}>
+          <View
+            style={[
+              styles.modalCard,
+              { borderColor: palette.border, backgroundColor: "#0B1020" },
+            ]}
+          >
             <View style={styles.modalHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modalTitle, { color: palette.text }]}>Call Out</Text>
-                <Text style={[styles.modalSubtitle, { color: palette.muted }]}>Submit your absence for approval.</Text>
+                <Text style={[styles.modalTitle, { color: palette.text }]}>
+                  Call Out
+                </Text>
+                <Text style={[styles.modalSubtitle, { color: palette.muted }]}>
+                  Submit your absence for approval.
+                </Text>
               </View>
               <TouchableOpacity
-                style={[styles.modalClose, { borderColor: palette.border, backgroundColor: palette.panelStrong }]}
+                style={[
+                  styles.modalClose,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: palette.panelStrong,
+                  },
+                ]}
                 onPress={closeCalloutModal}
                 disabled={!!calloutSubmittingId}
               >
@@ -395,9 +748,11 @@ export default function SchedulingScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={[styles.calloutLabel, { color: palette.text }]}>Reason</Text>
+            <Text style={[styles.calloutLabel, { color: palette.text }]}>
+              Reason
+            </Text>
             <View style={styles.calloutChips}>
-              {(['SICK', 'EMERGENCY', 'PERSONAL'] as const).map((code) => {
+              {(["SICK", "EMERGENCY", "PERSONAL"] as const).map((code) => {
                 const active = calloutReasonCode === code;
                 return (
                   <TouchableOpacity
@@ -406,12 +761,18 @@ export default function SchedulingScreen() {
                       styles.calloutChip,
                       {
                         borderColor: active ? palette.red : palette.border,
-                        backgroundColor: active ? 'rgba(251,113,133,0.18)' : palette.panel,
+                        backgroundColor: active
+                          ? "rgba(251,113,133,0.18)"
+                          : palette.panel,
                       },
                     ]}
                     onPress={() => setCalloutReasonCode(code)}
                   >
-                    <Text style={[styles.calloutChipText, { color: palette.text }]}>{code}</Text>
+                    <Text
+                      style={[styles.calloutChipText, { color: palette.text }]}
+                    >
+                      {code}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
@@ -434,44 +795,98 @@ export default function SchedulingScreen() {
             />
 
             <TouchableOpacity
-              style={[styles.attachmentBtn, { borderColor: palette.border, backgroundColor: palette.panelStrong, opacity: calloutUploading ? 0.7 : 1 }]}
+              style={[
+                styles.attachmentBtn,
+                {
+                  borderColor: palette.border,
+                  backgroundColor: palette.panelStrong,
+                  opacity: calloutUploading ? 0.7 : 1,
+                },
+              ]}
               onPress={pickCalloutDocument}
               disabled={calloutUploading || !!calloutSubmittingId}
             >
-              <Ionicons name="attach-outline" size={16} color={palette.cyan as any} />
+              <Ionicons
+                name="attach-outline"
+                size={16}
+                color={palette.cyan as any}
+              />
               <Text style={[styles.attachmentBtnText, { color: palette.text }]}>
-                {calloutUploading ? 'Picking file...' : calloutAttachment ? 'Change Attachment' : 'Add Attachment'}
+                {calloutUploading
+                  ? "Picking file..."
+                  : calloutAttachment
+                    ? "Change Attachment"
+                    : "Add Attachment"}
               </Text>
             </TouchableOpacity>
             {calloutAttachment ? (
-              <View style={[styles.attachmentInfo, { borderColor: palette.border, backgroundColor: palette.panel }]}>
+              <View
+                style={[
+                  styles.attachmentInfo,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: palette.panel,
+                  },
+                ]}
+              >
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.attachmentName, { color: palette.text }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.attachmentName, { color: palette.text }]}
+                    numberOfLines={1}
+                  >
                     {calloutAttachment.name}
                   </Text>
-                  <Text style={[styles.attachmentHint, { color: palette.muted }]}>Optional supporting document</Text>
+                  <Text
+                    style={[styles.attachmentHint, { color: palette.muted }]}
+                  >
+                    Optional supporting document
+                  </Text>
                 </View>
                 <TouchableOpacity onPress={() => setCalloutAttachment(null)}>
-                  <Ionicons name="close-circle" size={18} color={palette.red as any} />
+                  <Ionicons
+                    name="close-circle"
+                    size={18}
+                    color={palette.red as any}
+                  />
                 </TouchableOpacity>
               </View>
             ) : null}
 
             <View style={styles.calloutActions}>
               <TouchableOpacity
-                style={[styles.calloutSecondaryBtn, { borderColor: palette.border, backgroundColor: palette.panel }]}
+                style={[
+                  styles.calloutSecondaryBtn,
+                  {
+                    borderColor: palette.border,
+                    backgroundColor: palette.panel,
+                  },
+                ]}
                 onPress={closeCalloutModal}
                 disabled={!!calloutSubmittingId}
               >
-                <Text style={[styles.calloutSecondaryText, { color: palette.text }]}>Cancel</Text>
+                <Text
+                  style={[styles.calloutSecondaryText, { color: palette.text }]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.calloutPrimaryBtn, { backgroundColor: palette.red, opacity: calloutSubmittingId === calloutShiftId ? 0.75 : 1 }]}
+                style={[
+                  styles.calloutPrimaryBtn,
+                  {
+                    backgroundColor: palette.red,
+                    opacity: calloutSubmittingId === calloutShiftId ? 0.75 : 1,
+                  },
+                ]}
                 disabled={calloutSubmittingId === calloutShiftId}
-                onPress={() => calloutShiftId && handleSubmitCallout(calloutShiftId)}
+                onPress={() =>
+                  calloutShiftId && handleSubmitCallout(calloutShiftId)
+                }
               >
                 <Text style={styles.calloutPrimaryText}>
-                  {calloutSubmittingId === calloutShiftId ? 'Submitting...' : 'Submit Call Out'}
+                  {calloutSubmittingId === calloutShiftId
+                    ? "Submitting..."
+                    : "Submit Call Out"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -490,59 +905,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 10,
     paddingBottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
   },
   headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
   headerTitle: {
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: -0.3,
   },
   headerSubtitle: {
     marginTop: 6,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0.9,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   refreshBtn: {
     width: 42,
     height: 42,
     borderRadius: 16,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   historyBtn: {
     borderWidth: 1,
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 7,
   },
   historyBtnText: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.4,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   bgGlowWrap: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
   },
   bgGlow: {
-    position: 'absolute',
+    position: "absolute",
     width: 360,
     height: 360,
     borderRadius: 240,
@@ -552,7 +967,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingTop: 6,
     paddingBottom: 8,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 10,
   },
   filterPill: {
@@ -560,14 +975,14 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 16,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterText: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   summaryCard: {
     marginHorizontal: 18,
@@ -577,23 +992,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingVertical: 12,
     paddingHorizontal: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   summaryItem: {
-    alignItems: 'center',
+    alignItems: "center",
     flex: 1,
   },
   summaryLabel: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   summaryValue: {
     marginTop: 8,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: -0.2,
   },
   listContent: {
@@ -605,25 +1020,25 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1,
     marginBottom: 12,
-    flexDirection: 'row',
-    overflow: 'hidden',
+    flexDirection: "row",
+    overflow: "hidden",
   },
   cardLeft: {
     width: 86,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 14,
     borderRightWidth: 1,
   },
   dateDay: {
     fontSize: 24,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: -0.6,
   },
   dateMonth: {
     marginTop: 4,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 1.2,
   },
   line: {
@@ -637,17 +1052,17 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 10,
     marginBottom: 8,
   },
   timeText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     flex: 1,
   },
   mapBtn: {
@@ -655,39 +1070,39 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 14,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   locationText: {
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: -0.2,
   },
   metaRow: {
     marginTop: 10,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 10,
-    flexWrap: 'wrap',
+    flexWrap: "wrap",
   },
   calloutWrap: {
     marginTop: 12,
     gap: 10,
   },
   calloutToggle: {
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   calloutToggleText: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.4,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   calloutPanel: {
     borderWidth: 1,
@@ -697,13 +1112,13 @@ const styles = StyleSheet.create({
   },
   calloutLabel: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   calloutChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   calloutChip: {
@@ -714,7 +1129,7 @@ const styles = StyleSheet.create({
   },
   calloutChipText: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0.5,
   },
   calloutInput: {
@@ -723,12 +1138,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    textAlignVertical: 'top',
+    textAlignVertical: "top",
     fontSize: 13,
   },
   calloutActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
+    flexDirection: "row",
+    justifyContent: "flex-end",
     gap: 10,
   },
   calloutSecondaryBtn: {
@@ -739,7 +1154,7 @@ const styles = StyleSheet.create({
   },
   calloutSecondaryText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   calloutPrimaryBtn: {
     borderRadius: 12,
@@ -747,15 +1162,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   calloutPrimaryText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.4,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.58)',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0,0,0,0.58)",
+    justifyContent: "center",
     paddingHorizontal: 18,
   },
   modalCard: {
@@ -765,62 +1180,62 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: -0.2,
   },
   modalSubtitle: {
     marginTop: 4,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   modalClose: {
     width: 36,
     height: 36,
     borderRadius: 14,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   attachmentBtn: {
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   attachmentBtnText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   attachmentInfo: {
     borderWidth: 1,
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
   attachmentName: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   attachmentHint: {
     marginTop: 2,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     paddingHorizontal: 10,
     paddingVertical: 7,
@@ -829,7 +1244,7 @@ const styles = StyleSheet.create({
   },
   pillText: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.2,
   },
   dot: {
@@ -839,22 +1254,22 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 18,
   },
   emptyText: {
     marginTop: 14,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 0.2,
-    textAlign: 'center',
+    textAlign: "center",
   },
   emptyHint: {
     marginTop: 8,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     lineHeight: 16,
-    textAlign: 'center',
+    textAlign: "center",
   },
 });
