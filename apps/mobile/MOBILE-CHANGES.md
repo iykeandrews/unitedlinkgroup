@@ -1,6 +1,6 @@
 # Mobile updates awaiting release
 
-No mobile build, export, publication, or deployment was performed.
+The implementation phase preserved the no-build instruction. Builds were subsequently authorized on 10/19/2026.
 
 These changes require the matching API release and the additive MobileSession database table before a future mobile release. The normal server startup applies the canonical Prisma schema; do not release the new mobile login against the previous API. Existing web authentication remains unchanged. SecureStore and the Face ID permission plugin require a future native build.
 
@@ -21,3 +21,7 @@ Operations offers a date picker, location / name / worker-ID / attendance-status
 Clock-in, clock-out, break-start and break-return events create administrator inbox and native/web push notifications. Missing clock-in alerts begin after a five-minute grace period, run every minute and use deterministic notification IDs to prevent duplicate alerts for the same shift/recipient. Administrators receive events for their business; superadmins receive events across businesses. Supervisor access does not grant attendance-writing or payroll access. Mobile data refreshes every 15 seconds while the screen is open, and on foreground. Push taps open operations after authentication, including a cold launch. Device registration is awaited, and sign-out unregisters only the current device where connectivity permits.
 
 Additional checks: mobile_operations_regression.ts for access scope, notifications, paid-time protection and attendance correction; operations-time-regression.cjs for time-zone and daylight-saving cases; existing 31 Time/Sites/Attendance checks. Native notification delivery, lock-screen behavior, picker behavior and touch workflows still require real iOS/Android verification before release. No build or deployment was performed.
+
+## Release authorized 10/19/2026
+
+Backend changes are deployed. Signed Android APK (build 12), Android Play Store AAB (build 13), and iOS 1.0.1 IPA (build 15) finished successfully in Expo. APK/AAB download endpoints were verified. Apple upload submission 4a18dd9a-3f3e-4097-ab8d-32a53d74a26d is queued; the update is not yet published on the App Store. Google Play upload is left to the owner as requested. Android background push remains dependent on supplying Firebase google-services.json; in-app attendance alerts are available.
