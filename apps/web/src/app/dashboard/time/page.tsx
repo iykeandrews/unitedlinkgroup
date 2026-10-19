@@ -89,6 +89,7 @@ interface Location {
 }
 
 import { TimesheetDetailsModal } from "../../../components/time-tracking/TimesheetDetailsModal";
+import { ManualTimesheetModal } from "../../../components/time-tracking/ManualTimesheetModal";
 
 export default function TimeTrackingPage() {
   const { user } = useAuth();
@@ -108,6 +109,7 @@ export default function TimeTrackingPage() {
     null,
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
 
   // State
   const [startDate, setStartDate] = useState(() =>
@@ -150,6 +152,7 @@ export default function TimeTrackingPage() {
     setError("");
     setSelectedTimesheetIds(new Set());
     setIsModalOpen(false);
+    setManualOpen(false);
     setSelectedTimesheet(null);
     if (!selectedBusiness) {
       setTimesheets([]);
@@ -706,6 +709,7 @@ export default function TimeTrackingPage() {
       <div className="min-h-16 flex flex-wrap gap-3 items-center justify-between px-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0 z-10">
         <div className="flex flex-wrap items-center gap-3">
           {/* Location Selector */}
+          {canImport && <button type="button" onClick={() => setManualOpen(true)} className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white">Add timesheet</button>}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <div className="w-2 h-2 rounded-full bg-purple-600"></div>
@@ -1336,6 +1340,10 @@ export default function TimeTrackingPage() {
         </div>
       </div>
 
+      {canImport && <ManualTimesheetModal isOpen={manualOpen} onClose={() => setManualOpen(false)} employees={employees} locations={locations} workerType={roleTab} onSaved={(record) => {
+        const date = new Date(formatRecordTime(record.startTime, 'yyyy-MM-dd', record.timeZone) + 'T12:00:00');
+        setStartDate(date); setEndDate(date); setSelectedEmployeeId(null); setSelectedLocationId('all'); setActiveTab('pending'); fetchData();
+      }} />}
       <TimesheetDetailsModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

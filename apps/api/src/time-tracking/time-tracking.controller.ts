@@ -138,6 +138,12 @@ export class TimeTrackingController {
     return this.timeTrackingService.getBusinessTimesheets(businessId, new Date(start), new Date(end), user);
   }
 
+  @Post('timesheets')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  async createManualTimesheet(@Body() body: any, @User() user: any) {
+    return this.timeTrackingService.createManualTimesheet(body, user);
+  }
+
   @Patch('timesheets/:id')
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
   async updateTimesheet(

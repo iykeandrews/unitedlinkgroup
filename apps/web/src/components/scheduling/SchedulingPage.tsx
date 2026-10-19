@@ -294,12 +294,14 @@ export default function SchedulingPage() {
     const nowMs = Date.now();
 
     for (const shift of shifts) {
-      if (!shift.employeeId || !shift.locationId || !shift.startTime) continue;
+      if (!shift.startTime) continue;
 
       const shiftStart = new Date(shift.startTime).getTime();
       const shiftEnd = new Date(shift.endTime || shift.startTime).getTime();
 
-      if (nowMs >= shiftStart) {
+      const canCorrectPast = ['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(userRole || '')
+        && !!shift.endTime && nowMs >= shiftEnd;
+      if (nowMs >= shiftStart && !canCorrectPast) {
         locks[shift.id] = true;
         continue;
       }
@@ -309,9 +311,9 @@ export default function SchedulingPage() {
         if ((timesheet.locationId || null) !== (shift.locationId || null)) return false;
 
         const timesheetStart = new Date(timesheet.startTime).getTime();
-        const timesheetEnd = new Date(timesheet.endTime || timesheet.startTime).getTime();
+        const timesheetEnd = timesheet.endTime ? new Date(timesheet.endTime).getTime() : nowMs;
 
-        return timesheetStart <= shiftEnd && timesheetEnd >= shiftStart;
+        return timesheetStart < shiftEnd && timesheetEnd > shiftStart;
       });
 
       if (isLocked) {
@@ -320,7 +322,7 @@ export default function SchedulingPage() {
     }
 
     return locks;
-  }, [scheduleTimesheets, shifts]);
+  }, [scheduleTimesheets, shifts, userRole]);
 
   const fetchPendingCallouts = useCallback(async () => {
     if (!userRole || userRole === 'EMPLOYEE') return;

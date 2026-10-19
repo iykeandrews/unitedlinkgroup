@@ -30,6 +30,45 @@ export class TimeTrackingService {
     throw new BadRequestException('Access denied: You do not have access to this business data');
   }
 
+  async createManualTimesheet(data: any, user: any) {
+    if (!['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(user?.role)) throw new ForbiddenException('Only administrators can add manual timesheets');
+    const employee = await this.prisma.employee.findUnique({where: {id: String(data.employeeId || '')}});
+    if (!employee) throw new BadRequestException('Choose an employee');
+    await this.validateBusinessAccess(employee.businessId, user);
+    const location = await this.prisma.location.findFirst({where: {id: String(data.locationId || ''), businessId: employee.businessId}});
+    if (!location) throw new BadRequestException('Choose a location from this business');
+    const startTime = new Date(data.startTime), endTime = new Date(data.endTime);
+    if (!Number.isFinite(+startTime) || !Number.isFinite(+endTime) || endTime <= startTime || endTime > new Date()) throw new BadRequestException('Enter completed clock-in and clock-out times, with clock-out after clock-in');
+    const timeZone = data.timeZone || location.timeZone || 'America/New_York';
+    try { new Intl.DateTimeFormat('en-US', {timeZone}).format(startTime); } catch { throw new BadRequestException('Invalid record time zone'); }
+    if (employee.workerType === 'BOTH' && !['W2', 'CONTRACTOR_1099'].includes(data.workerType)) throw new BadRequestException('Select W-2 or 1099 for this timesheet');
+    if (data.breaks !== undefined && !Array.isArray(data.breaks)) throw new BadRequestException('Invalid breaks');
+    const breaks = (data.breaks || []).map((entry: any) => ({startTime: new Date(entry.startTime), endTime: new Date(entry.endTime), type: entry.type || 'UNPAID'})).sort((a: any,b: any) => +a.startTime - +b.startTime);
+    for (let i = 0; i < breaks.length; i++) {
+      const entry = breaks[i];
+      if (!['PAID','UNPAID'].includes(entry.type) || !Number.isFinite(+entry.startTime) || !Number.isFinite(+entry.endTime) || entry.startTime < startTime || entry.endTime > endTime || entry.endTime <= entry.startTime) throw new BadRequestException('Every break must have valid start and end times within the worked period');
+      if (i && entry.startTime < breaks[i-1].endTime) throw new BadRequestException('Breaks cannot overlap');
+    }
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE', employee.id);
+      if (data.shiftId) {
+        const shift = await tx.shift.findFirst({where: {id: data.shiftId, businessId: employee.businessId}});
+        if (!shift || shift.employeeId !== employee.id || shift.locationId !== location.id || ['ARCHIVED','CANCELLED'].includes(shift.status)) throw new BadRequestException('The shift assignment changed; review the employee and location before recording time');
+      }
+      const overlap = await tx.timesheet.findFirst({where: {employeeId: employee.id, status: {notIn: ['DISCARDED','REJECTED']}, startTime: {lt: endTime}, OR: [{endTime: null},{endTime: {gt: startTime}}]}});
+      if (overlap) throw new BadRequestException('This employee already has an overlapping attendance record');
+      const created = await tx.timesheet.create({data: {
+        employeeId: employee.id, locationId: location.id, startTime, endTime, timeZone,
+        workerType: employee.workerType === 'BOTH' ? data.workerType : employee.workerType,
+        status: 'PENDING', clockInIp: 'Manual admin entry', clockOutIp: 'Manual admin entry',
+        employeeNote: typeof data.employeeNote === 'string' ? data.employeeNote.trim() : null,
+        breaks: {create: breaks},
+      }, include: {breaks: true}});
+      await tx.auditLog.create({data: {businessId: employee.businessId, userId: user.userId || user.sub || user.id, action: 'CREATE_MANUAL_TIMESHEET', resource: 'Timesheet', resourceId: created.id, details: JSON.stringify({employeeId: employee.id, locationId: location.id, startTime, endTime, timeZone, breaks, shiftId: data.shiftId || null, status: 'PENDING'})}});
+      return created;
+    });
+  }
+
   async importTimesheets(fileBuffer: Buffer, businessId: string, user: any): Promise<any> {
     await this.validateBusinessAccess(businessId, user);
 

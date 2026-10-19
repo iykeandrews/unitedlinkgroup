@@ -114,8 +114,8 @@ export class SchedulingService {
       where: {
         employeeId: params.employeeId,
         ...(params.locationId ? { locationId: params.locationId } : {}),
-        startTime: { lte: params.endTime ?? params.startTime },
-        OR: [{ endTime: null }, { endTime: { gte: params.startTime } }],
+        startTime: { lt: params.endTime ?? params.startTime },
+        OR: [{ endTime: null }, { endTime: { gt: params.startTime } }],
       },
       include: {
         breaks: {
@@ -130,7 +130,7 @@ export class SchedulingService {
     for (const t of candidates) {
       const tStartMs = new Date(t.startTime).getTime();
       const tEndMs = t.endTime ? new Date(t.endTime).getTime() : nowMs;
-      if (tStartMs <= shiftEndMs && tEndMs >= shiftStartMs) return t;
+      if (tStartMs < shiftEndMs && tEndMs > shiftStartMs) return t;
     }
 
     return null;
@@ -141,7 +141,7 @@ export class SchedulingService {
     locationId?: string | null;
     startTime?: Date | null;
     endTime?: Date | null;
-  }) {
+  }, user?: any) {
     const trackedTimesheet = await this.findTrackedTimesheetForShift(params);
     if (trackedTimesheet) {
       const hasActiveBreak = Array.isArray((trackedTimesheet as any).breaks) && (trackedTimesheet as any).breaks.length > 0;
@@ -156,7 +156,9 @@ export class SchedulingService {
 
     if (params.startTime) {
       const now = new Date();
-      if (now.getTime() >= params.startTime.getTime()) {
+      const canCorrectPast = ['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(user?.role)
+        && params.endTime && now.getTime() >= params.endTime.getTime();
+      if (now.getTime() >= params.startTime.getTime() && !canCorrectPast) {
         throw new BadRequestException('This shift is locked because it has already started');
       }
     }
@@ -1111,10 +1113,7 @@ export class SchedulingService {
 
     await this.validateBusinessAccess(before.businessId, user);
 
-    const now = new Date();
-    if (now.getTime() >= before.startTime.getTime()) {
-      throw new BadRequestException('This shift is locked because it has already started');
-    }
+    await this.assertShiftPlacementUnlocked(before, user);
 
     const beforeStatus = String((before as any)?.status || '').toUpperCase();
     const nextStatus = typeof (data as any)?.status === 'string' ? String((data as any).status).toUpperCase() : null;
@@ -1215,7 +1214,10 @@ export class SchedulingService {
       });
     }
 
-    if (beforeStatus === 'ARCHIVED' || beforeStatus === 'COMPLETED') {
+    const correctingUntrackedCompleted = beforeStatus === 'COMPLETED'
+      && ['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(user?.role)
+      && before.endTime && before.endTime <= new Date();
+    if (beforeStatus === 'ARCHIVED' || (beforeStatus === 'COMPLETED' && !correctingUntrackedCompleted)) {
       throw new BadRequestException('Cannot edit an archived or completed shift');
     }
 
@@ -1227,7 +1229,7 @@ export class SchedulingService {
         ...(typeof (data as any).endTime !== 'undefined' ? { endTime: nextEnd } : {}),
         ...(typeof (data as any).breakMinutes !== 'undefined' ? { breakMinutes: nextBreakMinutes } : {}),
         ...(typeof (data as any).notes !== 'undefined' ? { notes: nextNotes } : {}),
-        ...(typeof nextStatus === 'string' ? { status: nextStatus } : {}),
+        ...(typeof nextStatus === 'string' ? { status: nextStatus } : correctingUntrackedCompleted ? { status: 'DRAFT' } : {}),
         employeeId: nextEmployeeId,
         locationId: nextLocationId,
       } as any,

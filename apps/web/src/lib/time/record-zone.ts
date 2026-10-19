@@ -1,4 +1,17 @@
 const DEFAULT_RECORD_ZONE = 'America/New_York';
+/** Resolve time-only breaks within the worked period, including overnight work. */
+export function enteredBreakRange(from: Date, until: Date, startClock: string, endClock: string, zone?: string | null) {
+  const clock = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  if (!clock.test(startClock) || (endClock && !clock.test(endClock)) || !Number.isFinite(+from) || !Number.isFinite(+until) || until <= from) throw Error('Enter valid break times within the worked period');
+  const nextDay = (day: string) => new Date(Date.parse(day) + 86400000).toISOString().slice(0,10);
+  let day = formatRecordTime(from, 'yyyy-MM-dd', zone);
+  let start = recordInputDate(`${day}T${startClock}`, zone);
+  if (start < from) { day = nextDay(day); start = recordInputDate(`${day}T${startClock}`, zone); }
+  let end = endClock ? recordInputDate(`${day}T${endClock}`, zone) : null;
+  if (end && end < start) end = recordInputDate(`${nextDay(day)}T${endClock}`, zone);
+  if (!Number.isFinite(+start) || start < from || start >= until || (end && (!Number.isFinite(+end) || end <= start || end > until))) throw Error('Break times must fall within the worked period');
+  return {start, end};
+}
 function clockParts(value: string | Date, timeZone?: string | null) {
   const instant = new Date(value);
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: timeZone || DEFAULT_RECORD_ZONE, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23', weekday:'short' }).formatToParts(instant);

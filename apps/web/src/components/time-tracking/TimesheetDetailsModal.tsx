@@ -1,4 +1,4 @@
-import { formatRecordTime, recordInputDate } from '../../lib/time/record-zone';
+import { enteredBreakRange, formatRecordTime, recordInputDate } from '../../lib/time/record-zone';
 import { savedPay } from "../people/directory";
 import { workedHours } from "../../lib/time/records";
 import { useState, useEffect, useMemo } from "react";
@@ -72,10 +72,10 @@ export function TimesheetDetailsModal({
         breaks:
           timesheet.breaks?.map((b: any) => ({
             startTime: b.startTime
-              ? formatRecordTime(b.startTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
+              ? formatRecordTime(b.startTime, "HH:mm", timesheet.timeZone)
               : "",
             endTime: b.endTime
-              ? formatRecordTime(b.endTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
+              ? formatRecordTime(b.endTime, "HH:mm", timesheet.timeZone)
               : "",
             type: b.type || "UNPAID",
           })) || [],
@@ -117,11 +117,12 @@ export function TimesheetDetailsModal({
     const duration = workedHours(
       start.toJSON() || '',
       end.toJSON() || '',
-      formData.breaks.filter((b) => b.type !== "PAID" && b.startTime).map(b => ({
-        ...b,
-        startTime: recordInputDate(b.startTime, timesheet?.timeZone).toJSON() || '',
-        endTime: b.endTime ? recordInputDate(b.endTime, timesheet?.timeZone).toJSON() || '' : null,
-      })),
+      formData.breaks.filter((b) => b.type !== "PAID" && b.startTime).flatMap(b => {
+        try {
+          const range = enteredBreakRange(start, end, b.startTime, b.endTime, timesheet?.timeZone);
+          return [{...b, startTime: range.start.toISOString(), endTime: range.end?.toISOString() || null}];
+        } catch { return []; }
+      }),
     );
     const payRate = timesheet?.employee
       ? savedPay({
@@ -179,9 +180,10 @@ export function TimesheetDetailsModal({
         throw new Error("Enter valid times with end after start");
       const processedBreaks = formData.breaks.map((b) => {
         if (!b.startTime) throw new Error("Every break needs a start time");
+        const range = enteredBreakRange(start, end || new Date(), b.startTime, b.endTime, timesheet?.timeZone);
         return {
-          startTime: recordInputDate(b.startTime, timesheet?.timeZone).toISOString(),
-          endTime: b.endTime ? recordInputDate(b.endTime, timesheet?.timeZone).toISOString() : null,
+          startTime: range.start.toISOString(),
+          endTime: range.end?.toISOString() || null,
           type: b.type,
         };
       });
@@ -481,7 +483,8 @@ export function TimesheetDetailsModal({
                     >
                       <div className="flex-1 grid grid-cols-2 gap-2">
                         <input
-                          type="datetime-local"
+                          type="time"
+                          aria-label={`Break ${idx + 1} start time`}
                           className="w-full px-2 py-1 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded focus:ring-1 focus:ring-purple-500"
                           value={brk.startTime}
                           onChange={(e) =>
@@ -489,7 +492,8 @@ export function TimesheetDetailsModal({
                           }
                         />
                         <input
-                          type="datetime-local"
+                          type="time"
+                          aria-label={`Break ${idx + 1} end time`}
                           className="w-full px-2 py-1 text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded focus:ring-1 focus:ring-purple-500"
                           value={brk.endTime}
                           onChange={(e) =>
