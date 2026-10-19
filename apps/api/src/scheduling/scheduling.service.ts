@@ -156,8 +156,7 @@ export class SchedulingService {
 
     if (params.startTime) {
       const now = new Date();
-      const canCorrectPast = ['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(user?.role)
-        && params.endTime && now.getTime() >= params.endTime.getTime();
+      const canCorrectPast = ['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(user?.role);
       if (now.getTime() >= params.startTime.getTime() && !canCorrectPast) {
         throw new BadRequestException('This shift is locked because it has already started');
       }
@@ -497,7 +496,7 @@ export class SchedulingService {
       locationId: shift.locationId,
       startTime: new Date(shift.startTime),
       endTime: shift.endTime ? new Date(shift.endTime) : null,
-    });
+    }, user);
 
     const ok = await this.validateAvailability(replacementEmployeeId, new Date(shift.startTime), new Date(shift.endTime));
     if (!ok.ok) throw new BadRequestException(ok.message);
@@ -1275,7 +1274,7 @@ export class SchedulingService {
       locationId: shift.locationId,
       startTime: shift.startTime,
       endTime: shift.endTime,
-    });
+    }, user);
 
     const status = String((shift as any).status || '').toUpperCase();
     const groupId = (shift as any).groupId || shift.id;

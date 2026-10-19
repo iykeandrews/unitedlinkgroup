@@ -71,7 +71,8 @@ async function main() {
   const past = {employeeId:'employee',locationId:'location',startTime:new Date(data.startTime),endTime:new Date(data.endTime)};
   await scheduling.assertShiftPlacementUnlocked(past,admin);
   await assert.rejects(()=>scheduling.assertShiftPlacementUnlocked(past,{role:'MANAGER'}), /already started/);
-  await assert.rejects(()=>scheduling.assertShiftPlacementUnlocked({...past,endTime:new Date(Date.now()+3600000)},admin), /already started/);
+  await scheduling.assertShiftPlacementUnlocked({...past,endTime:new Date(Date.now()+3600000)},admin);
+  await scheduling.assertShiftPlacementUnlocked(past,{role:'BUSINESS_ADMIN'});
   prisma.timesheet.findMany=async()=>[{startTime:past.startTime,endTime:past.endTime,breaks:[]}];
   await assert.rejects(()=>scheduling.assertShiftPlacementUnlocked(past,admin), /locked/);
   prisma.timesheet.findMany=async()=>[{startTime:new Date(+past.startTime-3600000),endTime:past.startTime,breaks:[]}];

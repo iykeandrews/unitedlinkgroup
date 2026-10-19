@@ -299,8 +299,7 @@ export default function SchedulingPage() {
       const shiftStart = new Date(shift.startTime).getTime();
       const shiftEnd = new Date(shift.endTime || shift.startTime).getTime();
 
-      const canCorrectPast = ['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(userRole || '')
-        && !!shift.endTime && nowMs >= shiftEnd;
+      const canCorrectPast = ['SUPER_ADMIN', 'BUSINESS_ADMIN'].includes(userRole || '');
       if (nowMs >= shiftStart && !canCorrectPast) {
         locks[shift.id] = true;
         continue;
