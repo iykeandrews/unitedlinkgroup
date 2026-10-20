@@ -1,4 +1,5 @@
 "use client";
+import { DailyRoster } from '../../../components/dashboard/DailyRoster';
 import { recordPeriodBounds, startsInWorkPeriod } from '../../../lib/time/calendar-history';
 import { formatRecordTime } from '../../../lib/time/record-zone';
 
@@ -99,6 +100,7 @@ export default function TimeTrackingPage() {
   const requestVersion = useRef(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attendanceRevision, setAttendanceRevision] = useState(0);
   const [timesheets, setTimesheets] = useState<Timesheet[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -145,7 +147,7 @@ export default function TimeTrackingPage() {
     return () => {
       requestVersion.current++;
     };
-  }, [startDate, endDate, selectedBusiness?.id, roleTab]);
+  }, [startDate, endDate, selectedBusiness?.id, roleTab, attendanceRevision]);
 
   const fetchData = async () => {
     const version = ++requestVersion.current;
@@ -704,6 +706,8 @@ export default function TimeTrackingPage() {
           </div>
         </div>
       </div>
+
+      {canImport && <details className="flex-shrink-0 border-b dark:border-slate-700"><summary className="cursor-pointer px-4 py-3 font-semibold text-purple-700">Live attendance · Clock officers in or out</summary><div className="max-h-80 overflow-auto p-4"><DailyRoster businessId={selectedBusiness?.id} onAttendanceChange={() => setAttendanceRevision(v => v + 1)} /></div></details>}
 
       {/* Top Toolbar - Global Filters */}
       <div className="min-h-16 flex flex-wrap gap-3 items-center justify-between px-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0 z-10">
@@ -1342,7 +1346,7 @@ export default function TimeTrackingPage() {
 
       {canImport && <ManualTimesheetModal isOpen={manualOpen} onClose={() => setManualOpen(false)} employees={employees} locations={locations} workerType={roleTab} onSaved={(record) => {
         const date = new Date(formatRecordTime(record.startTime, 'yyyy-MM-dd', record.timeZone) + 'T12:00:00');
-        setStartDate(date); setEndDate(date); setSelectedEmployeeId(null); setSelectedLocationId('all'); setActiveTab('pending'); fetchData();
+        setStartDate(date); setEndDate(date); setSelectedEmployeeId(null); setSelectedLocationId('all'); setActiveTab('pending'); setAttendanceRevision(v => v + 1);
       }} />}
       <TimesheetDetailsModal
         isOpen={isModalOpen}

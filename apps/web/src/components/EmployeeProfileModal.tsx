@@ -249,6 +249,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [shiftLoading, setShiftLoading] = useState(false);
+  const shiftActionInFlight = useRef(false);
   const [locations, setLocations] = useState<any[]>([]);
   const [visibleMonth, setVisibleMonth] = useState<Date>(new Date());
   const [elapsedLabel, setElapsedLabel] = useState<string>('');
@@ -818,7 +819,8 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
   };
 
   const handleShiftAction = async () => {
-    if (!employee) return;
+    if (!employee || shiftActionInFlight.current) return;
+    shiftActionInFlight.current = true;
     setShiftLoading(true);
     try {
       if (shiftStatus?.status === 'CLOCKED_IN' || shiftStatus?.status === 'ON_BREAK') {
@@ -827,6 +829,12 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
         });
         toast.success('Clocked out successfully');
       } else {
+        const current = await api.get(`/time-tracking/admin/status/${employee.id}`);
+        setShiftStatus(current.data);
+        if (current.data?.status === 'CLOCKED_IN' || current.data?.status === 'ON_BREAK') {
+          toast.error('Clock out this officer in Time & Attendance before attempting another clock-in.');
+          return;
+        }
         const result = await api.post('/time-tracking/admin/clock-in', {
           employeeId: employee.id
         });
@@ -840,6 +848,7 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
       console.error('Shift action failed', e);
       toast.error(msg);
     } finally {
+      shiftActionInFlight.current = false;
       setShiftLoading(false);
     }
   };

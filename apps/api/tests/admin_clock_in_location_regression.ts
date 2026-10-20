@@ -26,6 +26,9 @@ async function main(){
   let candidates:any[]=[],saved:any;
   const employee={id:'employee',businessId:'business',workerType:'W2'};
   const prisma:any={employee:{findUnique:async()=>employee,findFirst:async()=>null},business:{findFirst:async()=>null},shift:{findMany:async()=>candidates},timesheet:{findFirst:async()=>null,create:async(args:any)=>{saved=args.data;return {...saved,id:'record'};}}};
+  prisma.location={findUnique:async()=>({timeZone:'America/New_York'})};
+  prisma.$queryRawUnsafe=async()=>[];
+  prisma.$transaction=async(fn:any)=>fn(prisma);
   const service=new TimeTrackingService(prisma,{} as any,{} as any);
   const admin={role:'SUPER_ADMIN',userId:'admin'};
   await service.adminClockIn('employee','arbitrary-browser-default',admin);
@@ -41,6 +44,11 @@ async function main(){
   await assert.rejects(()=>service.adminClockIn('employee',undefined,{role:'BUSINESS_ADMIN',userId:'outside'}),/Access denied/);
   prisma.timesheet.findFirst=async()=>({id:'running'});
   await assert.rejects(()=>service.adminClockIn('employee',undefined,admin),/already clocked in/);
+  let checks=0;
+  prisma.timesheet.findFirst=async()=>++checks === 1 ? null : {id:'raced-clock-in'};
+  prisma.timesheet.create=async()=>{throw new Error('Must not create a duplicate');};
+  await assert.rejects(()=>service.adminClockIn('employee',undefined,admin),/Clock out the officer in Time & Attendance/);
+  assert.equal(checks,2);
   console.log('Admin clock-in location, timezone, blank site, tenant, and duplicate checks passed');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1809,36 +1809,40 @@ export class SchedulingService {
         for (const s of end1hShifts) {
             const shift = s as any;
             if (!shift.employeeId) continue;
-            const activeTs = await this.prisma.timesheet.findFirst({
-                where: {
-                    employeeId: shift.employeeId,
-                    endTime: null
-                },
-                orderBy: { startTime: 'desc' }
-            });
-            if (activeTs) {
-                // End any active break first
-                const activeBreak = await this.prisma.break.findFirst({
-                    where: { timesheetId: activeTs.id, endTime: null }
+            await this.prisma.$transaction(async tx => {
+                await tx.$queryRawUnsafe('SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE', shift.employeeId);
+                const activeTs = await tx.timesheet.findFirst({
+                    where: {
+                        employeeId: shift.employeeId,
+                        locationId: shift.locationId || null,
+                        endTime: null,
+                        status: { notIn: ['DISCARDED', 'REJECTED'] },
+                        startTime: {
+                            gte: new Date(new Date(shift.startTime).getTime() - 4 * 60 * 60000),
+                            lt: new Date(shift.endTime),
+                        },
+                    },
+                    orderBy: { startTime: 'desc' },
                 });
-                if (activeBreak) {
-                    await this.prisma.break.update({
-                        where: { id: activeBreak.id },
-                        data: { endTime: new Date(shift.endTime) }
-                    });
-                }
+                if (!activeTs) return;
                 const autoEnd = new Date(new Date(shift.endTime).getTime() + 60 * 60000);
-                await this.prisma.timesheet.update({
-                    where: { id: activeTs.id },
+                if (autoEnd <= activeTs.startTime || autoEnd > now) return;
+                const changed = await tx.timesheet.updateMany({
+                    where: { id: activeTs.id, endTime: null, updatedAt: activeTs.updatedAt },
                     data: {
                         endTime: autoEnd,
                         status: 'PENDING',
-                        employeeNote: (activeTs.employeeNote ? activeTs.employeeNote + '\n' : '') + '[System] Auto-clocked out 1 hour after scheduled end.'
-                    }
+                        employeeNote: (activeTs.employeeNote ? activeTs.employeeNote + '\n' : '') + '[System] Auto-clocked out 1 hour after scheduled end.',
+                    },
                 });
-                await this.prisma.shift.update({ where: { id: shift.id }, data: { autoClockout1hDone: true } as any });
+                if (changed.count !== 1) return;
+                await tx.break.updateMany({
+                    where: { timesheetId: activeTs.id, endTime: null, startTime: { lte: autoEnd } },
+                    data: { endTime: autoEnd },
+                });
+                await tx.shift.update({ where: { id: shift.id }, data: { autoClockout1hDone: true } as any });
                 logger.log(`Auto-clocked out employee ${shift.employeeId} for shift ${shift.id}`);
-            }
+            });
         }
 
         const openSoonStart = new Date(now.getTime() + 30 * 60000);

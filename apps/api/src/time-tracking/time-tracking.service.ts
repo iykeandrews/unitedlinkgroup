@@ -519,7 +519,7 @@ export class TimeTrackingService {
     });
 
     if (activeTimesheet) {
-      throw new BadRequestException(`Employee is already clocked in`);
+      throw new BadRequestException(`This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.`);
     }
 
     const employment = await this.prisma.employee.findUnique({
@@ -611,20 +611,29 @@ export class TimeTrackingService {
           select: { timeZone: true },
         })
       : null;
-    const timesheet = await this.prisma.timesheet.create({
-      data: {
-        timeZone: opts?.timeZone || siteZone?.timeZone || "America/New_York",
-        employeeId,
-        workerType,
-        startTime: new Date(),
-        status: "IN_PROGRESS",
-        locationId: locationId || undefined,
-        clockInIp: ip,
-        clockInLat:
-          typeof lat === "number" && Number.isFinite(lat) ? lat : undefined,
-        clockInLng:
-          typeof lng === "number" && Number.isFinite(lng) ? lng : undefined,
-      },
+    const timesheet = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE', employeeId,
+      );
+      const existing = await tx.timesheet.findFirst({ where: { employeeId, endTime: null } });
+      if (existing) {
+        throw new BadRequestException("This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.");
+      }
+      return tx.timesheet.create({
+        data: {
+          timeZone: opts?.timeZone || siteZone?.timeZone || "America/New_York",
+          employeeId,
+          workerType,
+          startTime: new Date(),
+          status: "IN_PROGRESS",
+          locationId: locationId || undefined,
+          clockInIp: ip,
+          clockInLat:
+            typeof lat === "number" && Number.isFinite(lat) ? lat : undefined,
+          clockInLng:
+            typeof lng === "number" && Number.isFinite(lng) ? lng : undefined,
+        },
+      });
     });
 
     void this.operations?.notify(employeeId, "clocked in", timesheet);

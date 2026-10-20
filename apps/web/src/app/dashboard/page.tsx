@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import api from '../../lib/api';
 import { useBusiness } from '../../context/business-context';
 import { ExpiringQualificationsModal } from '../../components/ExpiringQualificationsModal';
+import { DailyRoster } from '../../components/dashboard/DailyRoster';
 import { DashboardHeader } from '../../components/dashboard/DashboardHeader';
 import { StatsCards } from '../../components/dashboard/StatsCards';
 import { NewsFeed } from '../../components/dashboard/NewsFeed';
@@ -457,6 +458,8 @@ export default function DashboardPage() {
         country={selectedBusiness?.country}
       />
 
+      {[UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN].includes(profile?.role) && <DailyRoster businessId={selectedBusiness?.id} />}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Content Area */}
         <div className="lg:col-span-2 space-y-8">
@@ -540,6 +543,8 @@ function BusinessContextDashboard({
         hasModule={hasModule}
         businessName={selectedBusiness?.name}
       />
+
+      <DailyRoster businessId={selectedBusiness?.id} />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8 space-y-6">
