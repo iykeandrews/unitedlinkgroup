@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
-import { PrismaService } from '../prisma.service';
 import { NotificationsStreamService } from './notifications-stream.service';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -15,10 +14,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
         signOptions: { expiresIn: '60m' },
       }),
       inject: [ConfigService],
-    }),
-  ],
+    })],
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotificationsStreamService, PrismaService],
+  providers: [NotificationsService, NotificationsStreamService],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

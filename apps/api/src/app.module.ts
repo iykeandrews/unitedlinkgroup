@@ -1,3 +1,4 @@
+import { PrismaModule } from './prisma.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -5,7 +6,6 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaService } from './prisma.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { PayrollModule } from './payroll/payroll.module';
@@ -53,6 +53,7 @@ import { VendorsModule } from './vendors/vendors.module';
       limit: parseInt(process.env.THROTTLE_LIMIT || '600', 10),
     }]),
     ScheduleModule.forRoot(),
+    PrismaModule,
     AuthModule, 
     UsersModule, 
     PayrollModule, 
@@ -97,11 +98,9 @@ import { VendorsModule } from './vendors/vendors.module';
   controllers: [AppController],
   providers: [
     AppService, 
-    PrismaService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
-    },
-  ],
+    }],
 })
 export class AppModule {}

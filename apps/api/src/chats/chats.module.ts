@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
-import { PrismaService } from '../prisma.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PushModule } from '../push/push.module';
 import { ChatsController } from './chats.controller';
@@ -20,9 +19,8 @@ import { ChatsService } from './chats.service';
         signOptions: { expiresIn: '60m' },
       }),
       inject: [ConfigService],
-    }),
-  ],
+    })],
   controllers: [ChatsController],
-  providers: [ChatsService, ChatsGateway, PrismaService],
+  providers: [ChatsService, ChatsGateway],
 })
 export class ChatsModule {}

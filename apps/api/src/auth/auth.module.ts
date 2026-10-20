@@ -6,7 +6,6 @@ import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
 import { JwtQueryStrategy } from './jwt-query.strategy';
 import { AuthController } from './auth.controller';
-import { PrismaService } from '../prisma.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
@@ -20,9 +19,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
         signOptions: { expiresIn: '60m' },
       }),
       inject: [ConfigService],
-    }),
-  ],
-  providers: [AuthService, JwtStrategy, JwtQueryStrategy, PrismaService],
+    })],
+  providers: [AuthService, JwtStrategy, JwtQueryStrategy],
   controllers: [AuthController],
   exports: [AuthService],
 })
