@@ -1619,7 +1619,7 @@ export class TimeTrackingService {
       throw new ForbiddenException("You can only delete your own timesheets");
     }
 
-    if (!timesheet.endTime)
+    if (!timesheet.endTime && !["SUPER_ADMIN", "BUSINESS_ADMIN"].includes(user?.role))
       throw new BadRequestException(
         "End the active timesheet before discarding it",
       );
@@ -1627,10 +1627,32 @@ export class TimeTrackingService {
       throw new ForbiddenException(
         "Approved timesheets require a manager to make changes",
       );
-    // Soft delete by setting status to DISCARDED
-    return this.prisma.timesheet.update({
-      where: { id },
-      data: { status: "DISCARDED" },
+    const paid = await this.prisma.payStub.findFirst({
+      where: {
+        employeeId: timesheet.employeeId,
+        payroll: {
+          status: "PAID",
+          periodStart: { lte: timesheet.endTime || new Date() },
+          periodEnd: { gte: new Date(timesheet.startTime.toISOString().slice(0, 10) + "T00:00:00Z") },
+        },
+      },
+    });
+    if (paid) throw new BadRequestException("This attendance is included in paid payroll and is read-only.");
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE', timesheet.employeeId);
+      const current = await tx.timesheet.findUnique({ where: { id } });
+      if (!current || current.updatedAt.getTime() !== timesheet.updatedAt.getTime())
+        throw new BadRequestException("This timesheet changed. Refresh before discarding it.");
+      const endTime = current.endTime || new Date();
+      await tx.break.updateMany({ where: { timesheetId: id, endTime: null }, data: { endTime } });
+      const discarded = await tx.timesheet.update({ where: { id }, data: { status: "DISCARDED", endTime } });
+      await tx.auditLog.create({data: {
+        businessId: timesheet.employee.businessId,
+        userId: user?.userId || user?.sub || user?.id || null,
+        action: "TIMESHEET_DISCARDED", resource: "TIMESHEET", resourceId: id,
+        details: JSON.stringify({ before: current, endedActiveClockIn: !current.endTime }),
+      }});
+      return discarded;
     });
   }
 

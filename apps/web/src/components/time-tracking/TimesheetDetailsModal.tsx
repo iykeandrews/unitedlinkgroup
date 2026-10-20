@@ -231,7 +231,7 @@ export function TimesheetDetailsModal({
       onClose();
     } catch (error) {
       console.error(error);
-      toast.error("Failed to discard timesheet");
+      toast.error((error as any)?.response?.data?.message || "Failed to discard timesheet");
     } finally {
       setLoading(false);
       setShowDeleteConfirm(false);
@@ -289,7 +289,7 @@ export function TimesheetDetailsModal({
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   Are you sure you want to discard this timesheet? This action
-                  can be reversed from the Discarded tab.
+                  can be reversed from the Discarded tab. Any open clock-in and break will be ended and excluded from payable time.
                 </p>
               </div>
               <div className="flex items-center gap-3 w-full mt-2">
@@ -553,18 +553,6 @@ export function TimesheetDetailsModal({
         <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="flex items-center justify-between gap-6 max-w-3xl mx-auto">
             <div className="flex gap-6 items-center">
-              {timesheet.status !== "DISCARDED" && (
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors group relative"
-                  title="Discard Timesheet"
-                >
-                  <Trash2 className="w-5 h-5" />
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs font-bold text-white bg-slate-800 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                    Discard
-                  </span>
-                </button>
-              )}
               <div>
                 <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
                   Total Duration
@@ -617,6 +605,14 @@ export function TimesheetDetailsModal({
                       Approve
                     </button>
                   )}
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="px-6 py-2.5 text-xs font-bold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg disabled:opacity-50 uppercase tracking-wide"
+                  >
+                    Discard
+                  </button>
                   <button
                     onClick={() => handleSave()}
                     disabled={loading}

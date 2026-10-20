@@ -458,7 +458,7 @@ export default function DashboardPage() {
         country={selectedBusiness?.country}
       />
 
-      {[UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN].includes(profile?.role) && <DailyRoster businessId={selectedBusiness?.id} />}
+      {[UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN].includes(profile?.role) && <details className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"><summary className="cursor-pointer px-5 py-4 font-semibold">Today's schedule & attendance</summary><DailyRoster businessId={selectedBusiness?.id} /></details>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Content Area */}
@@ -544,7 +544,7 @@ function BusinessContextDashboard({
         businessName={selectedBusiness?.name}
       />
 
-      <DailyRoster businessId={selectedBusiness?.id} />
+      <details className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"><summary className="cursor-pointer px-5 py-4 font-semibold">Today's schedule & attendance</summary><DailyRoster businessId={selectedBusiness?.id} /></details>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8 space-y-6">
