@@ -1,3 +1,4 @@
+import { buildTimesheetReport, validateReportPeriod, reportPdf, reportExcel } from './timesheet-report';
 import { MobileOperationsService } from "./mobile-operations.service";
 import { Optional } from "@nestjs/common";
 import { calculateHours, paidIntervals } from "../payroll/hours";
@@ -161,6 +162,30 @@ export class TimeTrackingService {
         };
       })
       .reverse();
+  }
+
+  async exportTimesheetReport(query: any, user: any, businessId: string) {
+    if (!["SUPER_ADMIN", "BUSINESS_ADMIN", "MANAGER"].includes(user?.role))
+      throw new ForbiddenException("Only administrators and managers can export timesheets");
+    await this.validateBusinessAccess(businessId, user);
+    validateReportPeriod(query.from, query.to);
+    if (!["pdf", "xlsx"].includes(query.format)) throw new BadRequestException("Choose PDF or Excel");
+    const business = await this.prisma.business.findUnique({where:{id:businessId}});
+    if (!business) throw new BadRequestException("Choose a business");
+    // Include the preceding workweek, across all sites and statuses, for overtime.
+    const lower = new Date(Date.parse(query.from) - 9 * 86400000);
+    const upper = new Date(Date.parse(query.to) + 2 * 86400000);
+    const sheets = await this.prisma.timesheet.findMany({
+      where:{employee:{businessId},status:{in:["APPROVED","PENDING"]},startTime:{gte:lower,lt:upper}},
+      include:{employee:{select:{id:true,firstName:true,lastName:true,badgeNumber:true,workerType:true,payType:true,hourlyRate:true,salary:true,overtimeEligible:true,w2Profile:true,contractorProfile:true}},location:true,breaks:true},
+      orderBy:{startTime:"asc"},
+    });
+    const changes = await this.prisma.auditLog.findMany({
+      where:{businessId,resource:"EMPLOYEE_RATE",action:"RATE_CHANGE",resourceId:{in:[...new Set(sheets.map(s=>s.employeeId))]}},
+      orderBy:{createdAt:"asc"},
+    });
+    const report = buildTimesheetReport(business,sheets,changes,query);
+    return query.format === "pdf" ? reportPdf(report) : reportExcel(report);
   }
 
   async getUntrackedShifts(employeeId: string | undefined, user: any, businessId?: string) {

@@ -14,10 +14,11 @@ import {
   UseInterceptors,
   UploadedFile,
   Req,
+  Res,
   BadRequestException,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { Request } from "express";
+import { Request, Response } from "express";
 import { TimeTrackingService } from "./time-tracking.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../auth/roles.guard";
@@ -305,6 +306,18 @@ export class TimeTrackingController {
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   async createManualTimesheet(@Body() body: any, @User() user: any) {
     return this.timeTrackingService.createManualTimesheet(body, user);
+  }
+
+  @Get("timesheet-report")
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
+  async timesheetReport(@Query() query: any, @User() user: any,
+    @Headers("x-business-id") headerBusinessId: string, @Res() response: Response) {
+    const businessId = headerBusinessId || await this.timeTrackingService.getBusinessId(user.userId);
+    const data = await this.timeTrackingService.exportTimesheetReport(query,user,businessId);
+    response.setHeader("Content-Type",query.format==="pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    response.setHeader("Content-Disposition",'attachment; filename="timesheets-'+query.from+'-to-'+query.to+'.'+query.format+'"');
+    response.setHeader("Cache-Control","no-store");
+    response.send(data);
   }
 
   @Get("untracked-shifts")

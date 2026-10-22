@@ -120,6 +120,13 @@ export default function TimeTrackingPage() {
   const [endDate, setEndDate] = useState(() =>
     endOfWeek(new Date(), { weekStartsOn: 1 }),
   );
+  const [periodFrom, setPeriodFrom] = useState(() => format(startDate,"yyyy-MM-dd"));
+  const [periodTo, setPeriodTo] = useState(() => format(endDate,"yyyy-MM-dd"));
+  const [reportStatus, setReportStatus] = useState<"ALL" | "APPROVED" | "PENDING">("ALL");
+  const [reportBusy, setReportBusy] = useState(false);
+  useEffect(() => {
+    setPeriodFrom(format(startDate,"yyyy-MM-dd")); setPeriodTo(format(endDate,"yyyy-MM-dd"));
+  }, [startDate,endDate]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(
     null,
@@ -196,7 +203,9 @@ export default function TimeTrackingPage() {
         (t: Timesheet) =>
           (t.workerType || t.employee?.workerType || "W2") === roleTab && startsInWorkPeriod(t,startDay,endDay),
       );
-      const team = employeesRes.data.filter(
+      const directory = new Map<string, Employee>(employeesRes.data.map((employee: Employee) => [employee.id, employee]));
+      records.forEach((record: Timesheet) => { if (record.employee && !directory.has(record.employeeId)) directory.set(record.employeeId, record.employee); });
+      const team = Array.from(directory.values()).filter(
         (e: Employee) =>
           (e.workerType || "W2") === roleTab ||
           records.some((t: Timesheet) => t.employeeId === e.id),
@@ -278,6 +287,33 @@ export default function TimeTrackingPage() {
       ids.forEach((id) => newSet.add(id));
       setSelectedTimesheetIds(newSet);
     }
+  };
+
+  const applyReportPeriod = () => {
+    if (!periodFrom || !periodTo || periodFrom > periodTo || Date.parse(periodTo)-Date.parse(periodFrom)>366*86400000) {
+      toast.error("Choose a valid date range of up to one year"); return false;
+    }
+    setStartDate(parseISO(periodFrom)); setEndDate(parseISO(periodTo));
+    setSelectedEmployeeId(null); setActiveTab(reportStatus === "ALL" ? "all" : reportStatus === "APPROVED" ? "approved" : "pending");
+    return true;
+  };
+  const downloadPeriodReport = async (fileFormat: "pdf" | "xlsx") => {
+    if (!applyReportPeriod() || !selectedBusiness || reportBusy) return;
+    setReportBusy(true);
+    try {
+      const response = await api.get("/time-tracking/timesheet-report",{
+        params:{from:periodFrom,to:periodTo,status:reportStatus,format:fileFormat,workerType:roleTab,
+          ...(selectedLocationId!=="all"?{locationId:selectedLocationId}:{}),search:searchTerm},
+        headers:{"x-business-id":selectedBusiness.id},responseType:"blob",
+      });
+      const url=URL.createObjectURL(response.data);
+      const link=document.createElement("a");link.href=url;link.download="timesheets-"+periodFrom+"-to-"+periodTo+"."+fileFormat;link.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    } catch(error:any) {
+      let message="Unable to download the timesheet report";
+      try { if(error.response?.data instanceof Blob) message=JSON.parse(await error.response.data.text()).message || message; } catch {}
+      toast.error(message);
+    } finally { setReportBusy(false); }
   };
 
   const handleExportPDF = (
@@ -365,6 +401,7 @@ export default function TimeTrackingPage() {
 
   // Process Data
   const filteredEmployees = employees.filter((emp) =>
+    (activeTab === "discarded" || timesheets.some(t => t.employeeId === emp.id && (reportStatus === "ALL" ? ["APPROVED","PENDING","IN_PROGRESS"].includes(t.status) : reportStatus === "PENDING" ? ["PENDING","IN_PROGRESS"].includes(t.status) : t.status === reportStatus) && (selectedLocationId === "all" || t.location?.id === selectedLocationId))) &&
     `${emp.firstName} ${emp.lastName}`
       .toLowerCase()
       .includes(searchTerm.toLowerCase()),
@@ -374,7 +411,7 @@ export default function TimeTrackingPage() {
     const stats: Record<string, { count: number; hours: number; pay: number }> =
       {};
     employees.forEach((emp) => {
-      const empTimesheets = timesheets.filter((t) => t.employeeId === emp.id);
+      const empTimesheets = timesheets.filter((t) => t.employeeId === emp.id && (activeTab === "discarded" ? ["DISCARDED","REJECTED"].includes(t.status) : reportStatus === "ALL" ? ["APPROVED","PENDING","IN_PROGRESS"].includes(t.status) : reportStatus === "PENDING" ? ["PENDING","IN_PROGRESS"].includes(t.status) : t.status === reportStatus));
 
       // Filter stats based on date range (already filtered by API) and location if needed
       let filtered = empTimesheets;
@@ -397,7 +434,7 @@ export default function TimeTrackingPage() {
       stats[emp.id] = { count, hours, pay };
     });
     return stats;
-  }, [timesheets, employees, selectedLocationId]);
+  }, [timesheets, employees, selectedLocationId, reportStatus, activeTab]);
 
   const scopedTimesheets = timesheets.filter(
     (t) =>
@@ -406,7 +443,7 @@ export default function TimeTrackingPage() {
       filteredEmployees.some((e) => e.id === t.employeeId),
   );
   const groupedTimesheets = useMemo(() => {
-    let filtered = timesheets;
+    let filtered = activeTab === "discarded" ? timesheets : timesheets.filter(t => reportStatus !== "ALL" ? (reportStatus === "PENDING" ? ["PENDING","IN_PROGRESS"].includes(t.status) : t.status === reportStatus) : ["APPROVED","PENDING","IN_PROGRESS"].includes(t.status));
 
     // Tab Filter
     if (activeTab === "pending")
@@ -534,6 +571,7 @@ export default function TimeTrackingPage() {
 
     return groups;
   }, [
+    reportStatus,
     timesheets,
     filteredEmployees,
     activeTab,
@@ -708,6 +746,16 @@ export default function TimeTrackingPage() {
       </div>
 
       {canImport && <details className="flex-shrink-0 border-b dark:border-slate-700"><summary className="cursor-pointer px-4 py-3 font-semibold text-purple-700">Live attendance · Clock officers in or out</summary><div className="max-h-80 overflow-auto p-4"><DailyRoster businessId={selectedBusiness?.id} onAttendanceChange={() => setAttendanceRevision(v => v + 1)} /></div></details>}
+
+      <div className="flex flex-wrap items-end gap-3 border-b bg-slate-50 px-4 py-3 dark:bg-slate-800">
+        <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Period from<input aria-label="Timesheet period from" type="date" value={periodFrom} onChange={event=>setPeriodFrom(event.target.value)} className="mt-1 block rounded-lg border bg-white p-2 text-sm dark:bg-slate-900" /></label>
+        <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Period to<input aria-label="Timesheet period to" type="date" min={periodFrom} value={periodTo} onChange={event=>setPeriodTo(event.target.value)} className="mt-1 block rounded-lg border bg-white p-2 text-sm dark:bg-slate-900" /></label>
+        <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Attendance status<select aria-label="Report attendance status" value={reportStatus} onChange={event=>{setReportStatus(event.target.value as typeof reportStatus);setSelectedEmployeeId(null);setActiveTab("all");}} className="mt-1 block rounded-lg border bg-white p-2 text-sm dark:bg-slate-900"><option value="ALL">Approved and pending</option><option value="APPROVED">Approved only</option><option value="PENDING">Pending only</option></select></label>
+        <button type="button" onClick={applyReportPeriod} className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white">Search period</button>
+        <button type="button" disabled={reportBusy || !selectedBusiness} onClick={()=>downloadPeriodReport("pdf")} className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-slate-900"><FileText size={16} />Download PDF</button>
+        <button type="button" disabled={reportBusy || !selectedBusiness} onClick={()=>downloadPeriodReport("xlsx")} className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-slate-900"><FileSpreadsheet size={16} />Download Excel</button>
+        <p className="w-full text-xs text-slate-500">{reportBusy ? "Preparing report…" : "Reports are grouped by employee and use the selected period, classification, location and employee search. Gross pay is estimated; pending time remains subject to approval."}</p>
+      </div>
 
       {/* Top Toolbar - Global Filters */}
       <div className="min-h-16 flex flex-wrap gap-3 items-center justify-between px-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0 z-10">
