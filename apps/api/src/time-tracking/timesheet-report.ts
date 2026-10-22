@@ -286,14 +286,14 @@ export function reportPdf(report: TimesheetReport) {
           missing: 0,
         },
       ];
-  const widths = [22, 61, 24, 24, 24, 18, 17, 23, 25, 35];
+  const widths = [27, 55, 27, 27, 26, 24, 26, 28, 33];
   const measure = new jsPDF({
     orientation: "landscape",
     unit: "mm",
     format: "a4",
   });
-  const fontSize = 7.5,
-    lineHeight = 3.1;
+  const fontSize = 11,
+    lineHeight = 4.5;
   measure.setFontSize(fontSize);
   const rowsFor = (g: any) =>
     g.rows.map((r: any) => [
@@ -303,7 +303,6 @@ export function reportPdf(report: TimesheetReport) {
       r.clockOut,
       r.breaks,
       r.hours === null ? "Review" : r.hours.toFixed(2),
-      r.overtimeHours === null ? "-" : r.overtimeHours.toFixed(2),
       r.rate === null ? "Review" : money(r.rate),
       r.gross === null ? "Review" : money(r.gross),
       r.status +
@@ -312,12 +311,12 @@ export function reportPdf(report: TimesheetReport) {
     ]);
   const layouts = groups.map((g) => {
     const rows = rowsFor(g).map((row: string[]) =>
-      row.map((value, i) => measure.splitTextToSize(value, widths[i] - 2)),
+      row.map((value, i) => measure.splitTextToSize(value, widths[i] - 4)),
     );
     const heights = rows.map((row: string[][]) =>
       Math.max(
-        5.2,
-        Math.max(...row.map((cell) => cell.length)) * lineHeight + 2,
+        10,
+        Math.max(...row.map((cell) => cell.length)) * lineHeight + 4,
       ),
     );
     return {
@@ -325,7 +324,7 @@ export function reportPdf(report: TimesheetReport) {
       heights,
       height: Math.max(
         210,
-        86 + heights.reduce((a: number, b: number) => a + b, 0),
+        105 + heights.reduce((a: number, b: number) => a + b, 0),
       ),
     };
   });
@@ -358,18 +357,18 @@ export function reportPdf(report: TimesheetReport) {
     }
     doc.setTextColor(36, 32, 72);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
+    doc.setFontSize(14);
     doc.text(report.business.slice(0, 75), headingX, 13);
-    doc.setFontSize(8);
+    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.text(doc.splitTextToSize(report.address, 205 - headingX), headingX, 19);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
     doc.text("TIMESHEET", 285, 12, { align: "right" });
-    doc.setFontSize(10);
+    doc.setFontSize(14);
     doc.text(g.name + (g.badge ? " | " + g.badge : ""), 12, 33);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
+    doc.setFontSize(10);
     doc.text(
       "Period: " +
         report.from +
@@ -381,9 +380,19 @@ export function reportPdf(report: TimesheetReport) {
       39,
     );
     doc.setFillColor(243, 242, 250);
-    doc.rect(12, 43, 273, 10, "F");
+    doc.rect(12, 43, 273, 12, "F");
     doc.text("Entries: " + g.rows.length, 15, 49.5);
-    doc.text("Total hours: " + g.hours.toFixed(2), 85, 49.5);
+    const overtime = g.rows.reduce(
+      (total: number, row: any) => total + (row.overtimeHours || 0),
+      0,
+    );
+    doc.text(
+      "Total hours: " +
+        g.hours.toFixed(2) +
+        (overtime > 0 ? " (" + overtime.toFixed(2) + " OT)" : ""),
+      85,
+      49.5,
+    );
     doc.text(
       "Estimated gross: " + money(g.gross) + (g.missing ? " (incomplete)" : ""),
       174,
@@ -396,12 +405,11 @@ export function reportPdf(report: TimesheetReport) {
       "Clock-out",
       "Break",
       "Net hours",
-      "OT hours",
       "Rate / hr",
       "Gross pay",
       "Status",
     ];
-    let y = 57;
+    let y = 60;
     const drawRow = (
       cells: string[][],
       rowHeight: number,
@@ -426,17 +434,18 @@ export function reportPdf(report: TimesheetReport) {
         ]),
       );
       doc.setFont("helvetica", kind === "body" ? "normal" : "bold");
-      doc.setFontSize(fontSize);
+      doc.setFontSize(kind === "head" ? 9.5 : fontSize);
+      doc.setLineHeightFactor(1.15);
       let x = 12;
       cells.forEach((lines, i) => {
-        doc.text(lines, x + 1, y + 3.5);
+        doc.text(lines, x + 2, y + 5.8);
         x += widths[i];
       });
       y += rowHeight;
     };
     drawRow(
       headings.map((h) => [h]),
-      7,
+      10,
       "head",
     );
     layout.rows.forEach((row: string[][], i: number) =>
@@ -451,17 +460,23 @@ export function reportPdf(report: TimesheetReport) {
         [],
         [g.hours.toFixed(2)],
         [],
-        [],
         [money(g.gross)],
         [],
       ],
-      7,
+      11,
       "total",
     );
-    doc.setFontSize(6.5);
+    doc.setFontSize(8.5);
     doc.setTextColor(90);
     doc.setFont("helvetica", "normal");
-    doc.text(doc.splitTextToSize(report.notes, 273), 12, height - 13);
+    doc.text(
+      doc.splitTextToSize(
+        "Gross pay is estimated before taxes and deductions and includes applicable weekly overtime. Pending entries require approval. Paid external history is for reference only. Review flagged entries in payroll.",
+        273,
+      ),
+      12,
+      height - 20,
+    );
     doc.text(
       report.from +
         " - " +
