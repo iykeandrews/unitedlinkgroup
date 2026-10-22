@@ -1,7 +1,6 @@
 'use client';
 
 import {useEffect, useState, type FormEvent} from 'react';
-import {Combobox, ComboboxInput, ComboboxButton, ComboboxOptions, ComboboxOption} from '@headlessui/react';
 import {Modal} from '../Modal';
 import api from '../../lib/api';
 import {enteredBreakRange, formatRecordTime, recordInputDate} from '../../lib/time/record-zone';
@@ -31,7 +30,7 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
   const [employeeQuery, setEmployeeQuery] = useState('');
   const shifts = allShifts.filter(shift => shift.employeeId === employeeId);
   const eligibleEmployees = employees.filter(employee => allShifts.some(shift => shift.employeeId === employee.id));
-  const filteredEmployees = eligibleEmployees.filter(employee => [employee.firstName, employee.lastName, employee.badgeNumber, employee.email].filter(Boolean).join(' ').toLowerCase().includes(employeeQuery.trim().toLowerCase()));
+  const employeeLabel = (employee: any) => [employee.firstName + ' ' + employee.lastName, employee.badgeNumber].filter(Boolean).join(' · ');
   const [shiftId, setShiftId] = useState('');
   const [loadingShifts, setLoadingShifts] = useState(false);
   const [shiftError, setShiftError] = useState('');
@@ -105,19 +104,18 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
       <p className="text-sm text-slate-500">Record the actual worked times at the location. Dates use MM/DD/YYYY. For overnight work, use the following date for clock-out.</p>
       <fieldset disabled={busy} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="relative">
-            <Combobox value={employeeId} onChange={chooseEmployee} disabled={loadingShifts || !!shiftError} onClose={() => setEmployeeQuery('')}>
-              <label className="text-sm font-medium" htmlFor="manual-timesheet-employee">Employee</label>
-              <div className="relative mt-1">
-                <ComboboxInput id="manual-timesheet-employee" required aria-label="Employee" autoComplete="off" placeholder={loadingShifts ? 'Loading scheduled employees…' : 'Search employees'} displayValue={(id: string) => { const employee = employees.find(entry => entry.id === id); return employee ? employee.firstName + ' ' + employee.lastName : ''; }} onChange={event => setEmployeeQuery(event.target.value)} className="w-full rounded-lg border p-2 pr-10 dark:bg-slate-800" />
-                <ComboboxButton aria-label="Show scheduled employees" className="absolute inset-y-0 right-0 px-3">⌄</ComboboxButton>
-              </div>
-              <ComboboxOptions className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-white shadow-lg empty:invisible dark:bg-slate-800">
-                {filteredEmployees.map(employee => <ComboboxOption key={employee.id} value={employee.id} className="cursor-pointer px-3 py-2 text-sm data-[focus]:bg-purple-100 data-[selected]:font-semibold dark:data-[focus]:bg-slate-700">{employee.firstName} {employee.lastName}{employee.badgeNumber ? ' · ' + employee.badgeNumber : ''}</ComboboxOption>)}
-                {filteredEmployees.length === 0 && <p className="px-3 py-2 text-sm text-slate-500">{employeeQuery ? 'No matching scheduled employees.' : 'No employees with completed shifts missing a clock-in.'}</p>}
-              </ComboboxOptions>
-            </Combobox>
-          </div>
+          <label className="text-sm font-medium">Employee
+            <input required list="manual-timesheet-employees" aria-label="Employee" autoComplete="off" disabled={loadingShifts || !!shiftError} placeholder={loadingShifts ? 'Loading scheduled employees…' : 'Search scheduled employees'} value={employeeQuery} onChange={event => {
+              const value = event.target.value;
+              const employee = eligibleEmployees.find(entry => employeeLabel(entry) === value);
+              if ((employee?.id || '') !== employeeId) chooseEmployee(employee?.id || null);
+              setEmployeeQuery(value);
+            }} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" />
+            <datalist id="manual-timesheet-employees">
+              {eligibleEmployees.map(employee => <option key={employee.id} value={employeeLabel(employee)} />)}
+            </datalist>
+            {!loadingShifts && !shiftError && eligibleEmployees.length === 0 && <span className="mt-1 block text-xs text-slate-500">No employees with completed shifts missing a clock-in.</span>}
+          </label>
           <label className="text-sm font-medium">Scheduled shift<select required disabled={!employeeId || loadingShifts} value={shiftId} onChange={e => chooseShift(e.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800"><option value="">{loadingShifts ? 'Loading shifts…' : 'Choose day and location'}</option>{shifts.map(shift => <option key={shift.id} value={shift.id}>{formatRecordTime(shift.startTime, 'MM/dd/yyyy', shift.timeZone)} · {shift.locationName} · {formatRecordTime(shift.startTime, 'h:mm a', shift.timeZone)} – {formatRecordTime(shift.endTime, 'MM/dd/yyyy h:mm a', shift.timeZone)}</option>)}</select></label>
         </div>
         {shiftError && <p role="alert" className="text-sm text-red-600">{shiftError}</p>}
