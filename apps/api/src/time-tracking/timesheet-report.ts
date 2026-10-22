@@ -1,6 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
 import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import { InvoiceLogo } from "../invoices/invoice-logo";
 import ExcelJS from "exceljs";
 import { calculateHours, paidIntervals } from "../payroll/hours";
 import { effectivePay } from "../employees/employment.util";
@@ -53,6 +53,14 @@ export function buildTimesheetReport(
     throw new BadRequestException(
       "Choose approved, pending, or both statuses.",
     );
+  if (
+    query.employeeIds !== undefined &&
+    (typeof query.employeeIds !== "string" || query.employeeIds.length > 24000)
+  )
+    throw new BadRequestException("Choose valid employees");
+  const employeeIds = query.employeeIds
+    ? new Set<string>(query.employeeIds.split(",").filter(Boolean))
+    : null;
   const parse = (details: string) => {
     try {
       return JSON.parse(details || "{}").changes || [];
@@ -83,6 +91,7 @@ export function buildTimesheetReport(
         (!query.workerType || s.workerType === query.workerType) &&
         (!query.locationId || s.locationId === query.locationId) &&
         (!query.employeeId || s.employeeId === query.employeeId) &&
+        (!employeeIds || employeeIds.has(s.employeeId)) &&
         (!query.search ||
           (s.employee.firstName + " " + s.employee.lastName)
             .toLowerCase()
@@ -178,16 +187,15 @@ export function buildTimesheetReport(
     }
     const breaks =
       (s.breaks || [])
-        .map(
-          (b: any) =>
-            stamp(b.startTime, zone) +
-            " - " +
-            stamp(b.endTime, zone) +
-            " (" +
-            (b.type === "PAID" ? "paid" : "unpaid") +
-            ")",
-        )
-        .join("\n") || "None";
+        .map((b: any) => {
+          if (!b.endTime) return "Open break";
+          const minutes =
+            (+new Date(b.endTime) - +new Date(b.startTime)) / 60000;
+          return Number.isFinite(minutes) && minutes >= 0
+            ? round(minutes) + "mins" + (b.type === "PAID" ? " paid" : "")
+            : "Review";
+        })
+        .join("; ") || "0mins";
     return {
       id: s.id,
       employeeId: s.employeeId,
@@ -196,8 +204,13 @@ export function buildTimesheetReport(
       date: reportDay(s.startTime, zone),
       location: s.location?.name || "Unassigned",
       zone,
-      clockIn: stamp(s.startTime, zone),
-      clockOut: stamp(s.endTime, zone),
+      clockIn: clock(s.startTime, zone),
+      clockOut:
+        clock(s.endTime, zone) +
+        (s.endTime &&
+        reportDay(s.endTime, zone) !== reportDay(s.startTime, zone)
+          ? " (" + reportDay(s.endTime, zone) + ")"
+          : ""),
       breaks,
       hours: hours === null ? null : round(hours),
       overtimeHours: ot === null ? null : round(ot),
@@ -235,6 +248,13 @@ export function buildTimesheetReport(
   }
   return {
     business: business.name,
+    address: [
+      business.address,
+      [business.city, business.state, business.zip].filter(Boolean).join(", "),
+    ]
+      .filter(Boolean)
+      .join(" | "),
+    logo: null as InvoiceLogo | null,
     currency: business.currencyCode || "USD",
     from: query.from,
     to: query.to,
@@ -244,12 +264,11 @@ export function buildTimesheetReport(
     hours: round(groups.reduce((n, g) => n + g.hours, 0)),
     gross: round(groups.reduce((n, g) => n + g.gross, 0)),
     notes:
-      "Gross pay is an estimate before taxes and deductions, using recorded hourly rates and weekly overtime where applicable. Pending attendance is included in overtime estimates. Paid external history is shown for reference, not as an amount due. Salary, missing rates, open shifts and overlapping attendance require payroll review. Dates and times use each work location’s time zone. Period selection uses the clock-in date.",
+      "Gross pay is an estimate before taxes and deductions, using recorded hourly rates and weekly overtime where applicable. Pending attendance is included in overtime estimates. Paid external history is shown for reference, not as an amount due. Salary, missing rates, open shifts and overlapping attendance require payroll review. Times are shown as recorded at the work location. Period selection uses the clock-in date.",
   };
 }
 export type TimesheetReport = ReturnType<typeof buildTimesheetReport>;
 export function reportPdf(report: TimesheetReport) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const money = (n: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -267,191 +286,261 @@ export function reportPdf(report: TimesheetReport) {
           missing: 0,
         },
       ];
+  const widths = [22, 61, 24, 24, 24, 18, 17, 23, 25, 35];
+  const measure = new jsPDF({
+    orientation: "landscape",
+    unit: "mm",
+    format: "a4",
+  });
+  const fontSize = 7.5,
+    lineHeight = 3.1;
+  measure.setFontSize(fontSize);
+  const rowsFor = (g: any) =>
+    g.rows.map((r: any) => [
+      r.date,
+      r.location,
+      r.clockIn,
+      r.clockOut,
+      r.breaks,
+      r.hours === null ? "Review" : r.hours.toFixed(2),
+      r.overtimeHours === null ? "-" : r.overtimeHours.toFixed(2),
+      r.rate === null ? "Review" : money(r.rate),
+      r.gross === null ? "Review" : money(r.gross),
+      r.status +
+        (r.paidExternally ? " / Paid externally" : "") +
+        (r.warning ? " / " + r.warning : ""),
+    ]);
+  const layouts = groups.map((g) => {
+    const rows = rowsFor(g).map((row: string[]) =>
+      row.map((value, i) => measure.splitTextToSize(value, widths[i] - 2)),
+    );
+    const heights = rows.map((row: string[][]) =>
+      Math.max(
+        5.2,
+        Math.max(...row.map((cell) => cell.length)) * lineHeight + 2,
+      ),
+    );
+    return {
+      rows,
+      heights,
+      height: Math.max(
+        210,
+        86 + heights.reduce((a: number, b: number) => a + b, 0),
+      ),
+    };
+  });
+  const firstHeight = layouts[0].height;
+  const doc = new jsPDF({
+    orientation: firstHeight > 297 ? "portrait" : "landscape",
+    unit: "mm",
+    format: [297, firstHeight],
+  });
   groups.forEach((g, index) => {
-    if (index) doc.addPage();
+    const layout = layouts[index],
+      height = layout.height;
+    if (index)
+      doc.addPage([297, height], height > 297 ? "portrait" : "landscape");
     doc.setFillColor(36, 32, 72);
-    doc.rect(0, 0, 297, 31, "F");
-    doc.setTextColor(255);
-    doc.setFontSize(18);
-    doc.setFont("helvetica", "bold");
-    doc.text("TIMESHEET REPORT", 12, 13);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text(report.business.slice(0, 95), 12, 23);
+    doc.rect(0, 0, 297, 3, "F");
+    let headingX = 12;
+    if (report.logo) {
+      const image = doc.getImageProperties(report.logo.dataUrl);
+      const scale = Math.min(48 / image.width, 18 / image.height);
+      doc.addImage(
+        report.logo.dataUrl,
+        report.logo.format,
+        12,
+        7,
+        image.width * scale,
+        image.height * scale,
+      );
+      headingX = 66;
+    }
     doc.setTextColor(36, 32, 72);
-    doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text(g.name + (g.badge ? " | " + g.badge : ""), 12, 42);
-    doc.setFontSize(10);
+    doc.setFontSize(12);
+    doc.text(report.business.slice(0, 75), headingX, 13);
+    doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
+    doc.text(doc.splitTextToSize(report.address, 205 - headingX), headingX, 19);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("TIMESHEET", 285, 12, { align: "right" });
+    doc.setFontSize(10);
+    doc.text(g.name + (g.badge ? " | " + g.badge : ""), 12, 33);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
     doc.text(
       "Period: " +
         report.from +
         " through " +
         report.to +
-        "  |  " +
-        (report.status === "ALL"
-          ? "Approved and pending"
-          : report.status.toLowerCase()),
+        " | " +
+        (report.status === "ALL" ? "Approved and pending" : report.status),
       12,
-      49,
+      39,
     );
     doc.setFillColor(243, 242, 250);
-    doc.roundedRect(12, 54, 273, 16, 2, 2, "F");
-    doc.setFontSize(10);
-    doc.text("Entries: " + g.rows.length, 17, 64);
-    doc.text("Total net hours: " + g.hours.toFixed(2), 84, 64);
+    doc.rect(12, 43, 273, 10, "F");
+    doc.text("Entries: " + g.rows.length, 15, 49.5);
+    doc.text("Total hours: " + g.hours.toFixed(2), 85, 49.5);
     doc.text(
       "Estimated gross: " + money(g.gross) + (g.missing ? " (incomplete)" : ""),
-      169,
-      64,
+      174,
+      49.5,
     );
-    autoTable(doc, {
-      startY: 76,
-      margin: { left: 12, right: 12, bottom: 28, top: 18 },
-      head: [
-        [
-          "Work date",
-          "Location / zone",
-          "Clock-in",
-          "Clock-out",
-          "Break times",
-          "Net hours",
-          "OT hours",
-          "Rate / hr",
-          "Gross pay",
-          "Status",
-        ],
+    const headings = [
+      "Work date",
+      "Location",
+      "Clock-in",
+      "Clock-out",
+      "Break",
+      "Net hours",
+      "OT hours",
+      "Rate / hr",
+      "Gross pay",
+      "Status",
+    ];
+    let y = 57;
+    const drawRow = (
+      cells: string[][],
+      rowHeight: number,
+      kind: "head" | "body" | "total",
+      alternate = false,
+    ) => {
+      doc.setFillColor(
+        ...((kind === "head"
+          ? [70, 53, 116]
+          : kind === "total"
+            ? [235, 232, 244]
+            : alternate
+              ? [247, 247, 251]
+              : [255, 255, 255]) as [number, number, number]),
+      );
+      doc.rect(12, y, 273, rowHeight, "F");
+      doc.setTextColor(
+        ...((kind === "head" ? [255, 255, 255] : [36, 32, 72]) as [
+          number,
+          number,
+          number,
+        ]),
+      );
+      doc.setFont("helvetica", kind === "body" ? "normal" : "bold");
+      doc.setFontSize(fontSize);
+      let x = 12;
+      cells.forEach((lines, i) => {
+        doc.text(lines, x + 1, y + 3.5);
+        x += widths[i];
+      });
+      y += rowHeight;
+    };
+    drawRow(
+      headings.map((h) => [h]),
+      7,
+      "head",
+    );
+    layout.rows.forEach((row: string[][], i: number) =>
+      drawRow(row, layout.heights[i], "body", i % 2 === 0),
+    );
+    drawRow(
+      [
+        ["TOTAL"],
+        [],
+        [],
+        [],
+        [],
+        [g.hours.toFixed(2)],
+        [],
+        [],
+        [money(g.gross)],
+        [],
       ],
-      body: g.rows.map((r: any) => [
-        r.date,
-        r.location + "\n" + r.zone,
-        r.clockIn,
-        r.clockOut,
-        r.breaks,
-        r.hours === null ? "Review" : r.hours.toFixed(2),
-        r.overtimeHours === null ? "-" : r.overtimeHours.toFixed(2),
-        r.rate === null ? "Review" : money(r.rate),
-        r.gross === null ? "Review" : money(r.gross),
-        r.status +
-          (r.paidExternally ? "\nPaid externally" : "") +
-          (r.warning ? "\n" + r.warning : ""),
-      ]),
-      theme: "striped",
-      styles: {
-        fontSize: 7,
-        cellPadding: 2,
-        overflow: "linebreak",
-        valign: "top",
-      },
-      headStyles: { fillColor: [70, 53, 116], fontStyle: "bold" },
-      alternateRowStyles: { fillColor: [247, 247, 251] },
-      columnStyles: {
-        0: { cellWidth: 20 },
-        1: { cellWidth: 37 },
-        2: { cellWidth: 27 },
-        3: { cellWidth: 27 },
-        4: { cellWidth: 49 },
-        5: { cellWidth: 16, halign: "right" },
-        6: { cellWidth: 15, halign: "right" },
-        7: { cellWidth: 23, halign: "right" },
-        8: { cellWidth: 25, halign: "right" },
-        9: { cellWidth: 34 },
-      },
-      foot: [
-        [
-          "EMPLOYEE TOTAL",
-          "",
-          "",
-          "",
-          "",
-          g.hours.toFixed(2),
-          "",
-          "",
-          money(g.gross),
-          "",
-        ],
-      ],
-      footStyles: {
-        fillColor: [235, 232, 244],
-        textColor: [36, 32, 72],
-        fontStyle: "bold",
-      },
-      showFoot: "lastPage",
-      didDrawPage: (data) => {
-        if (data.pageNumber > 1) {
-          doc.setFontSize(9);
-          doc.setTextColor(36, 32, 72);
-          doc.text(
-            g.name + " | " + report.from + " through " + report.to,
-            12,
-            11,
-          );
-        }
-      },
-    });
-  });
-  const count = doc.getNumberOfPages();
-  for (let page = 1; page <= count; page++) {
-    doc.setPage(page);
-    doc.setFontSize(7);
+      7,
+      "total",
+    );
+    doc.setFontSize(6.5);
     doc.setTextColor(90);
-    doc.text(doc.splitTextToSize(report.notes, 273), 12, 191);
+    doc.setFont("helvetica", "normal");
+    doc.text(doc.splitTextToSize(report.notes, 273), 12, height - 13);
     doc.text(
-      report.from + " - " + report.to + "  |  " + page + " / " + count,
+      report.from +
+        " - " +
+        report.to +
+        " | " +
+        (index + 1) +
+        " / " +
+        groups.length,
       285,
-      205,
+      height - 4,
       { align: "right" },
     );
-  }
+  });
   return Buffer.from(doc.output("arraybuffer"));
 }
 export async function reportExcel(report: TimesheetReport) {
   const book = new ExcelJS.Workbook();
   book.creator = report.business;
   book.created = new Date();
+  const logoId = report.logo
+    ? book.addImage({
+        buffer: report.logo.bytes as any,
+        extension: report.logo.format === "PNG" ? "png" : "jpeg",
+      })
+    : undefined;
   const currency =
     '"' +
     report.currency +
     '" #,##0.00;[Red]("' +
     report.currency +
     '" #,##0.00)';
-  const title = (sheet: ExcelJS.Worksheet, count: number) => {
-    sheet.mergeCells(1, 1, 1, count);
-    sheet.getCell(1, 1).value = report.business + " | TIMESHEET REPORT";
+  const brand = (sheet: ExcelJS.Worksheet, count: number) => {
+    sheet.mergeCells(1, logoId === undefined ? 1 : 3, 1, count);
+    sheet.getCell(1, logoId === undefined ? 1 : 3).value =
+      report.business + " | TIMESHEET";
     sheet.getRow(1).height = 32;
-    sheet.getCell(1, 1).font = {
-      size: 18,
+    sheet.getRow(1).font = {
       bold: true,
-      color: { argb: "FFFFFFFF" },
+      size: 16,
+      color: { argb: "FF242048" },
     };
-    sheet.getCell(1, 1).fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF242048" },
-    };
-    sheet.mergeCells(2, 1, 2, count);
-    sheet.getCell(2, 1).value =
+    if (logoId !== undefined)
+      sheet.addImage(logoId, {
+        tl: { col: 0, row: 0 },
+        ext: { width: 130, height: 45 },
+      });
+    sheet.mergeCells(2, logoId === undefined ? 1 : 3, 2, count);
+    sheet.getCell(2, logoId === undefined ? 1 : 3).value = report.address;
+    sheet.getRow(2).height = 22;
+    sheet.mergeCells(3, 1, 3, count);
+    sheet.getCell(3, 1).value =
       "Period: " +
       report.from +
       " through " +
       report.to +
       " | " +
       (report.status === "ALL" ? "Approved and pending" : report.status);
-    sheet.views = [{ state: "frozen", ySplit: 4 }];
+    sheet.views = [{ state: "frozen", ySplit: 5, showGridLines: false }];
     sheet.pageSetup = {
       orientation: "landscape",
       paperSize: 9,
       fitToPage: true,
       fitToWidth: 1,
-      fitToHeight: 0,
+      fitToHeight: 1,
+      margins: {
+        left: 0.25,
+        right: 0.25,
+        top: 0.3,
+        bottom: 0.3,
+        header: 0.1,
+        footer: 0.1,
+      },
     };
     sheet.headerFooter = {
       oddFooter: "&L" + report.from + " - " + report.to + "&RPage &P of &N",
     };
   };
-  const styleHeader = (row: ExcelJS.Row) => {
-    row.height = 26;
+  const header = (row: ExcelJS.Row) => {
+    row.height = 25;
     row.eachCell((c) => {
       c.font = { bold: true, color: { argb: "FFFFFFFF" } };
       c.fill = {
@@ -459,13 +548,13 @@ export async function reportExcel(report: TimesheetReport) {
         pattern: "solid",
         fgColor: { argb: "FF463574" },
       };
-      c.alignment = { vertical: "middle", wrapText: true };
+      c.alignment = { wrapText: true, vertical: "middle" };
     });
   };
   const summary = book.addWorksheet("Employee summary");
-  title(summary, 6);
+  brand(summary, 6);
   summary.addRow([]);
-  styleHeader(
+  header(
     summary.addRow([
       "Employee",
       "Employee ID",
@@ -484,58 +573,50 @@ export async function reportExcel(report: TimesheetReport) {
       g.gross,
       g.missing ? g.missing + " entries" : "",
     ]);
-  const total = summary.addRow([
+  summary.addRow([
     "TOTAL",
     "",
     report.rows.length,
     report.hours,
     report.gross,
     "",
-  ]);
-  total.font = { bold: true };
+  ]).font = { bold: true };
   summary.getColumn(4).numFmt = "0.00";
   summary.getColumn(5).numFmt = currency;
   [32, 22, 12, 15, 22, 22].forEach(
     (w, i) => (summary.getColumn(i + 1).width = w),
   );
-  summary.autoFilter = { from: "A4", to: "F" + (4 + report.groups.length) };
-  const sheet = book.addWorksheet("Timesheets by employee");
-  title(sheet, 15);
-  sheet.addRow([]);
-  styleHeader(
-    sheet.addRow([
-      "Employee",
-      "Work date",
-      "Location",
-      "Time zone",
-      "Clock-in",
-      "Clock-out",
-      "Break times",
-      "Net hours",
-      "OT hours",
-      "Hourly rate",
-      "Estimated gross",
-      "Status",
-      "Classification",
-      "Paid externally",
-      "Review notes",
-    ]),
-  );
-  for (const g of report.groups) {
-    const heading = sheet.addRow([g.name + (g.badge ? " | " + g.badge : "")]);
-    sheet.mergeCells(heading.number, 1, heading.number, 15);
-    heading.font = { bold: true, color: { argb: "FF242048" } };
-    heading.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFEAE6F4" },
-    };
+  summary.autoFilter = { from: "A5", to: "F" + (5 + report.groups.length) };
+  for (const [index, g] of report.groups.entries()) {
+    const sheet = book.addWorksheet(
+      (
+        g.name.replace(/[\/*?:\[\]]/g, " ").slice(0, 24) +
+        " " +
+        (index + 1)
+      ).slice(0, 31),
+    );
+    brand(sheet, 10);
+    sheet.mergeCells(4, 1, 4, 10);
+    sheet.getCell(4, 1).value = g.name + (g.badge ? " | " + g.badge : "");
+    sheet.getRow(4).font = { bold: true, size: 12 };
+    header(
+      sheet.addRow([
+        "Work date",
+        "Location",
+        "Clock-in",
+        "Clock-out",
+        "Break (minutes)",
+        "Net hours",
+        "OT hours",
+        "Hourly rate",
+        "Estimated gross",
+        "Status / notes",
+      ]),
+    );
     for (const r of g.rows) {
       const row = sheet.addRow([
-        r.name,
         r.date,
         r.location,
-        r.zone,
         r.clockIn,
         r.clockOut,
         r.breaks,
@@ -543,20 +624,15 @@ export async function reportExcel(report: TimesheetReport) {
         r.overtimeHours,
         r.rate,
         r.gross,
-        r.status,
-        r.workerType,
-        r.paidExternally ? "Yes" : "No",
-        r.warning,
+        r.status +
+          (r.paidExternally ? " / Paid externally" : "") +
+          (r.warning ? " / " + r.warning : ""),
       ]);
-      row.alignment = { vertical: "top", wrapText: true };
-      row.height = Math.max(30, 16 * r.breaks.split("\n").length);
-      for (const col of [8, 9]) row.getCell(col).numFmt = "0.00";
-      for (const col of [10, 11]) row.getCell(col).numFmt = currency;
+      row.height = 28;
+      row.alignment = { wrapText: true, vertical: "middle" };
     }
-    const subtotal = sheet.addRow([
-      g.name + " TOTAL",
-      "",
-      "",
+    const total = sheet.addRow([
+      "TOTAL",
       "",
       "",
       "",
@@ -566,19 +642,19 @@ export async function reportExcel(report: TimesheetReport) {
       "",
       g.gross,
     ]);
-    subtotal.font = { bold: true };
-    subtotal.getCell(8).numFmt = "0.00";
-    subtotal.getCell(11).numFmt = currency;
-    sheet.addRow([]);
+    total.font = { bold: true };
+    for (const col of [6, 7]) sheet.getColumn(col).numFmt = "0.00";
+    for (const col of [8, 9]) sheet.getColumn(col).numFmt = currency;
+    [15, 38, 18, 23, 22, 14, 14, 18, 20, 42].forEach(
+      (w, i) => (sheet.getColumn(i + 1).width = w),
+    );
+    const noteRow = sheet.rowCount + 2;
+    sheet.mergeCells(noteRow, 1, noteRow, 10);
+    sheet.getCell(noteRow, 1).value = report.notes;
+    sheet.getRow(noteRow).height = 45;
+    sheet.getCell(noteRow, 1).alignment = { wrapText: true, vertical: "top" };
+    sheet.getCell(noteRow, 1).font = { size: 9, color: { argb: "FF666666" } };
+    sheet.pageSetup.printArea = "A1:J" + noteRow;
   }
-  [28, 15, 28, 24, 26, 26, 62, 14, 14, 18, 20, 15, 23, 18, 42].forEach(
-    (w, i) => (sheet.getColumn(i + 1).width = w),
-  );
-  const notes = book.addWorksheet("Report notes");
-  title(notes, 3);
-  notes.mergeCells("A4:C8");
-  notes.getCell("A4").value = report.notes;
-  notes.getCell("A4").alignment = { wrapText: true, vertical: "top" };
-  notes.columns.forEach((c) => (c.width = 38));
   return Buffer.from(await book.xlsx.writeBuffer());
 }

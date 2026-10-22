@@ -56,6 +56,7 @@ interface Employee {
   hourlyRate?: number;
   salary?: number;
   role?: string;
+  badgeNumber?: string;
   workerType?: string;
 }
 
@@ -124,6 +125,11 @@ export default function TimeTrackingPage() {
   const [periodTo, setPeriodTo] = useState(() => format(endDate,"yyyy-MM-dd"));
   const [reportStatus, setReportStatus] = useState<"ALL" | "APPROVED" | "PENDING">("ALL");
   const [reportBusy, setReportBusy] = useState(false);
+  const [reportEmployeeMode, setReportEmployeeMode] = useState<"all" | "selected">("all");
+  const [reportEmployeeIds, setReportEmployeeIds] = useState<string[]>([]);
+  const [reportEmployeeQuery, setReportEmployeeQuery] = useState("");
+  const [reportEmployeesOpen, setReportEmployeesOpen] = useState(false);
+  useEffect(() => {setReportEmployeeIds([]);setReportEmployeeMode("all");},[selectedBusiness?.id,periodFrom,periodTo]);
   useEffect(() => {
     setPeriodFrom(format(startDate,"yyyy-MM-dd")); setPeriodTo(format(endDate,"yyyy-MM-dd"));
   }, [startDate,endDate]);
@@ -298,12 +304,14 @@ export default function TimeTrackingPage() {
     return true;
   };
   const downloadPeriodReport = async (fileFormat: "pdf" | "xlsx") => {
+    if (reportEmployeeMode === "selected" && reportEmployeeIds.length === 0) {toast.error("Choose at least one employee, or select all employees");return;}
     if (!applyReportPeriod() || !selectedBusiness || reportBusy) return;
     setReportBusy(true);
     try {
       const response = await api.get("/time-tracking/timesheet-report",{
         params:{from:periodFrom,to:periodTo,status:reportStatus,format:fileFormat,workerType:roleTab,
-          ...(selectedLocationId!=="all"?{locationId:selectedLocationId}:{}),search:searchTerm},
+          ...(selectedLocationId!=="all"?{locationId:selectedLocationId}:{}),
+          ...(reportEmployeeMode==="selected"?{employeeIds:reportEmployeeIds.join(",")}:{})},
         headers:{"x-business-id":selectedBusiness.id},responseType:"blob",
       });
       const url=URL.createObjectURL(response.data);
@@ -400,6 +408,11 @@ export default function TimeTrackingPage() {
   };
 
   // Process Data
+  const reportEmployeeOptions = employees.filter(employee => timesheets.some(t =>
+    t.employeeId === employee.id && startsInWorkPeriod(t,periodFrom,periodTo) &&
+    (reportStatus === "ALL" ? ["APPROVED","PENDING","IN_PROGRESS"].includes(t.status) : reportStatus === "PENDING" ? ["PENDING","IN_PROGRESS"].includes(t.status) : t.status === reportStatus) &&
+    (selectedLocationId === "all" || t.location?.id === selectedLocationId)
+  )).filter(employee => (employee.firstName+" "+employee.lastName+" "+(employee.badgeNumber||"")).toLowerCase().includes(reportEmployeeQuery.trim().toLowerCase()));
   const filteredEmployees = employees.filter((emp) =>
     (activeTab === "discarded" || timesheets.some(t => t.employeeId === emp.id && (reportStatus === "ALL" ? ["APPROVED","PENDING","IN_PROGRESS"].includes(t.status) : reportStatus === "PENDING" ? ["PENDING","IN_PROGRESS"].includes(t.status) : t.status === reportStatus) && (selectedLocationId === "all" || t.location?.id === selectedLocationId))) &&
     `${emp.firstName} ${emp.lastName}`
@@ -752,9 +765,24 @@ export default function TimeTrackingPage() {
         <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Period to<input aria-label="Timesheet period to" type="date" min={periodFrom} value={periodTo} onChange={event=>setPeriodTo(event.target.value)} className="mt-1 block rounded-lg border bg-white p-2 text-sm dark:bg-slate-900" /></label>
         <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">Attendance status<select aria-label="Report attendance status" value={reportStatus} onChange={event=>{setReportStatus(event.target.value as typeof reportStatus);setSelectedEmployeeId(null);setActiveTab("all");}} className="mt-1 block rounded-lg border bg-white p-2 text-sm dark:bg-slate-900"><option value="ALL">Approved and pending</option><option value="APPROVED">Approved only</option><option value="PENDING">Pending only</option></select></label>
         <button type="button" onClick={applyReportPeriod} className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white">Search period</button>
+        <div className="relative" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setReportEmployeesOpen(false);}}>
+          <button type="button" aria-haspopup="dialog" aria-expanded={reportEmployeesOpen} aria-controls="report-employee-picker" onClick={()=>{setReportEmployeeQuery("");setReportEmployeesOpen(v=>!v);}} className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm dark:bg-slate-900">
+            {reportEmployeeMode==="all"?"All employees":reportEmployeeIds.length+" employees selected"}<ChevronDown size={16} />
+          </button>
+          {reportEmployeesOpen && <div id="report-employee-picker" role="dialog" aria-label="Choose employees to download" className="absolute left-0 top-full z-50 mt-1 w-80 rounded-lg border bg-white p-3 shadow-xl dark:bg-slate-900">
+            <input autoFocus type="search" aria-label="Search employees to download" placeholder="Search employees by name or badge" value={reportEmployeeQuery} onChange={event=>setReportEmployeeQuery(event.target.value)} className="mb-2 w-full rounded border p-2 text-sm dark:bg-slate-800" />
+            <label className="mb-2 flex items-center gap-2 border-b pb-2 text-sm font-semibold"><input type="checkbox" checked={reportEmployeeMode==="all"} onChange={event=>{setReportEmployeeMode(event.target.checked?"all":"selected");setReportEmployeeIds([]);}} />All employees in the period</label>
+            <div className="max-h-52 overflow-auto">{reportEmployeeOptions.map(employee=><label key={employee.id} className="flex items-center gap-2 rounded px-1 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+              <input type="checkbox" checked={reportEmployeeMode==="selected" && reportEmployeeIds.includes(employee.id)} onChange={event=>{setReportEmployeeMode("selected");setReportEmployeeIds(previous=>event.target.checked?Array.from(new Set([...previous,employee.id])):previous.filter(id=>id!==employee.id));}} />
+              {employee.firstName} {employee.lastName}{employee.badgeNumber?" · "+employee.badgeNumber:""}
+            </label>)}
+            {reportEmployeeOptions.length===0 && <p className="py-2 text-xs text-slate-500">No matching employees. Search the period first to refresh available attendance.</p>}</div>
+            <button type="button" onClick={()=>setReportEmployeesOpen(false)} className="mt-2 w-full rounded bg-purple-600 px-3 py-2 text-sm font-semibold text-white">Done</button>
+          </div>}
+        </div>
         <button type="button" disabled={reportBusy || !selectedBusiness} onClick={()=>downloadPeriodReport("pdf")} className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-slate-900"><FileText size={16} />Download PDF</button>
         <button type="button" disabled={reportBusy || !selectedBusiness} onClick={()=>downloadPeriodReport("xlsx")} className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:bg-slate-900"><FileSpreadsheet size={16} />Download Excel</button>
-        <p className="w-full text-xs text-slate-500">{reportBusy ? "Preparing report…" : "Reports are grouped by employee and use the selected period, classification, location and employee search. Gross pay is estimated; pending time remains subject to approval."}</p>
+        <p className="w-full text-xs text-slate-500">{reportBusy ? "Preparing report…" : "Reports use the selected period, classification, location and chosen employees. Gross pay is estimated; pending time remains subject to approval."}</p>
       </div>
 
       {/* Top Toolbar - Global Filters */}

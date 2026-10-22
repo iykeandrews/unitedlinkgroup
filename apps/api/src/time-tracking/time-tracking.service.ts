@@ -1,3 +1,4 @@
+import { loadInvoiceLogo } from "../invoices/invoice-logo";
 import { buildTimesheetReport, validateReportPeriod, reportPdf, reportExcel } from './timesheet-report';
 import { MobileOperationsService } from "./mobile-operations.service";
 import { Optional } from "@nestjs/common";
@@ -185,6 +186,7 @@ export class TimeTrackingService {
       orderBy:{createdAt:"asc"},
     });
     const report = buildTimesheetReport(business,sheets,changes,query);
+    report.logo = await loadInvoiceLogo(business.logoUrl);
     return query.format === "pdf" ? reportPdf(report) : reportExcel(report);
   }
 
