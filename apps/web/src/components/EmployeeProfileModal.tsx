@@ -643,7 +643,8 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
   };
 
   const handleInputChange = (field: keyof Employee, value: any) => {
-    setEditFormData(prev => employmentField(prev, field, value));
+    const next = ['firstName','middleName','lastName','preferredName'].includes(field) && typeof value === 'string' ? value.toUpperCase() : value;
+    setEditFormData(prev => employmentField(prev, field, next));
   };
 
   const handleW2Change = (field: keyof W2Profile, value: any) => {

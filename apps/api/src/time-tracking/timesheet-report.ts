@@ -137,8 +137,16 @@ export function buildTimesheetReport(
       const change = parse(next.details).find(
         (e: any) => e.classification === s.workerType,
       );
-      rate = change.previousRate;
-      payType = change.previousPayType;
+      // A first configured positive rate replaces an unset/zero placeholder,
+      // including attendance entered before the profile was completed.
+      const initialRate =
+        (change.previousRate == null || change.previousRate === 0) &&
+        typeof change.newRate === "number" &&
+        change.newRate > 0;
+      rate = initialRate ? change.newRate : change.previousRate;
+      payType = initialRate
+        ? change.payType || payType
+        : change.previousPayType;
     }
     const historical = /Historical source hourly rate:\s*\$([\d.]+)/.exec(
       s.employeeNote || "",

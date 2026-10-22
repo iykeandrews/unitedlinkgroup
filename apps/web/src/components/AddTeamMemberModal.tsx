@@ -53,7 +53,7 @@ export function AddTeamMemberModal({ isOpen, onClose, onSuccess }: AddTeamMember
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => {
-      if (name !== 'role') return { ...prev, [name]: value };
+      if (name !== 'role') return { ...prev, [name]: ['firstName','middleName','lastName','preferredName'].includes(name) ? value.toUpperCase() : value };
       const nextRole = String(value || '').toUpperCase();
       const isEmployeeRole = nextRole === 'EMPLOYEE';
       const nextType = isEmployeeRole ? 'ONBOARDING' : (String(prev.type || '').toUpperCase() === 'ONBOARDING' ? 'FULL_TIME' : prev.type);
