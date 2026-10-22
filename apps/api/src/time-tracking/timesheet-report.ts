@@ -5,6 +5,8 @@ import ExcelJS from "exceljs";
 import { calculateHours, paidIntervals } from "../payroll/hours";
 import { effectivePay } from "../employees/employment.util";
 
+export const displayReportDate = (iso: string) =>
+  iso.slice(5, 7) + "/" + iso.slice(8, 10) + "/" + iso.slice(0, 4);
 export const reportDay = (value: Date | string, zone = "America/New_York") => {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: zone,
@@ -201,7 +203,7 @@ export function buildTimesheetReport(
       employeeId: s.employeeId,
       name: s.employee.firstName + " " + s.employee.lastName,
       badge: s.employee.badgeNumber || "",
-      date: reportDay(s.startTime, zone),
+      date: displayReportDate(reportDay(s.startTime, zone)),
       location: s.location?.name || "Unassigned",
       zone,
       clockIn: clock(s.startTime, zone),
@@ -209,7 +211,7 @@ export function buildTimesheetReport(
         clock(s.endTime, zone) +
         (s.endTime &&
         reportDay(s.endTime, zone) !== reportDay(s.startTime, zone)
-          ? " (" + reportDay(s.endTime, zone) + ")"
+          ? " (" + displayReportDate(reportDay(s.endTime, zone)) + ")"
           : ""),
       breaks,
       hours: hours === null ? null : round(hours),
@@ -256,8 +258,8 @@ export function buildTimesheetReport(
       .join(" | "),
     logo: null as InvoiceLogo | null,
     currency: business.currencyCode || "USD",
-    from: query.from,
-    to: query.to,
+    from: displayReportDate(query.from),
+    to: displayReportDate(query.to),
     status: query.status || "ALL",
     groups,
     rows,

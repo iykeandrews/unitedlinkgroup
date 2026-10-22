@@ -80,7 +80,8 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
     setEnd(shift ? fields(shift.endTime) : {date: '', time: ''});
     if (shift) {
       const breakStart = new Date(Date.parse(shift.startTime) + 4 * 60 * 60 * 1000);
-      const breakEnd = new Date(+breakStart + 30 * 60 * 1000);
+      const breakMinutes = shift.breakMinutes === 15 ? 15 : 30;
+      const breakEnd = new Date(+breakStart + breakMinutes * 60 * 1000);
       if (+breakEnd <= Date.parse(shift.endTime)) setBreaks([{
         startTime: formatRecordTime(breakStart, 'HH:mm', shift.timeZone),
         endTime: formatRecordTime(breakEnd, 'HH:mm', shift.timeZone),
@@ -88,6 +89,12 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
       }]);
     }
   };
+  useEffect(() => {
+    const from = recordInputDate(start.date + "T" + start.time, timeZone);
+    const until = recordInputDate(end.date + "T" + end.time, timeZone);
+    if (Number.isFinite(+from) && Number.isFinite(+until) && +until > +from && +until - +from < 4*3600000)
+      setBreaks(previous => previous.length ? [] : previous);
+  }, [start.date,start.time,end.date,end.time,timeZone]);
   const instant = (input: ClockInput) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.date);
     if (!match || !/^\d{2}:\d{2}$/.test(input.time)) throw Error('Enter dates as MM/DD/YYYY and complete every time field');
@@ -153,7 +160,7 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
         {selectedShift && <p className="text-sm text-slate-500">Location: <strong>{selectedShift.locationName}</strong>. Scheduled times are filled in below; edit them to reflect the actual time worked.{selectedShift.breakMinutes > 0 ? ` Scheduled break: ${selectedShift.breakMinutes} minutes. Enter the actual break times below.` : ''}</p>}
         <ClockFields label="Clock-in" value={start} onChange={setStart} />
         <ClockFields label="Clock-out" value={end} onChange={setEnd} />
-        <p className="text-xs text-slate-500">Default unpaid break: 30 minutes, starting four hours after the scheduled shift begins. Adjust or remove it to reflect the actual break. Shorter shifts have no default break.</p>
+        <p className="text-xs text-slate-500">Default unpaid break: {selectedShift?.breakMinutes === 15 ? 15 : 30} minutes, starting four hours after the scheduled shift begins. Adjust or remove it to reflect the actual break. No unpaid break is deducted for shifts under four hours.</p>
         <div className="flex items-center justify-between"><h3 className="font-semibold">Breaks</h3><button type="button" className="text-sm font-semibold text-purple-600" onClick={() => setBreaks(previous => [...previous, {startTime: '', endTime: '', type: 'UNPAID'}])}>Add break</button></div>
         {breaks.map((entry, index) => <div key={index} className="space-y-3 rounded-lg border p-3">
           <div className="flex justify-between gap-3"><label className="text-sm">Break {index + 1}<select value={entry.type} onChange={e => changeBreak(index, {type: e.target.value})} className="ml-3 rounded border p-1 dark:bg-slate-800"><option value="UNPAID">Unpaid</option><option value="PAID">Paid</option></select></label><button type="button" aria-label={`Remove break ${index + 1}`} onClick={() => setBreaks(previous => previous.filter((_, i) => i !== index))} className="text-sm text-red-600">Remove</button></div>

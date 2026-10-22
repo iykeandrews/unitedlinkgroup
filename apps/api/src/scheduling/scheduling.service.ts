@@ -20,6 +20,24 @@ export class SchedulingService {
     private audit: AuditService
   ) {}
 
+  private async configuredBreakMinutes(businessId: string, locationId: string | null | undefined, start: Date, end: Date, fallback: number) {
+    if (!locationId || !Number.isFinite(+start) || !Number.isFinite(+end)) return fallback;
+    const business = await this.prisma.business.findUnique({where:{id:businessId},select:{settings:true}});
+    let rules: any[] = [];
+    try {
+      const policy = JSON.parse(business?.settings || "{}").timeTrackingBreakRules;
+      if (policy?.noUnpaidBreakUnderMinutes === 240 && +end > +start && +end - +start < 4*3600000) return 0;
+      rules = policy?.schedule || [];
+    } catch {}
+    for (const rule of rules) {
+      if (rule.locationId !== locationId) continue;
+      const options: Intl.DateTimeFormatOptions = {timeZone:rule.timeZone || "America/New_York",hour:"2-digit",minute:"2-digit",hourCycle:"h23"};
+      const clock = new Intl.DateTimeFormat("en-GB",options);
+      if (clock.format(start) === rule.start && clock.format(end) === rule.end && (+end-+start) < 24*3600000 && Number.isInteger(rule.minutes) && rule.minutes >= 0) return rule.minutes;
+    }
+    return fallback;
+  }
+
   private async validateBusinessAccess(targetBusinessId: string, user: any) {
     const business = await this.prisma.business.findUnique({ where: { id: targetBusinessId } });
     if (!business) {
@@ -710,7 +728,7 @@ export class SchedulingService {
     const groupId = crypto.randomUUID();
     const notes = typeof (data as any).notes === 'string' ? (data as any).notes : ((data as any).notes ?? null);
     const breakMinutesRaw = (data as any).breakMinutes;
-    const breakMinutes = breakMinutesRaw == null ? 0 : Number(breakMinutesRaw);
+    const breakMinutes = await this.configuredBreakMinutes(businessId!, locationConnectId, startTime, endTime, breakMinutesRaw == null ? 0 : Number(breakMinutesRaw));
     await this.validatePlacement(businessId!, employeeConnectId, locationConnectId, startTime, endTime, breakMinutes);
 
     // Check for overlaps for the same employee
@@ -1125,7 +1143,7 @@ export class SchedulingService {
     const nextEnd = (data.endTime as any) ? new Date(data.endTime as any) : new Date(before.endTime);
     const nextNotes = typeof (data as any).notes !== 'undefined' ? (data as any).notes : (before as any).notes;
     const breakMinutesRaw = (data as any).breakMinutes;
-    const nextBreakMinutes = breakMinutesRaw === undefined ? (before.breakMinutes ?? 0) : Number(breakMinutesRaw);
+    let nextBreakMinutes = breakMinutesRaw === undefined ? (before.breakMinutes ?? 0) : Number(breakMinutesRaw);
 
     let nextEmployeeId: string | null = before.employeeId || null;
     if ((data as any).employee?.connect?.id) nextEmployeeId = (data as any).employee.connect.id;
@@ -1135,6 +1153,7 @@ export class SchedulingService {
     if ((data as any).location?.connect?.id) nextLocationId = (data as any).location.connect.id;
     if ((data as any).location?.disconnect) nextLocationId = null;
 
+    nextBreakMinutes = await this.configuredBreakMinutes(before.businessId, nextLocationId, nextStart, nextEnd, nextBreakMinutes);
     await this.validatePlacement(before.businessId, nextEmployeeId, nextLocationId, nextStart, nextEnd, nextBreakMinutes);
     if (nextStatus && !['DRAFT', 'CANCELLED'].includes(nextStatus)) {
       throw new BadRequestException('Invalid shift status; use the scheduling actions to change status');
@@ -1226,7 +1245,7 @@ export class SchedulingService {
         timeZone: before.timeZone || 'America/New_York',
         ...(typeof (data as any).startTime !== 'undefined' ? { startTime: nextStart } : {}),
         ...(typeof (data as any).endTime !== 'undefined' ? { endTime: nextEnd } : {}),
-        ...(typeof (data as any).breakMinutes !== 'undefined' ? { breakMinutes: nextBreakMinutes } : {}),
+        breakMinutes: nextBreakMinutes,
         ...(typeof (data as any).notes !== 'undefined' ? { notes: nextNotes } : {}),
         ...(typeof nextStatus === 'string' ? { status: nextStatus } : correctingUntrackedCompleted ? { status: 'DRAFT' } : {}),
         employeeId: nextEmployeeId,

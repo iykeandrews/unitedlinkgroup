@@ -27,6 +27,21 @@ export class TimeTrackingService {
     @Optional() private operations?: MobileOperationsService,
   ) {}
 
+  private async applyShortShiftBreakRule(tx: any, record: any, businessId?: string) {
+    if (!record.endTime || +new Date(record.endTime) <= +new Date(record.startTime) || (+new Date(record.endTime)-+new Date(record.startTime)) >= 4*3600000) return;
+    const scope = businessId || (await tx.employee.findUnique({where:{id:record.employeeId},select:{businessId:true}}))?.businessId;
+    if (!scope) return;
+    const business = await tx.business.findUnique({where:{id:scope},select:{settings:true}});
+    let minutes = 0;
+    try { minutes = JSON.parse(business?.settings || "{}").timeTrackingBreakRules?.noUnpaidBreakUnderMinutes || 0; } catch {}
+    if (minutes !== 240) return;
+    const changed = await tx.break.updateMany({where:{timesheetId:record.id,type:{not:"PAID"}},data:{type:"PAID"}});
+    if (changed.count) {
+      if (record.breaks) record.breaks = record.breaks.map((entry: any)=>({...entry,type:"PAID"}));
+      await tx.auditLog.create({data:{businessId:scope,action:"SHORT_SHIFT_BREAK_DEDUCTION_EXEMPTED",resource:"TIMESHEET",resourceId:record.id,details:JSON.stringify({thresholdMinutes:240,breaksMadePaid:changed.count})}});
+    }
+  }
+
   private async validateBusinessAccess(targetBusinessId: string, user: any) {
     if (user.role === "SUPER_ADMIN") return;
 
@@ -392,6 +407,7 @@ export class TimeTrackingService {
         },
         include: { breaks: true },
       });
+      await this.applyShortShiftBreakRule(tx, created, employee.businessId);
       await tx.auditLog.create({
         data: {
           businessId: employee.businessId,
@@ -1144,7 +1160,8 @@ export class TimeTrackingService {
       );
     }
 
-    const result = await this.prisma.timesheet.update({
+    const result = await this.prisma.$transaction(async tx => {
+    const updated = await tx.timesheet.update({
       where: { id: activeTimesheet.id },
       data: {
         endTime: new Date(),
@@ -1157,6 +1174,9 @@ export class TimeTrackingService {
         employeeNote: note,
       },
     });
+    await this.applyShortShiftBreakRule(tx, updated);
+    return updated;
+    }, {timeout:15000});
     void this.operations?.notify(employeeId, "clocked out", result);
     return result;
   }
@@ -1586,6 +1606,7 @@ export class TimeTrackingService {
           }
         }
 
+        await this.applyShortShiftBreakRule(tx, {...timesheet, startTime:start, endTime:end}, timesheet.employee.businessId);
         // Return hydrated timesheet
         return tx.timesheet.findUnique({
           where: { id },
