@@ -28,9 +28,19 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
   const [busy, setBusy] = useState(false);
   const [allShifts, setAllShifts] = useState<any[]>([]);
   const [employeeQuery, setEmployeeQuery] = useState('');
-  const shifts = allShifts.filter(shift => shift.employeeId === employeeId);
-  const eligibleEmployees = employees.filter(employee => allShifts.some(shift => shift.employeeId === employee.id));
+  const [employeeOpen, setEmployeeOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const validRange = !!dateFrom && !!dateTo && dateFrom <= dateTo;
+  const rangeShifts = validRange ? allShifts.filter(shift => {
+    const day = formatRecordTime(shift.startTime, 'yyyy-MM-dd', shift.timeZone);
+    return day >= dateFrom && day <= dateTo;
+  }) : [];
+  const shifts = rangeShifts.filter(shift => shift.employeeId === employeeId);
+  const eligibleEmployees = employees.filter(employee => rangeShifts.some(shift => shift.employeeId === employee.id));
   const employeeLabel = (employee: any) => [employee.firstName + ' ' + employee.lastName, employee.badgeNumber].filter(Boolean).join(' · ');
+  const filteredEmployees = eligibleEmployees.filter(employee => employeeLabel(employee).toLowerCase().includes(employeeQuery.trim().toLowerCase()));
+  const selectedEmployee = eligibleEmployees.find(employee => employee.id === employeeId);
   const [shiftId, setShiftId] = useState('');
   const [loadingShifts, setLoadingShifts] = useState(false);
   const [shiftError, setShiftError] = useState('');
@@ -39,7 +49,7 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
   useEffect(() => {
     if (!isOpen) return;
     const date = formatRecordTime(new Date(), 'yyyy-MM-dd', 'America/New_York');
-    setEmployeeId(''); setEmployeeQuery(''); setLocationId(''); setStart({date, time: ''}); setEnd({date, time: ''}); setBreaks([]); setNote('');
+    setDateFrom(''); setDateTo(''); setEmployeeOpen(false); setEmployeeId(''); setEmployeeQuery(''); setLocationId(''); setStart({date, time: ''}); setEnd({date, time: ''}); setBreaks([]); setNote('');
   }, [isOpen]);
   useEffect(() => {
     let active = true;
@@ -53,8 +63,12 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
       .finally(() => { if (active) setLoadingShifts(false); });
     return () => { active = false; };
   }, [businessId, isOpen]);
+  useEffect(() => {
+    setEmployeeId(''); setEmployeeQuery(''); setEmployeeOpen(false); setShiftId(''); setLocationId(''); setBreaks([]);
+    setStart({date: '', time: ''}); setEnd({date: '', time: ''});
+  }, [dateFrom, dateTo]);
   const chooseEmployee = (id: string | null) => {
-    setEmployeeId(id || ''); setEmployeeQuery(''); setShiftId(''); setLocationId(''); setBreaks([]);
+    setEmployeeOpen(false); setEmployeeId(id || ''); setEmployeeQuery(''); setShiftId(''); setLocationId(''); setBreaks([]);
     setStart({date: '', time: ''}); setEnd({date: '', time: ''});
   };
   const chooseShift = (id: string) => {
@@ -84,7 +98,7 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (busy) return;
     try {
-      if (loadingShifts || !selectedShift) throw Error('Choose a scheduled shift without a clock-in record');
+      if (!validRange || loadingShifts || !selectedEmployee || !selectedShift) throw Error('Choose a scheduled shift without a clock-in record');
       const startTime = instant(start), endTime = instant(end);
       if (Date.parse(endTime) <= Date.parse(startTime) || Date.parse(endTime) > Date.now()) throw Error('Clock-out must be after clock-in and cannot be in the future');
       const entries = breaks.map(entry => {
@@ -104,18 +118,34 @@ export function ManualTimesheetModal({businessId, isOpen, onClose, employees, lo
       <p className="text-sm text-slate-500">Record the actual worked times at the location. Dates use MM/DD/YYYY. For overnight work, use the following date for clock-out.</p>
       <fieldset disabled={busy} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm font-medium">Employee
-            <input required list="manual-timesheet-employees" aria-label="Employee" autoComplete="off" disabled={loadingShifts || !!shiftError} placeholder={loadingShifts ? 'Loading scheduled employees…' : 'Search scheduled employees'} value={employeeQuery} onChange={event => {
-              const value = event.target.value;
-              const employee = eligibleEmployees.find(entry => employeeLabel(entry) === value);
-              if ((employee?.id || '') !== employeeId) chooseEmployee(employee?.id || null);
-              setEmployeeQuery(value);
-            }} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" />
-            <datalist id="manual-timesheet-employees">
-              {eligibleEmployees.map(employee => <option key={employee.id} value={employeeLabel(employee)} />)}
-            </datalist>
-            {!loadingShifts && !shiftError && eligibleEmployees.length === 0 && <span className="mt-1 block text-xs text-slate-500">No employees with completed shifts missing a clock-in.</span>}
-          </label>
+          <label className="text-sm font-medium">Schedule from<input required type="date" aria-label="Schedule from" value={dateFrom} onChange={event => setDateFrom(event.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" /></label>
+          <label className="text-sm font-medium">Schedule to<input required type="date" aria-label="Schedule to" min={dateFrom || undefined} value={dateTo} onChange={event => setDateTo(event.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800" /></label>
+        </div>
+        <p className="text-xs text-slate-500">Choose a date range to find employees with completed scheduled shifts missing a clock-in. Both dates are included, using each work location’s local date.</p>
+        {dateFrom && dateTo && !validRange && <p role="alert" className="text-sm text-red-600">The end date must be on or after the start date.</p>}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="relative" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setEmployeeOpen(false); }} onKeyDown={event => {
+            if (event.key === 'Escape') { event.preventDefault(); setEmployeeOpen(false); event.currentTarget.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus(); }
+          }}>
+            <span id="manual-timesheet-employee-label" className="text-sm font-medium">Employee</span>
+            <button type="button" aria-labelledby="manual-timesheet-employee-label manual-timesheet-employee-value" aria-haspopup="listbox" aria-expanded={employeeOpen} aria-controls="manual-timesheet-employees" disabled={!validRange || loadingShifts || !!shiftError} onClick={() => { setEmployeeQuery(''); setEmployeeOpen(previous => !previous); }} className="mt-1 flex w-full items-center justify-between rounded-lg border p-2 text-left disabled:opacity-50 dark:bg-slate-800">
+              <span id="manual-timesheet-employee-value">{loadingShifts ? 'Loading scheduled employees…' : selectedEmployee ? employeeLabel(selectedEmployee) : 'Choose employee'}</span><span aria-hidden="true">⌄</span>
+            </button>
+            {employeeOpen && <div className="absolute z-50 mt-1 w-full rounded-lg border bg-white p-2 shadow-lg dark:bg-slate-800">
+              <input autoFocus type="search" aria-label="Search scheduled employees" placeholder="Search employees by name or badge" value={employeeQuery} onChange={event => setEmployeeQuery(event.target.value)} onKeyDown={event => {
+                if (event.key === 'Enter') event.preventDefault();
+                if (event.key === 'ArrowDown') { event.preventDefault(); event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[role="option"]')?.focus(); }
+              }} className="mb-2 w-full rounded border p-2 dark:bg-slate-900" />
+              <div id="manual-timesheet-employees" role="listbox" aria-label="Scheduled employees" className="max-h-52 overflow-auto" onKeyDown={event => {
+                const options = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]'));
+                const index = options.indexOf(event.target as HTMLButtonElement);
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); options[(index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length]?.focus(); }
+              }}>
+                {filteredEmployees.map(employee => <button type="button" role="option" aria-selected={employee.id === employeeId} key={employee.id} onClick={() => chooseEmployee(employee.id)} className="block w-full rounded px-2 py-2 text-left text-sm hover:bg-purple-50 focus:bg-purple-100 focus:outline-none aria-selected:font-semibold dark:hover:bg-slate-700 dark:focus:bg-slate-700">{employeeLabel(employee)}</button>)}
+                {filteredEmployees.length === 0 && <p className="p-2 text-sm text-slate-500">{employeeQuery ? 'No matching employees.' : 'No employees with shifts missing a clock-in in this date range.'}</p>}
+              </div>
+            </div>}
+          </div>
           <label className="text-sm font-medium">Scheduled shift<select required disabled={!employeeId || loadingShifts} value={shiftId} onChange={e => chooseShift(e.target.value)} className="mt-1 w-full rounded-lg border p-2 dark:bg-slate-800"><option value="">{loadingShifts ? 'Loading shifts…' : 'Choose day and location'}</option>{shifts.map(shift => <option key={shift.id} value={shift.id}>{formatRecordTime(shift.startTime, 'MM/dd/yyyy', shift.timeZone)} · {shift.locationName} · {formatRecordTime(shift.startTime, 'h:mm a', shift.timeZone)} – {formatRecordTime(shift.endTime, 'MM/dd/yyyy h:mm a', shift.timeZone)}</option>)}</select></label>
         </div>
         {shiftError && <p role="alert" className="text-sm text-red-600">{shiftError}</p>}
