@@ -69,6 +69,9 @@ interface Break {
 }
 
 interface Timesheet {
+  shiftHourlyRate?: number | null;
+  additionalWorkAmount?: number;
+  additionalWorkDescription?: string | null;
   timeZone?: string | null;
   id: string;
   startTime: string;
@@ -421,6 +424,12 @@ export default function TimeTrackingPage() {
       .includes(searchTerm.toLowerCase()),
   );
 
+  const paidHoursFor = (t: Timesheet) => {
+    const rate = t.shiftHourlyRate ?? employees.find(e => e.id === t.employeeId)?.hourlyRate;
+    return getDurationHours(t.startTime, t.endTime, t.breaks) + (rate && rate > 0 ? (t.additionalWorkAmount || 0) / rate : 0);
+  };
+  const paymentFor = (t: Timesheet) => getPay(getDurationHours(t.startTime, t.endTime, t.breaks), t.shiftHourlyRate ?? employees.find(e => e.id === t.employeeId)?.hourlyRate) + (t.additionalWorkAmount || 0);
+
   const employeeStats = useMemo(() => {
     const stats: Record<string, { count: number; hours: number; pay: number }> =
       {};
@@ -441,8 +450,9 @@ export default function TimeTrackingPage() {
 
       filtered.forEach((t) => {
         const h = getDurationHours(t.startTime, t.endTime, t.breaks);
-        hours += h;
-        pay += getPay(h, emp.hourlyRate);
+        const rate = t.shiftHourlyRate ?? emp.hourlyRate;
+        hours += h + (rate && rate > 0 ? (t.additionalWorkAmount || 0) / rate : 0);
+        pay += getPay(h, rate) + (t.additionalWorkAmount || 0);
       });
 
       stats[emp.id] = { count, hours, pay };
@@ -508,16 +518,13 @@ export default function TimeTrackingPage() {
             count: empTimesheets.length,
             hours: empTimesheets.reduce(
               (acc, t) =>
-                acc + getDurationHours(t.startTime, t.endTime, t.breaks),
+                acc + paidHoursFor(t),
               0,
             ),
             pay: empTimesheets.reduce(
               (acc, t) =>
                 acc +
-                getPay(
-                  getDurationHours(t.startTime, t.endTime, t.breaks),
-                  emp.hourlyRate,
-                ),
+                paymentFor(t),
               0,
             ),
           };
@@ -559,17 +566,14 @@ export default function TimeTrackingPage() {
           count: dateTimesheets.length,
           hours: dateTimesheets.reduce(
             (acc, t) =>
-              acc + getDurationHours(t.startTime, t.endTime, t.breaks),
+              acc + paidHoursFor(t),
             0,
           ),
           pay: dateTimesheets.reduce((acc, t) => {
             const emp = employees.find((e) => e.id === t.employeeId);
             return (
               acc +
-              getPay(
-                getDurationHours(t.startTime, t.endTime, t.breaks),
-                emp?.hourlyRate,
-              )
+              paymentFor(t)
             );
           }, 0),
         };
@@ -1270,17 +1274,14 @@ export default function TimeTrackingPage() {
                       {isExpanded && (
                         <div className="bg-slate-50 dark:bg-slate-900/20">
                           {group.timesheets.map((timesheet) => {
-                            const hours = getDurationHours(
+                            const clockedHours = getDurationHours(
                               timesheet.startTime,
                               timesheet.endTime,
                               timesheet.breaks,
                             );
-                            const pay = getPay(
-                              hours,
-                              employees.find(
-                                (e) => e.id === timesheet.employeeId,
-                              )?.hourlyRate,
-                            );
+                            const rate = timesheet.shiftHourlyRate ?? employees.find(e => e.id === timesheet.employeeId)?.hourlyRate;
+                            const hours = clockedHours + (rate && rate > 0 ? (timesheet.additionalWorkAmount || 0) / rate : 0);
+                            const pay = getPay(clockedHours, rate) + (timesheet.additionalWorkAmount || 0);
 
                             // Break duration
                             let breakMinutes = 0;

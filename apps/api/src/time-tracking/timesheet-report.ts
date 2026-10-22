@@ -155,6 +155,10 @@ export function buildTimesheetReport(
       rate = Number(historical[1]);
       payType = "HOURLY";
     }
+    if (s.shiftHourlyRate != null) {
+      rate = s.shiftHourlyRate;
+      payType = "HOURLY";
+    }
     let hours: number | null = null,
       gross: number | null = null,
       ot: number | null = null,
@@ -188,6 +192,7 @@ export function buildTimesheetReport(
             s.workerType === "W2" && pay.overtimeEligible,
             anchor,
           );
+          hours += rate > 0 ? Number(s.additionalWorkAmount || 0) / rate : 0;
           gross = result.grossPay;
           ot = result.overtimeHours;
         } else warning = "Salary or missing hourly rate: review in payroll";
@@ -229,7 +234,20 @@ export function buildTimesheetReport(
       status: s.status,
       workerType: s.workerType,
       paidExternally: !!s.paidExternally,
-      warning,
+      warning: [
+        warning,
+        s.additionalWorkAmount > 0
+          ? "Additional work: " +
+            s.additionalWorkDescription +
+            "; " +
+            s.additionalWorkAmount.toFixed(2) +
+            " (" +
+            (s.additionalWorkAmount / rate).toFixed(2) +
+            "h)"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" / "),
     };
   });
   const groups: any[] = [];

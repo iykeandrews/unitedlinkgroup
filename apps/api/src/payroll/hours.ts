@@ -48,23 +48,43 @@ export function calculateHours(
     upper = +end + 1,
     origin = +anchor;
   const buckets = new Map<number, number>();
-  const all = timesheets.flatMap(sheet => {
-    return paidIntervals(sheet).map(([a, z]) => ({ a, z, paidExternally: sheet.paidExternally === true }));
-  }).sort((a, b) => a.a - b.a);
+  const all = timesheets
+    .flatMap((sheet) => {
+      return paidIntervals(sheet).map(([a, z]) => ({
+        a,
+        z,
+        paidExternally: sheet.paidExternally === true,
+        shiftRate: sheet.shiftHourlyRate ?? rate,
+      }));
+    })
+    .sort((a, b) => a.a - b.a);
   for (let i = 1; i < all.length; i++)
     if (all[i].a < all[i - 1].z)
-      throw new BadRequestException("Approved timesheets overlap. Correct them before payroll.");
-  let regularHours = 0, overtimeHours = 0;
-  for (const { a, z, paidExternally } of all) {
+      throw new BadRequestException(
+        "Approved timesheets overlap. Correct them before payroll.",
+      );
+  let regularHours = 0,
+    overtimeHours = 0,
+    regularEarnings = 0,
+    overtimeEarnings = 0;
+  for (const { a, z, paidExternally, shiftRate } of all) {
     let cursor = a;
     while (cursor < z) {
       const week = Math.floor((cursor - origin) / weekMs);
-      const next = Math.min(z, origin + (week + 1) * weekMs, cursor < lower ? lower : cursor < upper ? upper : z);
+      const next = Math.min(
+        z,
+        origin + (week + 1) * weekMs,
+        cursor < lower ? lower : cursor < upper ? upper : z,
+      );
       const hours = (next - cursor) / 3600000;
       const consumed = buckets.get(week) || 0;
-      const regular = eligible ? Math.min(hours, Math.max(0, 40 - consumed)) : hours;
+      const regular = eligible
+        ? Math.min(hours, Math.max(0, 40 - consumed))
+        : hours;
       // Paid historical work still counts toward weekly overtime, but is never paid twice.
       if (cursor >= lower && cursor < upper && !paidExternally) {
+        regularEarnings += regular * shiftRate;
+        overtimeEarnings += (hours - regular) * shiftRate * 1.5;
         regularHours += regular;
         overtimeHours += hours - regular;
       }
@@ -72,8 +92,23 @@ export function calculateHours(
       cursor = next;
     }
   }
-  const regularPay = money(regularHours * rate),
-    overtimePay = money(overtimeHours * rate * 1.5);
+  // Fixed additional compensation has equivalent paid hours, without fabricated attendance.
+  for (const sheet of timesheets) {
+    if (
+      sheet.paidExternally ||
+      +new Date(sheet.startTime) < lower ||
+      +new Date(sheet.startTime) >= upper
+    )
+      continue;
+    const extra = Number(sheet.additionalWorkAmount || 0),
+      shiftRate = sheet.shiftHourlyRate ?? rate;
+    if (extra > 0 && shiftRate > 0) {
+      regularHours += extra / shiftRate;
+      regularEarnings += extra;
+    }
+  }
+  const regularPay = money(regularEarnings),
+    overtimePay = money(overtimeEarnings);
   return {
     regularHours,
     overtimeHours,

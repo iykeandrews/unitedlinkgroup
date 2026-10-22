@@ -1,4 +1,8 @@
-import { enteredBreakRange, formatRecordTime, recordInputDate } from '../../lib/time/record-zone';
+import {
+  enteredBreakRange,
+  formatRecordTime,
+  recordInputDate,
+} from "../../lib/time/record-zone";
 import { savedPay } from "../people/directory";
 import { workedHours } from "../../lib/time/records";
 import { useState, useEffect, useMemo } from "react";
@@ -52,6 +56,9 @@ export function TimesheetDetailsModal({
     locationId: "",
     managerComments: "",
     status: "",
+    shiftRate: "",
+    additionalAmount: "",
+    additionalDescription: "",
     breaks: [] as BreakItem[],
   });
 
@@ -61,14 +68,28 @@ export function TimesheetDetailsModal({
     if (timesheet) {
       setFormData({
         startTime: timesheet.startTime
-          ? formatRecordTime(timesheet.startTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
+          ? formatRecordTime(
+              timesheet.startTime,
+              "yyyy-MM-dd'T'HH:mm",
+              timesheet.timeZone,
+            )
           : "",
         endTime: timesheet.endTime
-          ? formatRecordTime(timesheet.endTime, "yyyy-MM-dd'T'HH:mm", timesheet.timeZone)
+          ? formatRecordTime(
+              timesheet.endTime,
+              "yyyy-MM-dd'T'HH:mm",
+              timesheet.timeZone,
+            )
           : "",
         locationId: timesheet.locationId || "",
         managerComments: timesheet.employeeNote || "",
         status: timesheet.status,
+        shiftRate:
+          timesheet.shiftHourlyRate == null
+            ? ""
+            : String(timesheet.shiftHourlyRate),
+        additionalAmount: String(timesheet.additionalWorkAmount || ""),
+        additionalDescription: timesheet.additionalWorkDescription || "",
         breaks:
           timesheet.breaks?.map((b: any) => ({
             startTime: b.startTime
@@ -115,14 +136,30 @@ export function TimesheetDetailsModal({
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()))
       return { duration: 0, pay: 0 };
     const duration = workedHours(
-      start.toJSON() || '',
-      end.toJSON() || '',
-      formData.breaks.filter((b) => b.type !== "PAID" && b.startTime).flatMap(b => {
-        try {
-          const range = enteredBreakRange(start, end, b.startTime, b.endTime, timesheet?.timeZone);
-          return [{...b, startTime: range.start.toISOString(), endTime: range.end?.toISOString() || null}];
-        } catch { return []; }
-      }),
+      start.toJSON() || "",
+      end.toJSON() || "",
+      formData.breaks
+        .filter((b) => b.type !== "PAID" && b.startTime)
+        .flatMap((b) => {
+          try {
+            const range = enteredBreakRange(
+              start,
+              end,
+              b.startTime,
+              b.endTime,
+              timesheet?.timeZone,
+            );
+            return [
+              {
+                ...b,
+                startTime: range.start.toISOString(),
+                endTime: range.end?.toISOString() || null,
+              },
+            ];
+          } catch {
+            return [];
+          }
+        }),
     );
     const payRate = timesheet?.employee
       ? savedPay({
@@ -130,10 +167,19 @@ export function TimesheetDetailsModal({
           workerType: timesheet.workerType || timesheet.employee.workerType,
         })
       : null;
-    const hourlyRate = payRate?.unit === "hour" ? payRate.amount : 0;
-    const pay = duration * hourlyRate;
+    const hourlyRate =
+      formData.shiftRate !== ""
+        ? Number(formData.shiftRate)
+        : payRate?.unit === "hour"
+          ? payRate.amount
+          : 0;
+    const extra = Number(formData.additionalAmount || 0);
+    const pay = duration * hourlyRate + extra;
 
-    return { duration, pay };
+    return {
+      duration: duration + (hourlyRate > 0 ? extra / hourlyRate : 0),
+      pay,
+    };
   }, [formData, timesheet]);
 
   const handleAddBreak = () => {
@@ -167,14 +213,27 @@ export function TimesheetDetailsModal({
     try {
       setLoading(true);
 
-      const start = formData.startTime === formatRecordTime(timesheet.startTime, "yyyy-MM-dd'T'HH:mm", timesheet?.timeZone)
-        ? new Date(timesheet.startTime)
-        : recordInputDate(formData.startTime, timesheet?.timeZone);
+      const start =
+        formData.startTime ===
+        formatRecordTime(
+          timesheet.startTime,
+          "yyyy-MM-dd'T'HH:mm",
+          timesheet?.timeZone,
+        )
+          ? new Date(timesheet.startTime)
+          : recordInputDate(formData.startTime, timesheet?.timeZone);
       let end = null;
       if (formData.endTime) {
-        end = timesheet.endTime && formData.endTime === formatRecordTime(timesheet.endTime, "yyyy-MM-dd'T'HH:mm", timesheet?.timeZone)
-          ? new Date(timesheet.endTime)
-          : recordInputDate(formData.endTime, timesheet?.timeZone);
+        end =
+          timesheet.endTime &&
+          formData.endTime ===
+            formatRecordTime(
+              timesheet.endTime,
+              "yyyy-MM-dd'T'HH:mm",
+              timesheet?.timeZone,
+            )
+            ? new Date(timesheet.endTime)
+            : recordInputDate(formData.endTime, timesheet?.timeZone);
       }
 
       if (
@@ -184,13 +243,29 @@ export function TimesheetDetailsModal({
         throw new Error("Enter valid times with end after start");
       const processedBreaks = formData.breaks.map((b) => {
         if (!b.startTime) throw new Error("Every break needs a start time");
-        const original = timesheet.breaks?.find((entry: any) =>
-          new Date(entry.startTime) >= start && (!end || new Date(entry.startTime) < end)
-          && (!entry.endTime || !end || new Date(entry.endTime) <= end)
-          && formatRecordTime(entry.startTime, 'HH:mm', timesheet?.timeZone) === b.startTime
-          && (entry.endTime ? formatRecordTime(entry.endTime, 'HH:mm', timesheet?.timeZone) : '') === b.endTime);
-        const range = original ? {start:new Date(original.startTime),end:original.endTime ? new Date(original.endTime) : null}
-          : enteredBreakRange(start, end || new Date(), b.startTime, b.endTime, timesheet?.timeZone);
+        const original = timesheet.breaks?.find(
+          (entry: any) =>
+            new Date(entry.startTime) >= start &&
+            (!end || new Date(entry.startTime) < end) &&
+            (!entry.endTime || !end || new Date(entry.endTime) <= end) &&
+            formatRecordTime(entry.startTime, "HH:mm", timesheet?.timeZone) ===
+              b.startTime &&
+            (entry.endTime
+              ? formatRecordTime(entry.endTime, "HH:mm", timesheet?.timeZone)
+              : "") === b.endTime,
+        );
+        const range = original
+          ? {
+              start: new Date(original.startTime),
+              end: original.endTime ? new Date(original.endTime) : null,
+            }
+          : enteredBreakRange(
+              start,
+              end || new Date(),
+              b.startTime,
+              b.endTime,
+              timesheet?.timeZone,
+            );
         return {
           startTime: range.start.toISOString(),
           endTime: range.end?.toISOString() || null,
@@ -204,6 +279,10 @@ export function TimesheetDetailsModal({
         employeeNote: formData.managerComments,
         status: statusOverride || formData.status,
         breaks: processedBreaks,
+        shiftHourlyRate:
+          formData.shiftRate === "" ? null : Number(formData.shiftRate),
+        additionalWorkAmount: Number(formData.additionalAmount || 0),
+        additionalWorkDescription: formData.additionalDescription,
       });
 
       toast.success("Timesheet updated successfully");
@@ -231,7 +310,10 @@ export function TimesheetDetailsModal({
       onClose();
     } catch (error) {
       console.error(error);
-      toast.error((error as any)?.response?.data?.message || "Failed to discard timesheet");
+      toast.error(
+        (error as any)?.response?.data?.message ||
+          "Failed to discard timesheet",
+      );
     } finally {
       setLoading(false);
       setShowDeleteConfirm(false);
@@ -289,7 +371,8 @@ export function TimesheetDetailsModal({
                 </h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   Are you sure you want to discard this timesheet? This action
-                  can be reversed from the Discarded tab. Any open clock-in and break will be ended and excluded from payable time.
+                  can be reversed from the Discarded tab. Any open clock-in and
+                  break will be ended and excluded from payable time.
                 </p>
               </div>
               <div className="flex items-center gap-3 w-full mt-2">
@@ -485,7 +568,12 @@ export function TimesheetDetailsModal({
                 </div>
 
                 <div className="space-y-3">
-                  {timesheet?.paidExternally && <p className="text-sm text-emerald-700">Already paid externally; excluded from new payroll payments. Historical record is read-only.</p>}
+                  {timesheet?.paidExternally && (
+                    <p className="text-sm text-emerald-700">
+                      Already paid externally; excluded from new payroll
+                      payments. Historical record is read-only.
+                    </p>
+                  )}
                   {formData.breaks.map((brk, idx) => (
                     <div
                       key={idx}
@@ -528,6 +616,87 @@ export function TimesheetDetailsModal({
                 </div>
               </div>
 
+              <section className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                <h3 className="font-bold">Shift payment</h3>
+                <label className="block text-sm">
+                  Hourly rate for this shift
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={formData.shiftRate}
+                    disabled={!!timesheet.paidExternally}
+                    placeholder={
+                      employeePay?.unit === "hour"
+                        ? String(employeePay.amount)
+                        : "Enter hourly rate"
+                    }
+                    onChange={(e) =>
+                      setFormData({ ...formData, shiftRate: e.target.value })
+                    }
+                    className="mt-1 w-full rounded-lg border p-3 bg-transparent"
+                  />
+                </label>
+                <p className="text-xs text-slate-500">
+                  Leave blank to use the employee profile rate
+                  {employeePay?.unit === "hour"
+                    ? ": " +
+                      formatCurrency(employeePay.amount, safeCurrencyCode) +
+                      "/hour"
+                    : ""}
+                  .
+                </p>
+                <label className="block text-sm">
+                  Additional work payment
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.additionalAmount}
+                    disabled={!!timesheet.paidExternally}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        additionalAmount: e.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border p-3 bg-transparent"
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className="block text-sm">
+                  What is this payment for?
+                  <textarea
+                    value={formData.additionalDescription}
+                    maxLength={1000}
+                    disabled={!!timesheet.paidExternally}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        additionalDescription: e.target.value,
+                      })
+                    }
+                    className="mt-1 w-full rounded-lg border p-3 bg-transparent"
+                    placeholder="Describe the additional work (required for extra payment)"
+                  />
+                </label>
+                <p className="text-sm text-slate-500">
+                  Additional paid hours:{" "}
+                  {(() => {
+                    const rate = Number(
+                      formData.shiftRate ||
+                        (employeePay?.unit === "hour" ? employeePay.amount : 0),
+                    );
+                    return rate > 0
+                      ? (Number(formData.additionalAmount || 0) / rate).toFixed(
+                          2,
+                        )
+                      : "0.00";
+                  })()}
+                  h. Total includes this payment. Recorded attendance stays
+                  unchanged. Payroll calculates overtime.
+                </p>
+              </section>
               {/* Timesheet notes */}
               <div className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col h-64">
                 <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -555,7 +724,7 @@ export function TimesheetDetailsModal({
             <div className="flex gap-6 items-center">
               <div>
                 <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
-                  Total Duration
+                  Total paid hours
                 </div>
                 <div className="text-xl font-bold text-slate-900 dark:text-white font-mono">
                   {calculatedStats.duration.toFixed(2)}
@@ -566,20 +735,24 @@ export function TimesheetDetailsModal({
               </div>
               <div>
                 <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">
-                  {employeePay?.unit === "year"
+                  {employeePay?.unit === "year" && !formData.shiftRate
                     ? "Annual salary"
                     : "Estimated cost"}
                 </div>
                 <div className="text-xl font-bold text-green-600 dark:text-green-400 font-mono">
-                  {employeePay
-                    ? `${formatCurrency(employeePay.unit === "year" ? employeePay.amount : calculatedStats.pay, safeCurrencyCode)}${employeePay.unit === "year" ? "/year" : ""}`
+                  {employeePay || formData.shiftRate
+                    ? `${formatCurrency(employeePay?.unit === "year" && !formData.shiftRate ? employeePay.amount : calculatedStats.pay, safeCurrencyCode)}${employeePay?.unit === "year" && !formData.shiftRate ? "/year" : ""}`
                     : "Rate not set"}
                 </div>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              {timesheet.paidExternally ? <span className="text-sm text-emerald-700">Historical paid record</span> : timesheet.status === "DISCARDED" ? (
+              {timesheet.paidExternally ? (
+                <span className="text-sm text-emerald-700">
+                  Historical paid record
+                </span>
+              ) : timesheet.status === "DISCARDED" ? (
                 <button
                   onClick={handleRestore}
                   disabled={loading}

@@ -1,5 +1,10 @@
 import { loadInvoiceLogo } from "../invoices/invoice-logo";
-import { buildTimesheetReport, validateReportPeriod, reportPdf, reportExcel } from './timesheet-report';
+import {
+  buildTimesheetReport,
+  validateReportPeriod,
+  reportPdf,
+  reportExcel,
+} from "./timesheet-report";
 import { MobileOperationsService } from "./mobile-operations.service";
 import { Optional } from "@nestjs/common";
 import { calculateHours, paidIntervals } from "../payroll/hours";
@@ -27,18 +32,59 @@ export class TimeTrackingService {
     @Optional() private operations?: MobileOperationsService,
   ) {}
 
-  private async applyShortShiftBreakRule(tx: any, record: any, businessId?: string) {
-    if (!record.endTime || +new Date(record.endTime) <= +new Date(record.startTime) || (+new Date(record.endTime)-+new Date(record.startTime)) >= 4*3600000) return;
-    const scope = businessId || (await tx.employee.findUnique({where:{id:record.employeeId},select:{businessId:true}}))?.businessId;
+  private async applyShortShiftBreakRule(
+    tx: any,
+    record: any,
+    businessId?: string,
+  ) {
+    if (
+      !record.endTime ||
+      +new Date(record.endTime) <= +new Date(record.startTime) ||
+      +new Date(record.endTime) - +new Date(record.startTime) >= 4 * 3600000
+    )
+      return;
+    const scope =
+      businessId ||
+      (
+        await tx.employee.findUnique({
+          where: { id: record.employeeId },
+          select: { businessId: true },
+        })
+      )?.businessId;
     if (!scope) return;
-    const business = await tx.business.findUnique({where:{id:scope},select:{settings:true}});
+    const business = await tx.business.findUnique({
+      where: { id: scope },
+      select: { settings: true },
+    });
     let minutes = 0;
-    try { minutes = JSON.parse(business?.settings || "{}").timeTrackingBreakRules?.noUnpaidBreakUnderMinutes || 0; } catch {}
+    try {
+      minutes =
+        JSON.parse(business?.settings || "{}").timeTrackingBreakRules
+          ?.noUnpaidBreakUnderMinutes || 0;
+    } catch {}
     if (minutes !== 240) return;
-    const changed = await tx.break.updateMany({where:{timesheetId:record.id,type:{not:"PAID"}},data:{type:"PAID"}});
+    const changed = await tx.break.updateMany({
+      where: { timesheetId: record.id, type: { not: "PAID" } },
+      data: { type: "PAID" },
+    });
     if (changed.count) {
-      if (record.breaks) record.breaks = record.breaks.map((entry: any)=>({...entry,type:"PAID"}));
-      await tx.auditLog.create({data:{businessId:scope,action:"SHORT_SHIFT_BREAK_DEDUCTION_EXEMPTED",resource:"TIMESHEET",resourceId:record.id,details:JSON.stringify({thresholdMinutes:240,breaksMadePaid:changed.count})}});
+      if (record.breaks)
+        record.breaks = record.breaks.map((entry: any) => ({
+          ...entry,
+          type: "PAID",
+        }));
+      await tx.auditLog.create({
+        data: {
+          businessId: scope,
+          action: "SHORT_SHIFT_BREAK_DEDUCTION_EXEMPTED",
+          resource: "TIMESHEET",
+          resourceId: record.id,
+          details: JSON.stringify({
+            thresholdMinutes: 240,
+            breaksMadePaid: changed.count,
+          }),
+        },
+      });
     }
   }
 
@@ -182,45 +228,86 @@ export class TimeTrackingService {
 
   async exportTimesheetReport(query: any, user: any, businessId: string) {
     if (!["SUPER_ADMIN", "BUSINESS_ADMIN", "MANAGER"].includes(user?.role))
-      throw new ForbiddenException("Only administrators and managers can export timesheets");
+      throw new ForbiddenException(
+        "Only administrators and managers can export timesheets",
+      );
     await this.validateBusinessAccess(businessId, user);
     validateReportPeriod(query.from, query.to);
-    if (!["pdf", "xlsx"].includes(query.format)) throw new BadRequestException("Choose PDF or Excel");
-    const business = await this.prisma.business.findUnique({where:{id:businessId}});
+    if (!["pdf", "xlsx"].includes(query.format))
+      throw new BadRequestException("Choose PDF or Excel");
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+    });
     if (!business) throw new BadRequestException("Choose a business");
     // Include the preceding workweek, across all sites and statuses, for overtime.
     const lower = new Date(Date.parse(query.from) - 9 * 86400000);
     const upper = new Date(Date.parse(query.to) + 2 * 86400000);
     const sheets = await this.prisma.timesheet.findMany({
-      where:{employee:{businessId},status:{in:["APPROVED","PENDING"]},startTime:{gte:lower,lt:upper}},
-      include:{employee:{select:{id:true,firstName:true,lastName:true,badgeNumber:true,workerType:true,payType:true,hourlyRate:true,salary:true,overtimeEligible:true,w2Profile:true,contractorProfile:true}},location:true,breaks:true},
-      orderBy:{startTime:"asc"},
+      where: {
+        employee: { businessId },
+        status: { in: ["APPROVED", "PENDING"] },
+        startTime: { gte: lower, lt: upper },
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            badgeNumber: true,
+            workerType: true,
+            payType: true,
+            hourlyRate: true,
+            salary: true,
+            overtimeEligible: true,
+            w2Profile: true,
+            contractorProfile: true,
+          },
+        },
+        location: true,
+        breaks: true,
+      },
+      orderBy: { startTime: "asc" },
     });
     const changes = await this.prisma.auditLog.findMany({
-      where:{businessId,resource:"EMPLOYEE_RATE",action:"RATE_CHANGE",resourceId:{in:[...new Set(sheets.map(s=>s.employeeId))]}},
-      orderBy:{createdAt:"asc"},
+      where: {
+        businessId,
+        resource: "EMPLOYEE_RATE",
+        action: "RATE_CHANGE",
+        resourceId: { in: [...new Set(sheets.map((s) => s.employeeId))] },
+      },
+      orderBy: { createdAt: "asc" },
     });
-    const report = buildTimesheetReport(business,sheets,changes,query);
+    const report = buildTimesheetReport(business, sheets, changes, query);
     report.logo = await loadInvoiceLogo(business.logoUrl);
     return query.format === "pdf" ? reportPdf(report) : reportExcel(report);
   }
 
-  async getUntrackedShifts(employeeId: string | undefined, user: any, businessId?: string) {
+  async getUntrackedShifts(
+    employeeId: string | undefined,
+    user: any,
+    businessId?: string,
+  ) {
     if (!["SUPER_ADMIN", "BUSINESS_ADMIN"].includes(user?.role))
       throw new ForbiddenException(
         "Only administrators can view missing attendance",
       );
-    const employee = employeeId ? await this.prisma.employee.findUnique({
-      where: { id: employeeId },
-    }) : null;
-    if (employeeId && !employee) throw new BadRequestException("Choose an employee");
+    const employee = employeeId
+      ? await this.prisma.employee.findUnique({
+          where: { id: employeeId },
+        })
+      : null;
+    if (employeeId && !employee)
+      throw new BadRequestException("Choose an employee");
     const scope = employee?.businessId || businessId;
     if (!scope) throw new BadRequestException("Choose a business");
     await this.validateBusinessAccess(scope, user);
     const shifts = await this.prisma.shift.findMany({
       where: {
         businessId: scope,
-        ...(employee ? { employeeId: employee.id } : { employeeId: { not: null } }),
+        ...(employee
+          ? { employeeId: employee.id }
+          : { employeeId: { not: null } }),
         locationId: { not: null },
         endTime: { lte: new Date() },
         status: { in: ["DRAFT", "PUBLISHED", "OPEN", "COMPLETED"] },
@@ -239,7 +326,15 @@ export class TimeTrackingService {
     const byGroup = new Map(drafts.map((s) => [s.groupId || s.id, s.id]));
     const records = await this.prisma.timesheet.findMany({
       where: {
-        employeeId: { in: [...new Set(shifts.map((s) => s.employeeId).filter((id): id is string => !!id))] },
+        employeeId: {
+          in: [
+            ...new Set(
+              shifts
+                .map((s) => s.employeeId)
+                .filter((id): id is string => !!id),
+            ),
+          ],
+        },
         status: { notIn: ["DISCARDED", "REJECTED"] },
       },
     });
@@ -566,7 +661,9 @@ export class TimeTrackingService {
     });
 
     if (activeTimesheet) {
-      throw new BadRequestException(`This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.`);
+      throw new BadRequestException(
+        `This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.`,
+      );
     }
 
     const employment = await this.prisma.employee.findUnique({
@@ -660,11 +757,16 @@ export class TimeTrackingService {
       : null;
     const timesheet = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRawUnsafe(
-        'SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE', employeeId,
+        'SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE',
+        employeeId,
       );
-      const existing = await tx.timesheet.findFirst({ where: { employeeId, endTime: null } });
+      const existing = await tx.timesheet.findFirst({
+        where: { employeeId, endTime: null },
+      });
       if (existing) {
-        throw new BadRequestException("This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.");
+        throw new BadRequestException(
+          "This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.",
+        );
       }
       return tx.timesheet.create({
         data: {
@@ -1160,23 +1262,26 @@ export class TimeTrackingService {
       );
     }
 
-    const result = await this.prisma.$transaction(async tx => {
-    const updated = await tx.timesheet.update({
-      where: { id: activeTimesheet.id },
-      data: {
-        endTime: new Date(),
-        status: "PENDING", // Pending approval
-        clockOutIp: ip,
-        clockOutLat:
-          typeof lat === "number" && Number.isFinite(lat) ? lat : undefined,
-        clockOutLng:
-          typeof lng === "number" && Number.isFinite(lng) ? lng : undefined,
-        employeeNote: note,
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const updated = await tx.timesheet.update({
+          where: { id: activeTimesheet.id },
+          data: {
+            endTime: new Date(),
+            status: "PENDING", // Pending approval
+            clockOutIp: ip,
+            clockOutLat:
+              typeof lat === "number" && Number.isFinite(lat) ? lat : undefined,
+            clockOutLng:
+              typeof lng === "number" && Number.isFinite(lng) ? lng : undefined,
+            employeeNote: note,
+          },
+        });
+        await this.applyShortShiftBreakRule(tx, updated);
+        return updated;
       },
-    });
-    await this.applyShortShiftBreakRule(tx, updated);
-    return updated;
-    }, {timeout:15000});
+      { timeout: 15000 },
+    );
     void this.operations?.notify(employeeId, "clocked out", result);
     return result;
   }
@@ -1508,6 +1613,78 @@ export class TimeTrackingService {
       updateData.location = data.locationId
         ? { connect: { id: data.locationId } }
         : { disconnect: true };
+    const paymentChanged =
+      (data.shiftHourlyRate !== undefined &&
+        data.shiftHourlyRate !== timesheet.shiftHourlyRate) ||
+      (data.additionalWorkAmount !== undefined &&
+        data.additionalWorkAmount !== timesheet.additionalWorkAmount) ||
+      (data.additionalWorkDescription !== undefined &&
+        String(data.additionalWorkDescription || "") !==
+          String(timesheet.additionalWorkDescription || ""));
+    if (
+      paymentChanged &&
+      !["BUSINESS_ADMIN", "SUPER_ADMIN"].includes(user?.role)
+    )
+      throw new ForbiddenException(
+        "Only administrators can adjust shift payments",
+      );
+    if (data.shiftHourlyRate !== undefined) {
+      if (
+        data.shiftHourlyRate !== null &&
+        (typeof data.shiftHourlyRate !== "number" ||
+          !Number.isFinite(data.shiftHourlyRate) ||
+          data.shiftHourlyRate <= 0 ||
+          data.shiftHourlyRate > 100000)
+      )
+        throw new BadRequestException(
+          "Enter a valid positive shift hourly rate",
+        );
+      updateData.shiftHourlyRate = data.shiftHourlyRate;
+    }
+    const extra = data.additionalWorkAmount ?? timesheet.additionalWorkAmount;
+    if (
+      typeof extra !== "number" ||
+      !Number.isFinite(extra) ||
+      extra < 0 ||
+      extra > 10000000 ||
+      Math.abs(Math.round(extra * 100) / 100 - extra) > 0.000001
+    )
+      throw new BadRequestException(
+        "Additional payment must be a valid amount with at most two decimal places",
+      );
+    const description =
+      data.additionalWorkDescription === undefined
+        ? timesheet.additionalWorkDescription
+        : String(data.additionalWorkDescription || "").trim();
+    if (extra > 0 && (!description || description.length > 1000))
+      throw new BadRequestException(
+        "Describe the additional work (up to 1000 characters)",
+      );
+    if (extra > 0) {
+      const employee = await this.prisma.employee.findUnique({
+        where: { id: timesheet.employeeId },
+        include: { w2Profile: true, contractorProfile: true },
+      });
+      const pay = effectivePay({
+        ...employee,
+        workerType: timesheet.workerType,
+      });
+      const rate =
+        data.shiftHourlyRate === undefined
+          ? (timesheet.shiftHourlyRate ?? pay.hourlyRate)
+          : (data.shiftHourlyRate ?? pay.hourlyRate);
+      if (
+        !(rate > 0) ||
+        (pay.payType !== "HOURLY" &&
+          !data.shiftHourlyRate &&
+          !timesheet.shiftHourlyRate)
+      )
+        throw new BadRequestException(
+          "Set a positive shift hourly rate to calculate additional paid hours",
+        );
+    }
+    updateData.additionalWorkAmount = extra;
+    updateData.additionalWorkDescription = extra > 0 ? description : null;
     const existingBreaks = await this.prisma.break.findMany({
       where: { timesheetId: id },
     });
@@ -1606,7 +1783,11 @@ export class TimeTrackingService {
           }
         }
 
-        await this.applyShortShiftBreakRule(tx, {...timesheet, startTime:start, endTime:end}, timesheet.employee.businessId);
+        await this.applyShortShiftBreakRule(
+          tx,
+          { ...timesheet, startTime: start, endTime: end },
+          timesheet.employee.businessId,
+        );
         // Return hydrated timesheet
         return tx.timesheet.findUnique({
           where: { id },
@@ -1634,12 +1815,21 @@ export class TimeTrackingService {
           endTime: timesheet.endTime,
           status: timesheet.status,
           breaks: existingBreaks,
+          shiftHourlyRate: timesheet.shiftHourlyRate,
+          additionalWorkAmount: timesheet.additionalWorkAmount,
+          additionalWorkDescription: timesheet.additionalWorkDescription,
         },
         after: {
           startTime: start,
           endTime: end,
           status,
           breaks: breaks ?? existingBreaks,
+          shiftHourlyRate:
+            data.shiftHourlyRate === undefined
+              ? timesheet.shiftHourlyRate
+              : data.shiftHourlyRate,
+          additionalWorkAmount: extra,
+          additionalWorkDescription: updateData.additionalWorkDescription,
         },
         reason:
           typeof data.reason === "string" ? data.reason.slice(0, 500) : null,
@@ -1671,7 +1861,10 @@ export class TimeTrackingService {
       throw new ForbiddenException("You can only delete your own timesheets");
     }
 
-    if (!timesheet.endTime && !["SUPER_ADMIN", "BUSINESS_ADMIN"].includes(user?.role))
+    if (
+      !timesheet.endTime &&
+      !["SUPER_ADMIN", "BUSINESS_ADMIN"].includes(user?.role)
+    )
       throw new BadRequestException(
         "End the active timesheet before discarding it",
       );
@@ -1685,25 +1878,53 @@ export class TimeTrackingService {
         payroll: {
           status: "PAID",
           periodStart: { lte: timesheet.endTime || new Date() },
-          periodEnd: { gte: new Date(timesheet.startTime.toISOString().slice(0, 10) + "T00:00:00Z") },
+          periodEnd: {
+            gte: new Date(
+              timesheet.startTime.toISOString().slice(0, 10) + "T00:00:00Z",
+            ),
+          },
         },
       },
     });
-    if (paid) throw new BadRequestException("This attendance is included in paid payroll and is read-only.");
-    return this.prisma.$transaction(async tx => {
-      await tx.$queryRawUnsafe('SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE', timesheet.employeeId);
+    if (paid)
+      throw new BadRequestException(
+        "This attendance is included in paid payroll and is read-only.",
+      );
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE',
+        timesheet.employeeId,
+      );
       const current = await tx.timesheet.findUnique({ where: { id } });
-      if (!current || current.updatedAt.getTime() !== timesheet.updatedAt.getTime())
-        throw new BadRequestException("This timesheet changed. Refresh before discarding it.");
+      if (
+        !current ||
+        current.updatedAt.getTime() !== timesheet.updatedAt.getTime()
+      )
+        throw new BadRequestException(
+          "This timesheet changed. Refresh before discarding it.",
+        );
       const endTime = current.endTime || new Date();
-      await tx.break.updateMany({ where: { timesheetId: id, endTime: null }, data: { endTime } });
-      const discarded = await tx.timesheet.update({ where: { id }, data: { status: "DISCARDED", endTime } });
-      await tx.auditLog.create({data: {
-        businessId: timesheet.employee.businessId,
-        userId: user?.userId || user?.sub || user?.id || null,
-        action: "TIMESHEET_DISCARDED", resource: "TIMESHEET", resourceId: id,
-        details: JSON.stringify({ before: current, endedActiveClockIn: !current.endTime }),
-      }});
+      await tx.break.updateMany({
+        where: { timesheetId: id, endTime: null },
+        data: { endTime },
+      });
+      const discarded = await tx.timesheet.update({
+        where: { id },
+        data: { status: "DISCARDED", endTime },
+      });
+      await tx.auditLog.create({
+        data: {
+          businessId: timesheet.employee.businessId,
+          userId: user?.userId || user?.sub || user?.id || null,
+          action: "TIMESHEET_DISCARDED",
+          resource: "TIMESHEET",
+          resourceId: id,
+          details: JSON.stringify({
+            before: current,
+            endedActiveClockIn: !current.endTime,
+          }),
+        },
+      });
       return discarded;
     });
   }

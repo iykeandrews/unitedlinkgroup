@@ -1073,6 +1073,9 @@ model ShiftSwapRequest {
 }
 
 model Timesheet {
+  shiftHourlyRate Float?
+  additionalWorkAmount Float @default(0)
+  additionalWorkDescription String?
   timeZone String? // Work-location time zone snapshot; independent of viewer device.
   paidExternally Boolean @default(false) // Attendance only; do not pay again in this app.
   id          String   @id @default(uuid())
