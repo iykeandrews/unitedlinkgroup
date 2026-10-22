@@ -311,9 +311,10 @@ export class TimeTrackingController {
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   async getUntrackedShifts(
     @Query("employeeId") employeeId: string,
+    @Query("businessId") businessId: string,
     @User() user: any,
   ) {
-    return this.timeTrackingService.getUntrackedShifts(employeeId, user);
+    return this.timeTrackingService.getUntrackedShifts(employeeId, user, businessId);
   }
 
   @Patch("timesheets/:id")

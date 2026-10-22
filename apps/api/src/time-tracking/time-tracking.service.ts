@@ -163,20 +163,22 @@ export class TimeTrackingService {
       .reverse();
   }
 
-  async getUntrackedShifts(employeeId: string, user: any) {
+  async getUntrackedShifts(employeeId: string | undefined, user: any, businessId?: string) {
     if (!["SUPER_ADMIN", "BUSINESS_ADMIN"].includes(user?.role))
       throw new ForbiddenException(
         "Only administrators can view missing attendance",
       );
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: String(employeeId || "") },
-    });
-    if (!employee) throw new BadRequestException("Choose an employee");
-    await this.validateBusinessAccess(employee.businessId, user);
+    const employee = employeeId ? await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    }) : null;
+    if (employeeId && !employee) throw new BadRequestException("Choose an employee");
+    const scope = employee?.businessId || businessId;
+    if (!scope) throw new BadRequestException("Choose a business");
+    await this.validateBusinessAccess(scope, user);
     const shifts = await this.prisma.shift.findMany({
       where: {
-        businessId: employee.businessId,
-        employeeId: employee.id,
+        businessId: scope,
+        ...(employee ? { employeeId: employee.id } : { employeeId: { not: null } }),
         locationId: { not: null },
         endTime: { lte: new Date() },
         status: { in: ["DRAFT", "PUBLISHED", "OPEN", "COMPLETED"] },
@@ -187,7 +189,7 @@ export class TimeTrackingService {
     if (!shifts.length) return [];
     const drafts = await this.prisma.shift.findMany({
       where: {
-        businessId: employee.businessId,
+        businessId: scope,
         status: "DRAFT",
         groupId: { in: shifts.map((s) => s.groupId || s.id) },
       },
@@ -195,7 +197,7 @@ export class TimeTrackingService {
     const byGroup = new Map(drafts.map((s) => [s.groupId || s.id, s.id]));
     const records = await this.prisma.timesheet.findMany({
       where: {
-        employeeId: employee.id,
+        employeeId: { in: [...new Set(shifts.map((s) => s.employeeId).filter((id): id is string => !!id))] },
         status: { notIn: ["DISCARDED", "REJECTED"] },
       },
     });
@@ -211,6 +213,7 @@ export class TimeTrackingService {
         groups.add(group);
         return !records.some(
           (record) =>
+            record.employeeId === shift.employeeId &&
             record.locationId === shift.locationId &&
             record.startTime < shift.endTime &&
             (!record.endTime || record.endTime > shift.startTime),
@@ -218,6 +221,7 @@ export class TimeTrackingService {
       })
       .map((shift) => ({
         id: shift.id,
+        employeeId: shift.employeeId,
         locationId: shift.locationId,
         locationName: shift.location?.name || "Location",
         startTime: shift.startTime,

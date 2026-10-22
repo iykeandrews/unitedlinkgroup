@@ -49,6 +49,14 @@ async function main() {
   prisma.timesheet.findMany=async()=>[];
   await assert.rejects(()=>service.getUntrackedShifts('employee',{role:'EMPLOYEE'}), /Only administrators/);
   await assert.rejects(()=>service.getUntrackedShifts('employee',{role:'BUSINESS_ADMIN',userId:'other'}), /Access denied/);
+  const otherShift = {...shift, id:'other-shift', groupId:'other-group', employeeId:'other-employee'};
+  prisma.shift.findMany=async(args:any)=>args.where.status === 'DRAFT' ? [] : [shift,otherShift];
+  prisma.timesheet.findMany=async()=>[{...shift, employeeId:'employee'}];
+  const eligible = await service.getUntrackedShifts(undefined,admin,'business');
+  assert.deepEqual(eligible.map(s=>s.employeeId),['other-employee']);
+  await assert.rejects(()=>service.getUntrackedShifts(undefined,admin), /Choose a business/);
+  await assert.rejects(()=>service.getUntrackedShifts(undefined,{role:'BUSINESS_ADMIN',userId:'other'},'business'), /Access denied/);
+  prisma.timesheet.findMany=async()=>[];
   tx.shift={findFirst:async()=>shift};
   await service.createManualTimesheet({...data,shiftId:'shift'},admin);
   assert.equal(JSON.parse(audit.details).shiftId,'shift');

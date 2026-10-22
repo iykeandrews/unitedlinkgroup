@@ -1344,7 +1344,7 @@ export default function TimeTrackingPage() {
         </div>
       </div>
 
-      {canImport && <ManualTimesheetModal isOpen={manualOpen} onClose={() => setManualOpen(false)} employees={employees} locations={locations} workerType={roleTab} onSaved={(record) => {
+      {canImport && <ManualTimesheetModal businessId={selectedBusiness?.id} isOpen={manualOpen} onClose={() => setManualOpen(false)} employees={employees} locations={locations} workerType={roleTab} onSaved={(record) => {
         const date = new Date(formatRecordTime(record.startTime, 'yyyy-MM-dd', record.timeZone) + 'T12:00:00');
         setStartDate(date); setEndDate(date); setSelectedEmployeeId(null); setSelectedLocationId('all'); setActiveTab('pending'); setAttendanceRevision(v => v + 1);
       }} />}
