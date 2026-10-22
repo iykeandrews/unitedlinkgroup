@@ -601,32 +601,35 @@ export async function reportExcel(report: TimesheetReport) {
     summary.addRow([
       "Employee",
       "Employee ID",
-      "Entries",
+      "Hourly rate",
       "Net hours",
       "Estimated gross",
       "Needs review",
     ]),
   );
-  for (const g of report.groups)
+  for (const g of report.groups) {
+    const rates = [...new Set<number>(g.rows.map((r: any) => r.rate).filter((rate: any) => typeof rate === "number" && Number.isFinite(rate)))];
     summary.addRow([
       g.name,
       g.badge || g.employeeId,
-      g.rows.length,
+      rates.length === 1 ? rates[0] : rates.length ? rates.map(rate => report.currency + " " + rate.toFixed(2)).join(" / ") : "Rate not set",
       g.hours,
       g.gross,
       g.missing ? g.missing + " entries" : "",
     ]);
+  }
   summary.addRow([
     "TOTAL",
     "",
-    report.rows.length,
+    "",
     report.hours,
     report.gross,
     "",
   ]).font = { bold: true };
+  summary.getColumn(3).numFmt = currency;
   summary.getColumn(4).numFmt = "0.00";
   summary.getColumn(5).numFmt = currency;
-  [32, 22, 12, 15, 22, 22].forEach(
+  [32, 22, 24, 15, 22, 22].forEach(
     (w, i) => (summary.getColumn(i + 1).width = w),
   );
   summary.autoFilter = { from: "A5", to: "F" + (5 + report.groups.length) };
