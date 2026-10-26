@@ -1,4 +1,9 @@
 "use client";
+import {
+  SERVICE_OPTIONS,
+  readBillingServices,
+  serviceRateFor,
+} from "@/components/billing/LocationBillingServices";
 import ServiceDatePicker from "./ServiceDatePicker";
 import { InvoiceBillingDetails } from "@/components/billing/BillingReferences";
 import { useEffect, useRef, useState } from "react";
@@ -35,7 +40,7 @@ const initial = (clientId = "") => ({
   dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
   status: "DRAFT",
   notes: "",
-  items: [{ description: "Security services", quantity: 1, rate: 0 }],
+  items: [{ description: "", quantity: 1, rate: "" }],
 });
 export default function InvoiceModal({
   isOpen,
@@ -210,6 +215,7 @@ export default function InvoiceModal({
   const client =
     clients.find((c) => c.id === form.clientId) || saved?.client || clientData;
   const site = locations.find((l) => l.id === form.locationId);
+  const siteServices = readBillingServices(site?.billingServices);
   const subtotal =
     Math.round(
       form.items.reduce(
@@ -235,7 +241,59 @@ export default function InvoiceModal({
     (!["PAID", "PARTIALLY_PAID", "VOID"].includes(saved.status) &&
       !saved.payments?.some((p: any) => !p.voidedAt));
   const change = (key: string, value: any) =>
-    setForm((prev: any) => ({ ...prev, [key]: value }));
+    setForm((prev: any) => {
+      if (key !== "locationId" || value === prev.locationId)
+        return { ...prev, [key]: value };
+      const services = readBillingServices(
+        locations.find((l) => l.id === value)?.billingServices,
+      );
+      return {
+        ...prev,
+        locationId: value,
+        items: prev.items.map((item: any) =>
+          item.serviceChoice
+            ? { ...item, rate: serviceRateFor(services, item.description) }
+            : item,
+        ),
+      };
+    });
+  const chooseService = (index: number, choice: string) => {
+    const description = choice.startsWith("CUSTOM:")
+      ? choice.slice(7)
+      : choice === "OTHER"
+        ? ""
+        : SERVICE_OPTIONS.find((o) => o[0] === choice)?.[1] || "";
+    setForm((prev: any) => ({
+      ...prev,
+      items: prev.items.map((item: any, i: number) =>
+        i === index
+          ? {
+              ...item,
+              serviceChoice: choice,
+              description,
+              rate: serviceRateFor(siteServices, description),
+            }
+          : item,
+      ),
+    }));
+  };
+  const customDescription = (index: number, description: string) =>
+    setForm((prev: any) => ({
+      ...prev,
+      items: prev.items.map((item: any, i: number) =>
+        i === index
+          ? {
+              ...item,
+              description,
+              rate:
+                serviceRateFor(siteServices, description) === "" &&
+                !item.serviceChoice
+                  ? item.rate
+                  : serviceRateFor(siteServices, description),
+            }
+          : item,
+      ),
+    }));
   const itemChange = (index: number, key: string, value: any) =>
     setForm((prev: any) => ({
       ...prev,
@@ -262,6 +320,7 @@ export default function InvoiceModal({
           !i.description.trim() ||
           !Number.isFinite(Number(i.quantity)) ||
           Number(i.quantity) <= 0 ||
+          String(i.rate).trim() === "" ||
           !Number.isFinite(Number(i.rate)) ||
           Number(i.rate) < 0,
       ) ||
@@ -280,7 +339,7 @@ export default function InvoiceModal({
         invoiceNumber: saved?.invoiceNumber || undefined,
         locationId: form.locationId || null,
         items: form.items.map((i: any) => ({
-          ...i,
+          description: i.description,
           quantity: Number(i.quantity),
           rate: Number(i.rate),
         })),
@@ -463,7 +522,7 @@ export default function InvoiceModal({
                     className={input}
                     placeholder="Generated when saved"
                     readOnly
-                    value={saved?.invoiceNumber || ''}
+                    value={saved?.invoiceNumber || ""}
                     title="Assigned automatically when the invoice is saved; cannot be changed."
                   />
                 </label>
@@ -486,7 +545,11 @@ export default function InvoiceModal({
                     onChange={(value) => change("dueDate", value)}
                   />
                 </label>
-                <p className="text-xs text-gray-500 md:col-span-2">Invoice numbers are generated automatically and retained permanently. Invoice emails include all client contact and billing emails, with a copy to invoice@unitedlinksecurity.com.</p>
+                <p className="text-xs text-gray-500 md:col-span-2">
+                  Invoice numbers are generated automatically and retained
+                  permanently. Invoice emails include all client contact and
+                  billing emails, with a copy to invoice@unitedlinksecurity.com.
+                </p>
                 <label className="text-sm font-medium">
                   Document status
                   <select
@@ -530,15 +593,64 @@ export default function InvoiceModal({
                     >
                       <label className="col-span-2 text-xs text-slate-500 sm:col-span-1">
                         Description
-                        <input
-                          aria-label={`Item ${i + 1} description`}
+                        <select
+                          aria-label={`Item ${i + 1} service description`}
                           className={input}
-                          maxLength={2000}
-                          value={it.description}
-                          onChange={(e) =>
-                            itemChange(i, "description", e.target.value)
+                          value={
+                            it.serviceChoice ??
+                            (SERVICE_OPTIONS.find(
+                              (o) =>
+                                o[0] !== "OTHER" && o[1] === it.description,
+                            )?.[0] ||
+                              (it.description ? "OTHER" : ""))
                           }
-                        />
+                          onChange={(e) => chooseService(i, e.target.value)}
+                        >
+                          <option value="">Select service</option>
+                          {SERVICE_OPTIONS.filter((o) => o[0] !== "OTHER").map(
+                            ([key, label]) => (
+                              <option key={key} value={key}>
+                                {label}
+                              </option>
+                            ),
+                          )}
+                          {siteServices
+                            .filter((s) => s.type === "OTHER")
+                            .map((s) => (
+                              <option
+                                key={s.description}
+                                value={"CUSTOM:" + s.description}
+                              >
+                                {s.description}
+                              </option>
+                            ))}
+                          <option value="OTHER">Others</option>
+                        </select>
+                        {(it.serviceChoice === "OTHER" ||
+                          it.serviceChoice?.startsWith("CUSTOM:") ||
+                          (!it.serviceChoice &&
+                            it.description &&
+                            !SERVICE_OPTIONS.some(
+                              (o) => o[1] === it.description,
+                            ))) && (
+                          <input
+                            aria-label={`Item ${i + 1} custom description`}
+                            className={input}
+                            maxLength={2000}
+                            value={it.description}
+                            placeholder="Type the service description"
+                            onChange={(e) =>
+                              customDescription(i, e.target.value)
+                            }
+                          />
+                        )}
+                        {it.serviceChoice && it.rate === "" && (
+                          <span className="block mt-1 text-amber-700">
+                            No rate configured for this service at this
+                            location. Set the location rate or enter an agreed
+                            rate.
+                          </span>
+                        )}
                       </label>
                       <label className="text-xs text-slate-500">
                         Quantity
@@ -603,7 +715,7 @@ export default function InvoiceModal({
                   onClick={() =>
                     change("items", [
                       ...form.items,
-                      { description: "", quantity: 1, rate: 0 },
+                      { description: "", quantity: 1, rate: "" },
                     ])
                   }
                   className="mt-4 flex items-center gap-2 text-sm font-semibold text-teal-700 dark:text-teal-300"
@@ -680,7 +792,12 @@ export default function InvoiceModal({
                     </p>
                   </div>
                 </div>
-                <div className="my-6"><InvoiceBillingDetails client={saved.client} location={saved.location} /></div>
+                <div className="my-6">
+                  <InvoiceBillingDetails
+                    client={saved.client}
+                    location={saved.location}
+                  />
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[450px] text-sm">
                     <thead>

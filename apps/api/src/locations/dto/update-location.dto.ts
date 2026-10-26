@@ -2,8 +2,24 @@ import { IsArray, ArrayMaxSize, MaxLength, IsEmail } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsString, IsOptional, IsNumber, ValidateNested, IsDateString } from 'class-validator';
 import { TaxOverrideDto } from './tax-override.dto';
+import { BillingServiceDto } from './billing-service.dto';
 
 export class UpdateLocationDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => BillingServiceDto)
+  billingServices?: BillingServiceDto[];
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 0 })
+  billingServicesVersion?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  billingServicesNote?: string;
   @IsOptional()
   @IsString()
   name?: string;

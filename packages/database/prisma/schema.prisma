@@ -538,6 +538,8 @@ model Client {
 }
 
 model Location {
+  billingServices String @default("[]") // Client service descriptions and hourly billing rates; independent of employee pay.
+  billingServicesVersion Int @default(0)
   timeZone String @default("America/New_York")
   shiftConfigurations LocationShiftConfiguration[]
   shiftPins LocationShiftPin[]

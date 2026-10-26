@@ -1,4 +1,6 @@
 'use client';
+import LocationBillingServices, {ServiceRate, servicePayload} from '@/components/billing/LocationBillingServices';
+import {useBusiness} from '@/context/business-context';
 import AmericanDateInput from '@/components/invoices/AmericanDateInput';
 import { ReferenceList, stringList } from '@/components/billing/BillingReferences';
 
@@ -10,6 +12,9 @@ import AddressAutocomplete from '../../../../../components/ui/AddressAutocomplet
 
 function NewSiteForm() {
   const router = useRouter();
+  const {selectedBusiness} = useBusiness();
+  const [billingServices,setBillingServices] = useState<ServiceRate[]>([{type:'',description:'',rate:''}]);
+  const [billingServicesNote,setBillingServicesNote] = useState('');
   const searchParams = useSearchParams();
   const preSelectedClientId = searchParams.get('clientId');
   const preSelectedClientName = searchParams.get('clientName');
@@ -65,7 +70,9 @@ function NewSiteForm() {
     setLoading(true);
 
     try {
+      if (!billingServices.length) throw new Error('Add at least one service and its hourly billing rate.');
       const payload = {
+        billingServices: servicePayload(billingServices), billingServicesNote,
         ...formData,
         geoLat: formData.geoLat ? parseFloat(formData.geoLat) : null,
         geoLng: formData.geoLng ? parseFloat(formData.geoLng) : null,
@@ -84,7 +91,7 @@ function NewSiteForm() {
       }
     } catch (error: any) {
       console.error('Failed to create site', error);
-      alert(error.response?.data?.message || 'Failed to create site. Please try again.');
+      alert(error.response?.data?.message || error.message || 'Failed to create site. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -106,6 +113,7 @@ function NewSiteForm() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        <LocationBillingServices value={billingServices} onChange={setBillingServices} note={billingServicesNote} onNoteChange={setBillingServicesNote} required currency={selectedBusiness?.currencyCode || 'USD'} />
         {/* Section 1: Client Link */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
           <div className="flex items-center gap-3 mb-4">

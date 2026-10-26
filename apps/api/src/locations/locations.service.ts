@@ -1,4 +1,5 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { billingServiceChanges, normalizeBillingServices } from './location-billing';
 import { PrismaService } from '../prisma.service';
 import { UserRole } from '@unitedlinkgroup/types';
 import { GeocodingService } from '../common/geocoding.service';
@@ -74,6 +75,7 @@ export class LocationsService {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     
     await this.validateLocation(data, businessId);
+    const services = data.billingServices === undefined ? [] : normalizeBillingServices(data.billingServices);
     let { geoLat, geoLng } = data;
     if (data.address && (geoLat === undefined || geoLat === null || geoLng === undefined || geoLng === null)) {
         const coords = await this.geocodingService.geocode(data.address);
@@ -83,8 +85,10 @@ export class LocationsService {
         }
     }
 
-    return this.prisma.location.create({
+    const create = (tx: any) => tx.location.create({
       data: {
+        billingServices: JSON.stringify(services),
+        billingServicesVersion: services.length ? 1 : 0,
         name: data.name.trim(),
         code: data.code,
         workOrder: data.workOrder?.trim() || null,
@@ -103,6 +107,22 @@ export class LocationsService {
         taxOverrideInfo: data.taxOverrideInfo ? JSON.stringify(data.taxOverrideInfo) : null,
       },
     });
+    if (!services.length) return create(this.prisma);
+    return this.prisma.$transaction(async tx => {
+      const location = await create(tx);
+      await this.recordBillingHistory(tx, location.id, businessId, user, [], services, data.billingServicesNote);
+      return location;
+    });
+  }
+
+  private async recordBillingHistory(tx: any, id: string, businessId: string, user: any, before: any[], after: any[], note?: string) {
+    const changes = billingServiceChanges(before, after);
+    if (!changes.length) return;
+    await tx.auditLog.create({data:{
+      businessId, userId: user.userId || user.sub || user.id || null,
+      resource: 'LOCATION_BILLING_SERVICE', resourceId: id, action: 'BILLING_SERVICES_CHANGED',
+      details: JSON.stringify({before, after, changes, note: note?.trim() || null}),
+    }});
   }
 
   async findAll(user: any, businessIdHeader?: string, clientId?: string, status?: string) {
@@ -133,7 +153,16 @@ export class LocationsService {
         include: { servicePins: true, client: true }
     });
     if (!loc) throw new NotFoundException('Location not found');
-    return loc;
+    const history = await this.prisma.auditLog.findMany({
+      where: {businessId, resource:'LOCATION_BILLING_SERVICE', resourceId:id},
+      orderBy: {createdAt:'desc'},
+      include: {user:{select:{firstName:true,lastName:true}}},
+    });
+    return {...loc, billingServicesHistory:history.map(entry => {
+      let details: any = {};
+      try {details = JSON.parse(entry.details || '{}');} catch {}
+      return {id:entry.id, createdAt:entry.createdAt, actor:entry.user ? [entry.user.firstName,entry.user.lastName].filter(Boolean).join(' ') : 'Administrator', ...details};
+    })};
   }
 
   async update(user: any, id: string, data: any, businessIdHeader?: string) {
@@ -147,9 +176,10 @@ export class LocationsService {
       const activeTime = await this.prisma.timesheet.count({where:{locationId:id,endTime:null}});
       if (commitments || activeTime) throw new BadRequestException('Resolve upcoming shifts and active timesheets before deactivating this site');
     }
-    return this.prisma.location.update({
+    const update = (tx: any, billingData: any = {}) => tx.location.update({
       where: { id },
       data: {
+        ...billingData,
         name: data.name ?? loc.name,
         workOrder: data.workOrder === undefined ? loc.workOrder : data.workOrder?.trim() || null,
         billingPins: data.billingPins === undefined ? loc.billingPins : this.billingPins(data.billingPins),
@@ -166,6 +196,23 @@ export class LocationsService {
         radius: data.radius ?? loc.radius,
         taxOverrideInfo: data.taxOverrideInfo ? JSON.stringify(data.taxOverrideInfo) : loc.taxOverrideInfo,
       },
+    });
+    if (data.billingServices === undefined) return update(this.prisma);
+    const services = normalizeBillingServices(data.billingServices);
+    return this.prisma.$transaction(async tx => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Location" WHERE id = $1 FOR UPDATE', id);
+      const current = await tx.location.findFirst({where:{id,businessId}});
+      if (!current) throw new NotFoundException('Location not found');
+      if (data.billingServicesVersion !== current.billingServicesVersion)
+        throw new ConflictException('Location services changed. Reload the location before saving.');
+      const before = JSON.parse(current.billingServices || '[]');
+      const changes = billingServiceChanges(before, services);
+      const result = await update(tx, {
+        billingServices: JSON.stringify(services),
+        billingServicesVersion: current.billingServicesVersion + (changes.length ? 1 : 0),
+      });
+      await this.recordBillingHistory(tx, id, businessId, user, before, services, data.billingServicesNote);
+      return result;
     });
   }
 

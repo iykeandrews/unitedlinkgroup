@@ -537,6 +537,8 @@ model Client {
 }
 
 model Location {
+  billingServices String @default("[]") // Client service descriptions and hourly billing rates; independent of employee pay.
+  billingServicesVersion Int @default(0)
   id          String   @id @default(uuid())
   name        String
   code        String?

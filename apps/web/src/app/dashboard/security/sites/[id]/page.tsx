@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import { useBusiness } from "@/context/business-context";
 import { useAuth } from "@/context/auth-context";
+import LocationBillingServices, {BillingServicesHistory, ServiceRate, readBillingServices, servicePayload} from '@/components/billing/LocationBillingServices';
 import AmericanDateInput from "@/components/invoices/AmericanDateInput";
 import {
   ReferenceList,
@@ -38,6 +39,10 @@ export default function LocationDetails() {
     [loading, setLoading] = useState(true),
     [saving, setSaving] = useState(false),
     [error, setError] = useState("");
+  const [billingServices,setBillingServices] = useState<ServiceRate[]>([]);
+  const [billingServicesNote,setBillingServicesNote] = useState('');
+  const [billingServicesVersion,setBillingServicesVersion] = useState(0);
+  const [billingHistory,setBillingHistory] = useState<any[]>([]);
   const version = useRef(0);
   const load = async () => {
     const current = ++version.current;
@@ -56,6 +61,10 @@ export default function LocationDetails() {
       if (current !== version.current) return;
       const data = site.data;
       setClients(accounts.data);
+      setBillingServices(readBillingServices(data.billingServices));
+      setBillingServicesVersion(data.billingServicesVersion || 0);
+      setBillingHistory(data.billingServicesHistory || []);
+      setBillingServicesNote('');
       setForm({
         name: data.name || "",
         code: data.code || "",
@@ -96,10 +105,11 @@ export default function LocationDetails() {
     }
     setSaving(true);
     try {
-      await api.patch(
+      const savedLocation = await api.patch(
         `/locations/${id}`,
         {
           ...form,
+          billingServices:servicePayload(billingServices), billingServicesVersion, billingServicesNote,
           geoLat: form.geoLat === "" ? null : Number(form.geoLat),
           geoLng: form.geoLng === "" ? null : Number(form.geoLng),
           radius: Number(form.radius),
@@ -109,10 +119,13 @@ export default function LocationDetails() {
         },
         { headers: { "x-business-id": selectedBusiness?.id || "" } },
       );
-      toast.success("Location and billing references saved");
+      setBillingServicesVersion(savedLocation.data.billingServicesVersion);
+      setBillingServicesNote('');
+      await load();
+      toast.success("Location and billing services saved");
     } catch (err: any) {
       toast.error(
-        err.response?.data?.message || "Unable to save location. Please retry.",
+        err.response?.data?.message || err.message || "Unable to save location. Please retry.",
       );
     } finally {
       setSaving(false);
@@ -304,6 +317,7 @@ export default function LocationDetails() {
               </label>
             </div>
           </section>
+          <LocationBillingServices value={billingServices} onChange={setBillingServices} note={billingServicesNote} onNoteChange={setBillingServicesNote} currency={selectedBusiness?.currencyCode || 'USD'} />
           {canEdit && (
             <button
               type="submit"
@@ -320,6 +334,7 @@ export default function LocationDetails() {
           </p>
         )}
       </form>
+      <BillingServicesHistory entries={billingHistory} currency={selectedBusiness?.currencyCode || "USD"} />
     </div>
   );
 }
