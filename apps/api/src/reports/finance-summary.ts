@@ -369,7 +369,20 @@ export function buildFinanceSummary(data: any, query: any) {
       l[key] = money(l[key]);
     l.margin = money(l.revenue - l.gross - l.employerTax);
   }
-  workers.sort((a, b) => a.name.localeCompare(b.name));
+  const workerNames = new Map(
+    data.sheets.map((s: any) => [
+      s.employeeId,
+      `${s.employee.lastName || ""} ${s.employee.firstName || ""}`
+        .trim()
+        .toUpperCase(),
+    ]),
+  );
+  workers.sort(
+    (a, b) =>
+      String(workerNames.get(a.employeeId) || a.name).localeCompare(
+        String(workerNames.get(b.employeeId) || b.name),
+      ) || a.employeeId.localeCompare(b.employeeId),
+  );
   locations.sort((a, b) => a.name.localeCompare(b.name));
   const sum = (key: string) => money(locations.reduce((n, l) => n + l[key], 0));
   const missing = workers.reduce((n, w) => n + w.missing, 0);

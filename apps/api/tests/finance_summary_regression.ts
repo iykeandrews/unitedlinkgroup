@@ -143,6 +143,15 @@ async function main() {
     0,
   );
   assert.equal(report.totals.margin, 727.34);
+  const orderedData = structuredClone(data);
+  for (const s of orderedData.sheets) {
+    s.employee.firstName = s.employeeId === "W2" ? "ZOE" : "AMY";
+    s.employee.lastName = s.employeeId === "W2" ? "ADAMS" : "ZIMMERMAN";
+  }
+  assert.deepEqual(
+    buildFinanceSummary(orderedData, query).workers.map((w) => w.employeeId),
+    ["W2", "1099"],
+  );
   const beforeManual = JSON.stringify(data);
   const manual = buildFinanceSummary(data, {
     ...query,
