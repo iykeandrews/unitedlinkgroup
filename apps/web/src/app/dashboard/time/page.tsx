@@ -11,6 +11,10 @@ import {
   DirectoryEmployee,
 } from "../../../components/people/directory";
 import { workedHours, downloadCsv } from "../../../lib/time/records";
+import {
+  canApproveTimesheet,
+  groupTimesheetsByLocation,
+} from "../../../lib/time/location-groups";
 import api from "../../../lib/api";
 import {
   ChevronLeft,
@@ -101,6 +105,7 @@ export default function TimeTrackingPage() {
   const { user } = useAuth();
   const canImport =
     user?.role === "BUSINESS_ADMIN" || user?.role === "SUPER_ADMIN";
+  const canApprove = canImport || user?.role === "MANAGER";
   const { selectedBusiness } = useBusiness();
   const requestVersion = useRef(0);
   const [error, setError] = useState("");
@@ -151,7 +156,9 @@ export default function TimeTrackingPage() {
   >({});
 
   // New State for Features
-  const [groupBy, setGroupBy] = useState<"employee" | "date">("employee");
+  const [groupBy, setGroupBy] = useState<"employee" | "date" | "location">(
+    "employee",
+  );
   const [selectedTimesheetIds, setSelectedTimesheetIds] = useState<Set<string>>(
     new Set(),
   );
@@ -271,7 +278,7 @@ export default function TimeTrackingPage() {
   const toggleEmployeeExpand = (empId: string) => {
     setExpandedEmployees((prev) => ({
       ...prev,
-      [empId]: !prev[empId],
+      [empId]: !(prev[empId] ?? (groupBy === "location")),
     }));
   };
 
@@ -538,6 +545,17 @@ export default function TimeTrackingPage() {
           });
         }
       });
+    } else if (groupBy === "location") {
+      groups.push(
+        ...groupTimesheetsByLocation<Timesheet>(filtered).map((group) => ({
+          ...group,
+          stats: {
+            count: group.timesheets.length,
+            hours: group.timesheets.reduce((n, t) => n + paidHoursFor(t), 0),
+            pay: group.timesheets.reduce((n, t) => n + paymentFor(t), 0),
+          },
+        })),
+      );
     } else {
       // Group by Date
       const dateMap = new Map<string, Timesheet[]>();
@@ -648,15 +666,25 @@ export default function TimeTrackingPage() {
     }
   };
 
-  const bulkAction = async (action: "approve" | "discard" | "restore") => {
+  const bulkAction = async (
+    action: "approve" | "discard" | "restore",
+    scopeIds?: string[],
+  ) => {
     if (busy) return;
     const targets = groupedTimesheets
       .flatMap((g) => g.timesheets)
-      .filter((t) => selectedTimesheetIds.has(t.id));
-    if (!targets.length) return;
+      .filter((t) => scopeIds ? scopeIds.includes(t.id) : selectedTimesheetIds.has(t.id))
+      .filter((t) => action !== "approve" || canApproveTimesheet(t));
+    if (!targets.length) {
+      if (action === "approve")
+        toast.info("No completed pending timesheets are ready for approval in this selection.");
+      return;
+    }
     setBusy(true);
-    const results = await Promise.allSettled(
-      targets.map((t) =>
+    const results: PromiseSettledResult<unknown>[] = [];
+    for (let offset = 0; offset < targets.length; offset += 5)
+      results.push(...await Promise.allSettled(
+      targets.slice(offset, offset + 5).map((t) =>
         action === "approve"
           ? api.patch(`/time-tracking/timesheets/${t.id}`, {
               status: "APPROVED",
@@ -665,7 +693,7 @@ export default function TimeTrackingPage() {
             ? api.delete(`/time-tracking/timesheets/${t.id}`)
             : api.post(`/time-tracking/timesheets/${t.id}/restore`),
       ),
-    );
+    ));
     const failed = results.filter((r) => r.status === "rejected");
     if (failed.length)
       toast.error(
@@ -847,12 +875,14 @@ export default function TimeTrackingPage() {
           <select
             aria-label="Group timesheets"
             value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as "employee" | "date")}
+            onChange={(e) => setGroupBy(e.target.value as "employee" | "date" | "location")}
             className="rounded border p-2 dark:bg-slate-800"
           >
             <option value="employee">Group by team member</option>
             <option value="date">Group by date</option>
+            <option value="location">Group by location</option>
           </select>
+          {groupBy === "location" && <span className="text-xs text-slate-500">Location approvals use the current period, {roleTab === "W2" ? "W-2" : "1099"} tab and filters.</span>}
           <input
             aria-label="Search timesheets"
             placeholder="Search team members"
@@ -1192,7 +1222,8 @@ export default function TimeTrackingPage() {
                 </div>
               ) : (
                 groupedTimesheets.map((group) => {
-                  const isExpanded = expandedEmployees[group.id];
+                  const isExpanded = expandedEmployees[group.id] ?? (groupBy === "location");
+                  const approvable = group.timesheets.filter(canApproveTimesheet);
                   const allSelected =
                     group.timesheets.length > 0 &&
                     group.timesheets.every((t) =>
@@ -1209,11 +1240,12 @@ export default function TimeTrackingPage() {
                     >
                       {/* Group Header */}
                       <div
-                        className="flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer group"
+                        className="flex flex-wrap items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer group"
                         onClick={() => toggleEmployeeExpand(group.id)}
                       >
                         <input
                           type="checkbox"
+                          aria-label={`Select timesheets for ${group.title}`}
                           className="rounded border-slate-300 text-purple-600 focus:ring-purple-500"
                           checked={allSelected}
                           ref={(input) => {
@@ -1265,6 +1297,14 @@ export default function TimeTrackingPage() {
                           </div>
                         )}
 
+                        {groupBy === "location" && canApprove && activeTab !== "discarded" && <button
+                          type="button"
+                          disabled={busy || loading || approvable.length===0}
+                          aria-label={`Approve ${approvable.length} pending timesheets at ${group.title}`}
+                          onClick={e=>{e.stopPropagation();void bulkAction("approve",group.timesheets.map(t=>t.id));}}
+                          className="shrink-0 rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                        >Approve {approvable.length} pending</button>}
+
                         <ChevronDown
                           className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
                         />
@@ -1313,7 +1353,7 @@ export default function TimeTrackingPage() {
                                 <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-12 gap-3 md:gap-4 items-center">
                                   {/* Date / Employee Name */}
                                   <div className="col-span-1 md:col-span-3 text-sm font-medium text-slate-900 dark:text-white">
-                                    {groupBy === "date" ? (
+                                    {groupBy !== "employee" ? (
                                       <span className="flex items-center gap-2">
                                         {timesheet.employee && (
                                           <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300">
@@ -1340,6 +1380,7 @@ export default function TimeTrackingPage() {
                                     ) : (
                                       formatRecordTime(timesheet.startTime, "EEE d MMM", timesheet.timeZone)
                                     )}
+                                    {groupBy === "location" && <span className="block text-xs font-normal text-slate-500 mt-1">{formatRecordTime(timesheet.startTime, "EEE d MMM, yyyy", timesheet.timeZone)}</span>}
                                   </div>
 
                                   {/* Status */}
