@@ -60,6 +60,28 @@ async function main() {
       service.downloadPayStubPdf("stub", { role: "EMPLOYEE", userId: "owner" }),
     /verification failed/,
   );
+  db.payStubDocument.findUnique = async () => null;
+  Object.assign(stub, {
+    regularHours: 5,
+    regularPay: 100,
+    grossPay: 100,
+    netPay: 90,
+    taxes: 10,
+    deductions: 0,
+  });
+  Object.assign(stub.employee, { firstName: "TEST", lastName: "WORKER" });
+  Object.assign(stub.payroll, {
+    id: "normal-payroll",
+    payDate: "2026-10-28",
+    periodEnd: "2026-10-15",
+    business: { name: "Test Company", currencyCode: "USD" },
+  });
+  const normal = await service.downloadPayStubPdf("stub", {
+    role: "EMPLOYEE",
+    userId: "owner",
+  });
+  assert(normal.data.subarray(0, 5).equals(Buffer.from("%PDF-")));
+  assert.equal(normal.filename, "Payroll_2026-10-28.pdf");
   console.log(
     "PASS: original paystub bytes preserved; employee ownership, business access, paid-status restriction and document-integrity verification enforced before download.",
   );
