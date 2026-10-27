@@ -145,6 +145,18 @@ export class PayrollService {
 
     await this.assertPayStubAccess(stub as any, user);
 
+    const source = await this.prisma.payStubDocument.findUnique({
+      where: { payStubId },
+    });
+    if (source) {
+      const data = Buffer.from(source.content);
+      if (createHash("sha256").update(data).digest("hex") !== source.sha256)
+        throw new BadRequestException(
+          "Original paystub verification failed. Contact payroll support.",
+        );
+      return { filename: source.fileName, data };
+    }
+
     const payDate = stub.payroll?.payDate
       ? new Date(stub.payroll.payDate)
       : new Date();

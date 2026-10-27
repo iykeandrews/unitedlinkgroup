@@ -1147,6 +1147,7 @@ model Payroll {
 }
 
 model PayStub {
+  sourceDocument PayStubDocument?
   id          String   @id @default(uuid())
   payrollId   String
   payroll     Payroll  @relation(fields: [payrollId], references: [id])
@@ -1180,6 +1181,18 @@ model PayStub {
   employerTaxDetails String? // JSON
   deductionDetails String? // JSON (Detailed breakdown)
   
+  createdAt   DateTime @default(now())
+}
+
+// Private original payroll statements. Access is checked through the owning paystub.
+model PayStubDocument {
+  id          String @id @default(uuid())
+  payStubId   String @unique
+  payStub     PayStub @relation(fields: [payStubId], references: [id], onDelete: Cascade)
+  content     Bytes
+  fileName    String
+  sha256      String
+  sourcePage  Int
   createdAt   DateTime @default(now())
 }
 
