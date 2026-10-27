@@ -25,3 +25,15 @@ Additional checks: mobile_operations_regression.ts for access scope, notificatio
 ## Release authorized 10/19/2026
 
 Backend changes are deployed. Signed Android APK (build 12), Android Play Store AAB (build 13), and iOS 1.0.1 IPA (build 15) finished successfully in Expo. APK/AAB download endpoints were verified. Apple upload submission 4a18dd9a-3f3e-4097-ab8d-32a53d74a26d is queued; the update is not yet published on the App Store. Google Play upload is left to the owner as requested. Android background push remains dependent on supplying Firebase google-services.json; in-app attendance alerts are available.
+
+## Paystub download fix 10/27/2026
+
+Native PDF validation now reads the five signature bytes using Base64. Expo's legacy file reader ignores position and length for UTF8, which made a valid complete PDF fail the previous exact-signature check. The download and original payroll records are unchanged.
+
+Checks passed: mobile TypeScript; file regressions using complete PDF contents and the native reader's actual partial-read semantics on iOS and Android; session renewal; invalid-file rejection; and external-host credential isolation. Device Save/Share still needs verification after installing the new binary. This app does not have an OTA update mechanism.
+
+Android store AAB build 14: d1ab6626-8129-46de-acca-b9dd355f7e86. Android direct-install APK build 15: 40b6d5b8-741b-4957-a0d0-64eab2e16f53. Both contain the fix. Google Play submission remains with the owner.
+
+iOS version 1.0.2 build 17: 8aab1a84-153c-42e3-a46c-1c1e4aedfdb5. Apple upload submission: 42eccabe-9b2f-49a2-8e23-342a48ee640b. Version 1.0.1 build 16 is superseded and must not be submitted because 1.0.1 is already live. No new TestFlight tester group or invitation was created.
+
+The signed iOS 1.0.2 build is complete. Android builds and the iOS upload were accepted but are waiting in Expo's Free-plan queues. A bounded release check in `tmp/mobile-paystub-fix/finish-testflight.cjs` links only build 17 to the pre-existing internal group after Apple reports it VALID. It does not invite testers or publish an App Store version. Current completion status is recorded privately in `tmp/mobile-paystub-fix/testflight-completion.json`.
