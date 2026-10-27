@@ -101,6 +101,21 @@ export function financeSummaryPdf(
       : "Revenue by first email date",
   );
   const t = report.totals;
+  doc.setFillColor(224, 242, 239);
+  doc.roundedRect(12, 59, width - 24, 22, 2, 2, "F");
+  doc.setFontSize(9);
+  doc.text(
+    "Total employer cost - approved gross pay + estimated employer taxes",
+    15,
+    66,
+  );
+  doc.setFontSize(15);
+  doc.setFont("helvetica", "bold");
+  doc.text(
+    t.incompleteGross ? "Incomplete - review wages" : cash(t.employerCost),
+    15,
+    75,
+  );
   const cards = [
     ["Invoiced revenue, before tax", cash(t.revenue)],
     ["Approved gross pay", cash(t.grossPay)],
@@ -112,7 +127,7 @@ export function financeSummaryPdf(
   ];
   cards.forEach(([label, value], i) => {
     const x = 12 + ((i % 2) * (width - 20)) / 2;
-    const y = 59 + Math.floor(i / 2) * 26;
+    const y = 85 + Math.floor(i / 2) * 26;
     doc.setFillColor(239, 245, 248);
     doc.roundedRect(x, y, (width - 28) / 2, 22, 2, 2, "F");
     doc.setFontSize(8);
@@ -143,7 +158,7 @@ export function financeSummaryPdf(
       cash(l.gross),
       t.incomplete ? "Review" : cash(l.margin),
     ]),
-    115,
+    141,
     [
       [
         "TOTAL",
@@ -165,6 +180,9 @@ export function financeSummaryPdf(
     const workers = report.workers.filter(
       (w) => w.workerType === classification,
     );
+    const group = report.workerTotals.find(
+      (g) => g.workerType === classification,
+    )!;
     table(
       [
         "Worker",
@@ -182,8 +200,42 @@ export function financeSummaryPdf(
         w.missing ? "Review" : cash(w.gross),
         cash(w.deductions),
       ]),
+      60,
+      [
+        [
+          classification === "W2" ? "W-2 TOTAL" : "1099 TOTAL",
+          "",
+          group.approvedHours.toFixed(2),
+          group.actualHours === null ? "Review" : group.actualHours.toFixed(2),
+          group.incompleteGross ? "Review" : cash(group.grossPay),
+          cash(group.deductions),
+        ],
+      ],
     );
   }
+  let combinedY = ((doc as any).lastAutoTable?.finalY || 60) + 14;
+  if (combinedY > height - 65) {
+    doc.addPage();
+    header("All workers - combined totals");
+    combinedY = 60;
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.setTextColor(20, 46, 68);
+    doc.text("All workers - combined totals", 12, combinedY);
+    combinedY += 6;
+  }
+  table(
+    ["Actual hours", "Scheduled hours", "Gross pay"],
+    [
+      [
+        t.actualHours === null ? "Review" : t.actualHours.toFixed(2),
+        t.scheduledHours.toFixed(2),
+        t.incompleteGross ? "Review" : cash(t.grossPay),
+      ],
+    ],
+    combinedY,
+  );
   doc.addPage();
   header("Invoice detail | Whole service periods; no prorating");
   table(

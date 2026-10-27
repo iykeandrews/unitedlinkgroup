@@ -143,6 +143,26 @@ async function main() {
     0,
   );
   assert.equal(report.totals.margin, 727.34);
+  assert.deepEqual(report.workerTotals, [
+    {
+      workerType: "W2",
+      approvedHours: 8,
+      actualHours: 8,
+      grossPay: 160,
+      deductions: 20,
+      incompleteGross: false,
+    },
+    {
+      workerType: "CONTRACTOR_1099",
+      approvedHours: 4,
+      actualHours: 4,
+      grossPay: 100,
+      deductions: 0,
+      incompleteGross: false,
+    },
+  ]);
+  assert.equal(report.totals.actualHours, 12);
+  assert.equal(report.totals.employerCost, 272.66);
   const locationRateData = structuredClone(data);
   locationRateData.sheets.find((s) => s.id === "w2")!.shiftHourlyRate = 22;
   const actualWorker = buildFinanceSummary(

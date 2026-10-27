@@ -110,7 +110,7 @@ export default function FinanceSummaryPage() {
       n,
       report?.business?.currency || selectedBusiness?.currencyCode || "USD",
     );
-  const table = (heads: string[], rows: any[][]) => (
+  const table = (heads: string[], rows: any[][], totals?: any[]) => (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
@@ -141,6 +141,17 @@ export default function FinanceSummaryPage() {
             </tr>
           )}
         </tbody>
+        {totals && (
+          <tfoot>
+            <tr className="border-t-2 bg-slate-100 font-bold dark:bg-slate-800">
+              {totals.map((value, i) => (
+                <td key={i} className="px-4 py-3">
+                  {value}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   );
@@ -376,6 +387,18 @@ export default function FinanceSummaryPage() {
       )}
       {current && (
         <>
+          <section className="rounded-xl border border-teal-200 bg-teal-50 p-5 text-teal-950 dark:border-teal-800 dark:bg-teal-950 dark:text-teal-100">
+            <h2 className="font-bold">Total employer cost — estimate</h2>
+            <p className="text-3xl font-bold mt-2">
+              {report.totals.incompleteGross
+                ? "Incomplete — review wages"
+                : cash(report.totals.employerCost)}
+            </p>
+            <p className="text-sm mt-2">
+              Approved gross pay {cash(report.totals.grossPay)} + estimated
+              employer taxes {cash(report.totals.employerTaxes)}
+            </p>
+          </section>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               ["Revenue before sales tax", cash(report.totals.revenue)],
@@ -470,9 +493,46 @@ export default function FinanceSummaryPage() {
                     w.missing ? "Review" : cash(w.gross),
                     cash(w.deductions),
                   ]),
+                (() => {
+                  const g = report.workerTotals.find(
+                    (g: any) => g.workerType === type,
+                  );
+                  return [
+                    type === "W2" ? "W-2 TOTAL" : "1099 TOTAL",
+                    "",
+                    g.approvedHours.toFixed(2),
+                    g.actualHours === null
+                      ? "Review"
+                      : g.actualHours.toFixed(2),
+                    g.incompleteGross ? "Review" : cash(g.grossPay),
+                    cash(g.deductions),
+                  ];
+                })(),
               )}
             </section>
           ))}
+          <section className="rounded-xl border dark:border-slate-700 overflow-hidden">
+            <h2 className="font-bold p-5">All workers — combined totals</h2>
+            {table(
+              ["Actual hours", "Scheduled hours", "Gross pay"],
+              [
+                [
+                  report.totals.actualHours === null
+                    ? "Review"
+                    : report.totals.actualHours.toFixed(2),
+                  report.totals.scheduledHours.toFixed(2),
+                  report.totals.incompleteGross
+                    ? "Review"
+                    : cash(report.totals.grossPay),
+                ],
+              ],
+            )}
+            <p className="p-5 text-sm text-slate-500">
+              Actual hours combine W-2 and 1099 earnings converted at each
+              worker’s profile rate. Scheduled hours come from the calendar for
+              this period.
+            </p>
+          </section>
           <section className="rounded-xl border dark:border-slate-700 overflow-hidden">
             <div className="flex justify-between p-5">
               <h2 className="font-bold">Deductions</h2>

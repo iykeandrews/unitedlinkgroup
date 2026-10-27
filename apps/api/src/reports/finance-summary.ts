@@ -406,15 +406,22 @@ export function buildFinanceSummary(data: any, query: any) {
       profileRate > 0
         ? profileRate
         : null;
-    const employeeGroups = workers.filter(
-      (other) => other.employeeId === w.employeeId,
-    );
-    const earned = employeeGroups.reduce((n, other) => n + other.gross, 0);
     w.actualHours =
-      w.profileRate && !employeeGroups.some((other) => other.missing)
-        ? money(earned / w.profileRate)
-        : null;
+      w.profileRate && !w.missing ? money(w.gross / w.profileRate) : null;
   }
+  const workerTotals = ["W2", "CONTRACTOR_1099"].map((workerType) => {
+    const group = workers.filter((w) => w.workerType === workerType);
+    return {
+      workerType,
+      approvedHours: money(group.reduce((n, w) => n + w.hours, 0)),
+      actualHours: group.some((w) => w.actualHours === null)
+        ? null
+        : money(group.reduce((n, w) => n + w.actualHours, 0)),
+      grossPay: money(group.reduce((n, w) => n + w.gross, 0)),
+      deductions: money(group.reduce((n, w) => n + w.deductions, 0)),
+      incompleteGross: group.some((w) => w.missing > 0),
+    };
+  });
   locations.sort((a, b) => a.name.localeCompare(b.name));
   const sum = (key: string) => money(locations.reduce((n, l) => n + l[key], 0));
   const missing = workers.reduce((n, w) => n + w.missing, 0);
@@ -442,6 +449,11 @@ export function buildFinanceSummary(data: any, query: any) {
     outstanding: sum("balance"),
     grossPay: sum("gross"),
     employerTaxes: sum("employerTax"),
+    employerCost: money(sum("gross") + sum("employerTax")),
+    incompleteGross: missing > 0,
+    actualHours: workerTotals.some((g) => g.actualHours === null)
+      ? null
+      : money(workerTotals.reduce((n, g) => n + g.actualHours!, 0)),
     deductions: money(
       deductionRows
         .filter((r) => r.status === "RECORDED")
@@ -480,6 +492,7 @@ export function buildFinanceSummary(data: any, query: any) {
       manualInvoiceRequired: /\bprotos\b/i.test(l.client?.name || ""),
     })),
     workers,
+    workerTotals,
     invoices,
     deductions: deductionRows,
     warnings: [...new Set(warnings)],
