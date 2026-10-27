@@ -63,11 +63,13 @@ export async function shareMobileFile(
   }
   if (pdf) {
     const signature = await FileSystem.readAsStringAsync(result.uri, {
-      encoding: FileSystem.EncodingType.UTF8,
+      encoding: FileSystem.EncodingType.Base64,
       position: 0,
       length: 5,
     });
-    if (signature !== "%PDF-") {
+    // Native partial reads only honor position/length for Base64 encoding.
+    // JVBERi0= is the five-byte PDF signature "%PDF-".
+    if (signature !== "JVBERi0=") {
       await FileSystem.deleteAsync(result.uri, { idempotent: true });
       throw Error("The server did not return a valid PDF. Please try again.");
     }
