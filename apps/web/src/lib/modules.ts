@@ -78,6 +78,7 @@ export function canAccessModule(userRole: string | null, moduleId: string) {
   if (moduleId === 'Vendors') return normalizedRole === UserRole.SUPER_ADMIN;
   if (moduleId === 'My_Profile') return normalizedRole === UserRole.EMPLOYEE || normalizedRole === UserRole.MANAGER;
   if (normalizedRole === UserRole.SUPER_ADMIN || normalizedRole === UserRole.BUSINESS_ADMIN) return true;
+  if (moduleId === 'Finance_Summary') return false;
   if (normalizedRole === 'VENDOR') return false;
 
   if (moduleId.startsWith('Settings_')) return false;
@@ -282,8 +283,16 @@ export const MODULES: Module[] = [
     category: 'Core',
     route: '/dashboard/requests/loans'
   },
+  {
+    id: 'Finance_Summary',
+    name: 'Revenue & Payroll Summary',
+    description: 'Location revenue, approved labor, deductions and employer tax estimates',
+    icon: FileBarChart,
+    category: 'Core',
+    route: '/dashboard/finance/summary'
+  },
   { 
-    id: 'Finance_Invoices', 
+    id: 'Finance_Invoices',
     name: 'Invoices', 
     description: 'Client invoicing', 
     icon: FileText, 

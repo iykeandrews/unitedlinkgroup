@@ -4,10 +4,29 @@ import { effectivePay } from "../employees/employment.util";
 import { Injectable, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../prisma.service";
 import { invoiceTracking } from "../invoices/invoice-accounting";
+import { buildFinanceSummary, summaryOptions } from './finance-summary';
 
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
+
+  async getFinanceSummary(businessId:string,query:any) {
+    const options=summaryOptions(query);
+    const lower=new Date(options.year+'-01-01T00:00:00Z');lower.setUTCDate(lower.getUTCDate()-9);
+    const upper=new Date(options.to+'T00:00:00Z');upper.setUTCDate(upper.getUTCDate()+2);
+    const [business,sheets,rateChanges,invoices,locations,shifts,stubs,repayments,loans]=await Promise.all([
+      this.prisma.business.findUniqueOrThrow({where:{id:businessId}}),
+      this.prisma.timesheet.findMany({where:{employee:{businessId},status:'APPROVED',startTime:{gte:lower,lt:upper}},include:{employee:{select:{id:true,firstName:true,lastName:true,badgeNumber:true,workerType:true,payType:true,hourlyRate:true,salary:true,overtimeEligible:true,w2Profile:true,contractorProfile:true}},breaks:true,location:true}}),
+      this.prisma.auditLog.findMany({where:{businessId,resource:'EMPLOYEE_RATE',action:'RATE_CHANGE'},orderBy:{createdAt:'asc'}}),
+      this.prisma.invoice.findMany({where:{businessId,status:{notIn:['DRAFT','VOID','CANCELLED']}},include:{payments:true}}),
+      this.prisma.location.findMany({where:{businessId},select:{id:true,name:true}}),
+      this.prisma.shift.findMany({where:{businessId,status:{notIn:['CANCELLED','ARCHIVED']},startTime:{gte:new Date(options.from+'T00:00:00Z'),lt:upper}}}),
+      this.prisma.payStub.findMany({where:{employee:{businessId},payroll:{businessId,status:{in:['PROCESSED','PAID']},periodStart:{lt:upper},periodEnd:{gte:new Date(options.from+'T00:00:00Z')}}},include:{payroll:true,employee:{select:{firstName:true,lastName:true}}}}),
+      this.prisma.loanRepayment.findMany({where:{loan:{employee:{businessId}},date:{gte:new Date(options.from+'T00:00:00Z'),lt:upper}},include:{loan:{include:{employee:{select:{firstName:true,lastName:true}}}}}}),
+      this.prisma.loan.findMany({where:{employee:{businessId},status:'APPROVED',balance:{gt:0}},include:{employee:{select:{firstName:true,lastName:true}}}}),
+    ]);
+    return {report:buildFinanceSummary({business,sheets,rateChanges,invoices,locations,shifts,stubs,repayments,loans},query),logoUrl:business.logoUrl};
+  }
 
   private async getBusinessId(userId: string): Promise<string> {
     const employee = await this.prisma.employee.findFirst({

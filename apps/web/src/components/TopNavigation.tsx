@@ -48,7 +48,7 @@ export function TopNavigation({ enabledModuleIds, userRole }: TopNavigationProps
     hasAccess('Vendors');
 
   const isAlwaysVisible = (moduleId: string) =>
-    moduleId === 'My_Profile' || moduleId.startsWith('Comm_') || moduleId.startsWith('Settings_');
+    moduleId === 'My_Profile' || moduleId === 'Finance_Summary' || moduleId.startsWith('Comm_') || moduleId.startsWith('Settings_');
 
   const getVisibleModules = (moduleIds: string[]) => {
     return moduleIds
@@ -228,7 +228,7 @@ export function MobileNavigation({ enabledModuleIds, userRole, onMobileClose }: 
   const VendorIcon = vendorModule?.icon;
 
   const isAlwaysVisible = (moduleId: string) =>
-    moduleId === 'My_Profile' || moduleId.startsWith('Comm_') || moduleId.startsWith('Settings_');
+    moduleId === 'My_Profile' || moduleId === 'Finance_Summary' || moduleId.startsWith('Comm_') || moduleId.startsWith('Settings_');
 
   const getVisibleModules = (moduleIds: string[]) => {
     return moduleIds

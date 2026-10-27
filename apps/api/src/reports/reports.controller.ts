@@ -5,17 +5,35 @@ import {
   UseGuards,
   Request,
   Headers as RequestHeaders,
+  Res,
 } from "@nestjs/common";
 import { ReportsService } from "./reports.service";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
 import { UserRole } from "@unitedlinkgroup/types";
+import { financeSummaryPdf } from './finance-summary-pdf';
+import { loadInvoiceLogo } from '../invoices/invoice-logo';
 
 @Controller("reports")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
+
+  @Get('finance-summary')
+  @Roles(UserRole.BUSINESS_ADMIN,UserRole.SUPER_ADMIN)
+  async financeSummary(@Request() req:any,@Query() query:any,@RequestHeaders('x-business-id') header?:string,@Res() response?:any) {
+    const businessId=await this.reportsService.resolveBusiness(req.user,header);
+    const {report,logoUrl}=await this.reportsService.getFinanceSummary(businessId,query);
+    response?.setHeader('Cache-Control','no-store');
+    if(query.format==='pdf') {
+      const pdf=financeSummaryPdf(report,await loadInvoiceLogo(logoUrl));
+      response.setHeader('Content-Type','application/pdf');
+      response.setHeader('Content-Disposition','attachment; filename="revenue-payroll-summary-'+report.from+'-'+report.to+'.pdf"');
+      response.send(pdf);return;
+    }
+    return response.json(report);
+  }
 
   @Get("employee-dashboard")
   @Roles(UserRole.EMPLOYEE)
