@@ -356,6 +356,17 @@ export function buildFinanceSummary(data: any, query: any) {
     );
   }
   for (const l of locations) {
+    l.manualInvoiceRequired = /\bprotos\b/i.test(
+      data.locations.find((p: any) => p.id === l.id)?.client?.name || "",
+    );
+    if (l.manualInvoiceRequired && !l.manualReason) {
+      l.revenue = 0;
+      warnings.push(
+        "Manual invoice amount required for Protos location " +
+          l.name +
+          ". Revenue is excluded until you enter an amount (including zero where appropriate).",
+      );
+    }
     for (const key of [
       "revenue",
       "salesTax",
@@ -416,7 +427,11 @@ export function buildFinanceSummary(data: any, query: any) {
         .reduce((n, r) => n + r.amount, 0),
     ),
     margin: sum("margin"),
-    incomplete: missing > 0 || partialInvoices > 0 || missingLabor > 0,
+    incomplete:
+      missing > 0 ||
+      partialInvoices > 0 ||
+      missingLabor > 0 ||
+      locations.some((l) => l.manualInvoiceRequired && !l.manualReason),
   };
   return {
     title: "Revenue & Payroll Summary",
@@ -439,7 +454,10 @@ export function buildFinanceSummary(data: any, query: any) {
     options,
     totals,
     locations,
-    availableLocations: data.locations,
+    availableLocations: data.locations.map((l: any) => ({
+      ...l,
+      manualInvoiceRequired: /\bprotos\b/i.test(l.client?.name || ""),
+    })),
     workers,
     invoices,
     deductions: deductionRows,

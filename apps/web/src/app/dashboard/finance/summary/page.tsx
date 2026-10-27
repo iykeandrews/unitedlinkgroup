@@ -292,7 +292,14 @@ export default function FinanceSummaryPage() {
                   key={l.id}
                   className="grid md:grid-cols-3 gap-3 items-center"
                 >
-                  <label htmlFor={"manual-" + l.id}>{l.name}</label>
+                  <label htmlFor={"manual-" + l.id}>
+                    {l.name}
+                    {l.manualInvoiceRequired && (
+                      <small className="block text-amber-700">
+                        Protos · manual amount required
+                      </small>
+                    )}
+                  </label>
                   <input
                     id={"manual-" + l.id}
                     aria-label={l.name + " manual revenue"}
@@ -300,7 +307,11 @@ export default function FinanceSummaryPage() {
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder="Use invoice amount"
+                    placeholder={
+                      l.manualInvoiceRequired
+                        ? "Enter Protos amount"
+                        : "Use invoice amount"
+                    }
                     value={manualDraft[l.id]?.amount || ""}
                     onChange={(e) =>
                       setManualDraft({
@@ -414,7 +425,9 @@ export default function FinanceSummaryPage() {
                 l.invoiceCount,
                 l.scheduledHours.toFixed(2),
                 l.approvedHours.toFixed(2),
-                l.manualReason ? (
+                l.manualInvoiceRequired && !l.manualReason ? (
+                  <span className="text-amber-700">Enter manually</span>
+                ) : l.manualReason ? (
                   <span>
                     {cash(l.revenue)}
                     <small className="block text-amber-700">

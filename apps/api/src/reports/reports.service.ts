@@ -19,7 +19,7 @@ export class ReportsService {
       this.prisma.timesheet.findMany({where:{employee:{businessId},status:'APPROVED',startTime:{gte:lower,lt:upper}},include:{employee:{select:{id:true,firstName:true,lastName:true,badgeNumber:true,workerType:true,payType:true,hourlyRate:true,salary:true,overtimeEligible:true,w2Profile:true,contractorProfile:true}},breaks:true,location:true}}),
       this.prisma.auditLog.findMany({where:{businessId,resource:'EMPLOYEE_RATE',action:'RATE_CHANGE'},orderBy:{createdAt:'asc'}}),
       this.prisma.invoice.findMany({where:{businessId,status:{notIn:['DRAFT','VOID','CANCELLED']}},include:{payments:true}}),
-      this.prisma.location.findMany({where:{businessId},select:{id:true,name:true}}),
+      this.prisma.location.findMany({where:{businessId},select:{id:true,name:true,client:{select:{name:true}}}}),
       this.prisma.shift.findMany({where:{businessId,status:{notIn:['CANCELLED','ARCHIVED']},startTime:{gte:new Date(options.from+'T00:00:00Z'),lt:upper}}}),
       this.prisma.payStub.findMany({where:{employee:{businessId},payroll:{businessId,status:{in:['PROCESSED','PAID']},periodStart:{lt:upper},periodEnd:{gte:new Date(options.from+'T00:00:00Z')}}},include:{payroll:true,employee:{select:{firstName:true,lastName:true}}}}),
       this.prisma.loanRepayment.findMany({where:{loan:{employee:{businessId}},date:{gte:new Date(options.from+'T00:00:00Z'),lt:upper}},include:{loan:{include:{employee:{select:{firstName:true,lastName:true}}}}}}),

@@ -57,6 +57,7 @@ export function financeSummaryPdf(
         : [head.map((_, i) => (i ? "" : "No records in this period"))],
       foot,
       showFoot: "lastPage",
+      rowPageBreak: "avoid",
       tableWidth: head[0] === "Location" ? 255 : "auto",
       startY,
       margin: { left: 12, right: 12, top: 52, bottom: 17 },
@@ -137,7 +138,9 @@ export function financeSummaryPdf(
       l.invoiceCount,
       l.scheduledHours.toFixed(2),
       l.approvedHours.toFixed(2),
-      cash(l.revenue),
+      l.manualInvoiceRequired && !l.manualReason
+        ? "Enter manually"
+        : cash(l.revenue),
       cash(l.gross),
       cash(l.employerTax),
       t.incomplete ? "Review" : cash(l.margin),

@@ -148,7 +148,7 @@ export function buildTimesheetReport(
         ? change.payType || payType
         : change.previousPayType;
     }
-    const historical = /Historical source hourly rate:\s*\$([\d.]+)/.exec(
+    const historical = /Historical source hourly rate:\s*\$(\d+(?:\.\d+)?)/.exec(
       s.employeeNote || "",
     );
     if (s.paidExternally && historical) {

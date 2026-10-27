@@ -153,6 +153,31 @@ async function main() {
     ["W2", "1099"],
   );
   const beforeManual = JSON.stringify(data);
+  const historicalData = structuredClone(data);
+  historicalData.sheets[1].paidExternally = true;
+  historicalData.sheets[1].employeeNote =
+    "Historical source hourly rate: $24.00. Printed date: 09/20/2026.";
+  const historicalReport = buildFinanceSummary(historicalData, query);
+  assert(
+    historicalReport.workers
+      .find((w) => w.employeeId === "W2")
+      .rates.includes(24),
+  );
+  assert(historicalReport.workers.every((w) => w.rates.every(Number.isFinite)));
+  const protosData = structuredClone(data);
+  (protosData.locations[0] as any).client = { name: "Protos Security" };
+  const protosReport = buildFinanceSummary(protosData, query);
+  assert.equal(protosReport.totals.revenue, 0);
+  assert(protosReport.totals.incomplete);
+  assert.equal(
+    buildFinanceSummary(protosData, {
+      ...query,
+      manualAmounts: JSON.stringify({
+        site: { amount: 1250, reason: "Verified" },
+      }),
+    }).totals.revenue,
+    1250,
+  );
   const manual = buildFinanceSummary(data, {
     ...query,
     manualAmounts: JSON.stringify({
