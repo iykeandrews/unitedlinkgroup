@@ -96,10 +96,17 @@ export function invoiceTracking(
     documentStatus === "VOID"
       ? 0
       : Math.max(0, cents(invoice.total) - amountPaidCents);
-  const dueDay = new Date(invoice.dueDate).toISOString().slice(0, 10);
+  const paymentDeadline =
+    invoice.paymentDueDate ||
+    (!invoice.paymentTermsFromEmail ? invoice.dueDate : null);
+  const dueDay = paymentDeadline
+    ? new Date(paymentDeadline).toISOString().slice(0, 10)
+    : null;
   const daysOverdue = Math.max(
     0,
-    Math.floor((Date.parse(today) - Date.parse(dueDay)) / 86400000),
+    dueDay
+      ? Math.floor((Date.parse(today) - Date.parse(dueDay)) / 86400000)
+      : 0,
   );
   const isOverdue =
     documentStatus !== "DRAFT" &&

@@ -372,7 +372,9 @@ export default function NewClientPage() {
               >
                 <option value="Net 15">Net 15</option>
                 <option value="Net 30">Net 30</option>
+                <option value="Net 45">Net 45</option>
                 <option value="Net 60">Net 60</option>
+                <option value="Net 90">Net 90</option>
                 <option value="Due on Receipt">Due on Receipt</option>
               </select>
             </div>

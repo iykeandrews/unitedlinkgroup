@@ -1,4 +1,5 @@
 import { billingList } from "./invoice-billing";
+import { invoiceSentDay } from "./invoice-terms";
 const escape = (value: unknown) =>
   String(value || "").replace(
     /[&<>"']/g,
@@ -41,6 +42,12 @@ export function invoiceEmail({
     invoice.client?.name ||
     "Accounts Payable";
   const referenceRows = [
+    invoice.firstSentAt &&
+      "Invoice email date: " +
+        day(invoiceSentDay(new Date(invoice.firstSentAt))),
+    invoice.paymentTerms && "Payment terms: " + invoice.paymentTerms,
+    invoice.paymentDueDate &&
+      "Payment due date: " + day(invoice.paymentDueDate),
     invoice.location?.name && `Service location: ${invoice.location.name}`,
     invoice.location?.workOrder && `Work order: ${invoice.location.workOrder}`,
     pins.length && `Billing pins: ${pins.join(", ")}`,

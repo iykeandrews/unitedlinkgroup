@@ -100,6 +100,8 @@ export function exportInvoiceCsv(invoices: any[], currency: string) {
       "Site",
       "Service start date",
       "Service end date",
+      "Payment terms",
+      "Payment due date",
       "Status",
       "Currency",
       "Total",
@@ -113,6 +115,12 @@ export function exportInvoiceCsv(invoices: any[], currency: string) {
       i.location?.name,
       invoiceDate(i.issueDate),
       invoiceDate(i.dueDate),
+      i.paymentTerms || i.client?.paymentTerms || "",
+      i.paymentDueDate
+        ? invoiceDate(i.paymentDueDate)
+        : i.paymentTermsFromEmail
+          ? "Awaiting email"
+          : invoiceDate(i.dueDate),
       invoiceStatusLabel(i.status),
       currency,
       i.total.toFixed(2),

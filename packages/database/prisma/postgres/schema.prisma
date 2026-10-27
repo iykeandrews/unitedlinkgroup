@@ -1233,6 +1233,10 @@ model Availability {
 }
 
 model Invoice {
+  firstSentAt DateTime? // First successful invoice email; resends do not reset terms.
+  paymentDueDate DateTime? // Calendar deadline from the first email date.
+  paymentTerms String? // Client terms snapshot at first email.
+  paymentTermsFromEmail Boolean @default(false) // Preserve legacy invoice deadlines.
   id          String   @id @default(uuid())
   businessId  String
   business    Business @relation(fields: [businessId], references: [id])

@@ -3,6 +3,7 @@ import { billingAddress, billingList } from "./invoice-billing";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { invoiceTracking } from "./invoice-accounting";
+import { invoiceSentDay } from "./invoice-terms";
 
 export async function generateInvoicePdf({
   business,
@@ -104,9 +105,21 @@ export async function generateInvoicePdf({
     addressY += lines.length * 4.6;
   }
   let metaY = y;
+  const paymentTerms =
+    invoice.paymentTerms ||
+    (invoice.paymentTermsFromEmail ? invoice.client?.paymentTerms : null);
   for (const [label, value] of [
     ["SERVICE START", day(invoice.issueDate)],
     ["SERVICE END", day(invoice.dueDate)],
+    ...(invoice.firstSentAt
+      ? [["EMAILED", day(invoiceSentDay(new Date(invoice.firstSentAt)))]]
+      : []),
+    ...(paymentTerms ? [["PAYMENT TERMS", paymentTerms]] : []),
+    ...(invoice.paymentDueDate
+      ? [["PAYMENT DUE", day(invoice.paymentDueDate)]]
+      : invoice.paymentTermsFromEmail
+        ? [["PAYMENT DUE", "Calculated when emailed"]]
+        : []),
   ]) {
     write(label, right - 72, metaY, 7, false, muted);
     write(value, right, metaY, 9, true, ink, "right");

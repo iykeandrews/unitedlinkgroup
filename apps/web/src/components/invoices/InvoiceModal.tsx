@@ -583,6 +583,26 @@ export default function InvoiceModal({
                 </label>
               </div>
               <InvoiceBillingDetails client={client} location={site} />
+              <section className="rounded-xl border border-slate-200 p-4 dark:border-slate-700 text-sm space-y-2">
+                <h3 className="font-semibold">Payment terms</h3>
+                {saved?.firstSentAt && <p>First emailed: {new Date(saved.firstSentAt).toLocaleDateString('en-US',{timeZone:'America/New_York'})}</p>}
+                <p>
+                  {saved?.paymentTerms ||
+                    client?.paymentTerms ||
+                    "Set payment terms in the client record before emailing."}
+                </p>
+                <p className="text-slate-500">
+                  {saved?.paymentDueDate
+                    ? "Payment due: " + invoiceDate(saved.paymentDueDate)
+                    : saved?.paymentTermsFromEmail || !saved
+                      ? "Payment countdown starts when the invoice is successfully emailed to the client."
+                      : "Legacy payment date retained. Resending does not restart payment terms."}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Terms come from the client record. Service dates do not
+                  determine the payment deadline.
+                </p>
+              </section>
               <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
                 <h3 className="mb-4 font-semibold">Line items</h3>
                 <div className="space-y-4">
@@ -790,6 +810,20 @@ export default function InvoiceModal({
                     <p className="mt-1 text-slate-500">
                       Service end {invoiceDate(saved.dueDate)}
                     </p>
+                    {(saved.paymentTerms || saved.client?.paymentTerms) && (
+                      <p className="mt-2">
+                        Terms: {saved.paymentTerms || saved.client.paymentTerms}
+                      </p>
+                    )}
+                    {saved.paymentDueDate ? (
+                      <p className="mt-1 font-semibold">
+                        Payment due {invoiceDate(saved.paymentDueDate)}
+                      </p>
+                    ) : saved.paymentTermsFromEmail ? (
+                      <p className="mt-1 text-slate-500">
+                        Payment due date starts when emailed
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="my-6">

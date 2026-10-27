@@ -596,6 +596,15 @@ export default function InvoiceWorkspace({
                         </td>
                         <td className="whitespace-nowrap px-5 py-4">
                           <p>{invoiceDate(i.dueDate)}</p>
+                          {i.paymentDueDate ? (
+                            <p className="mt-1 text-xs font-medium">
+                              Payment due {invoiceDate(i.paymentDueDate)}
+                            </p>
+                          ) : i.paymentTermsFromEmail ? (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Payment terms start when emailed
+                            </p>
+                          ) : null}
                           {i.isOverdue && (
                             <p className="mt-1 text-xs text-rose-600">
                               {i.daysOverdue} days overdue

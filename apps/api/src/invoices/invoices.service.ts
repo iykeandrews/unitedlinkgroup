@@ -1,4 +1,5 @@
 import { invoiceEmail } from "./invoice-email";
+import { firstEmailTerms } from "./invoice-terms";
 import { loadInvoiceLogo } from "./invoice-logo";
 import { invoiceRecipients } from "./invoice-billing";
 import {
@@ -207,6 +208,7 @@ export class InvoicesService {
             clientId: data.clientId,
             locationId: data.locationId || null,
             invoiceNumber,
+            paymentTermsFromEmail: true,
             ...dates,
             status,
             notes: data.notes,
@@ -236,8 +238,13 @@ export class InvoicesService {
     header?: string,
   ) {
     const previous = await this.invoiceAccess(id, user, header);
-    if (data.invoiceNumber !== undefined && data.invoiceNumber.trim() !== previous.invoiceNumber) {
-      throw new BadRequestException("Invoice numbers are assigned automatically and cannot be changed.");
+    if (
+      data.invoiceNumber !== undefined &&
+      data.invoiceNumber.trim() !== previous.invoiceNumber
+    ) {
+      throw new BadRequestException(
+        "Invoice numbers are assigned automatically and cannot be changed.",
+      );
     }
     if (
       (data as any).expectedUpdatedAt &&
@@ -546,96 +553,157 @@ export class InvoicesService {
     });
   }
   async sendInvoice(id: string, user: any, businessIdHeader?: string) {
-    const invoice = await this.invoiceAccess(id, user, businessIdHeader);
-    if (["VOID", "CANCELLED"].includes(invoice.status))
-      throw new BadRequestException("Void invoices cannot be sent.");
-    (invoice as any).business = await this.prisma.business.findUnique({
-      where: { id: invoice.businessId },
-    });
-    const { to: clientEmail, cc: ccFromClient } = invoiceRecipients(invoice.client);
-    if (!clientEmail) throw new BadRequestException("Add a client billing email before sending.");
-    if ([clientEmail, ...ccFromClient].some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new BadRequestException("Correct the client invoice email addresses before sending.");
-    const extractEmail = (val: string) => {
-      const v = String(val || "").trim();
-      if (!v) return "";
-      const m = v.match(/<([^>]+)>/);
-      return (m?.[1] || v).trim();
-    };
+    await this.invoiceAccess(id, user, businessIdHeader);
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${id} FOR UPDATE`;
+        const current = await tx.invoice.findUniqueOrThrow({
+          where: { id },
+          include,
+        });
+        const sentTerms = firstEmailTerms(current, new Date());
+        const invoice: any = { ...current, ...sentTerms };
+        if (["VOID", "CANCELLED"].includes(invoice.status))
+          throw new BadRequestException("Void invoices cannot be sent.");
+        (invoice as any).business = await this.prisma.business.findUnique({
+          where: { id: invoice.businessId },
+        });
+        const { to: clientEmail, cc: ccFromClient } = invoiceRecipients(
+          invoice.client,
+        );
+        if (!clientEmail)
+          throw new BadRequestException(
+            "Add a client billing email before sending.",
+          );
+        if (
+          [clientEmail, ...ccFromClient].some(
+            (email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
+          )
+        )
+          throw new BadRequestException(
+            "Correct the client invoice email addresses before sending.",
+          );
+        const extractEmail = (val: string) => {
+          const v = String(val || "").trim();
+          if (!v) return "";
+          const m = v.match(/<([^>]+)>/);
+          return (m?.[1] || v).trim();
+        };
 
-    const businessEmail =
-      extractEmail(process.env.INVOICE_REPLY_TO || "") ||
-      extractEmail(process.env.INVOICE_FROM || "") ||
-      extractEmail(process.env.INVOICE_SMTP_USER || "") ||
-      "";
+        const businessEmail =
+          extractEmail(process.env.INVOICE_REPLY_TO || "") ||
+          extractEmail(process.env.INVOICE_FROM || "") ||
+          extractEmail(process.env.INVOICE_SMTP_USER || "") ||
+          "";
 
-    const logo = await loadInvoiceLogo(invoice.business?.logoUrl);
-    const pdf = await generateInvoicePdf({
-      logo,
-      business: invoice.business,
-      invoice: { ...invoice, status: invoice.status === 'DRAFT' ? 'SENT' : invoice.status },
-      businessEmail,
-    });
-    const invoiceNumber = invoice.invoiceNumber || "invoice";
-    const subject = `Invoice ${invoiceNumber} from ${invoice.business?.name || "United Link Group"}`;
-
-    const replyTo = process.env.INVOICE_REPLY_TO || process.env.INVOICE_FROM || process.env.INVOICE_SMTP_USER || undefined;
-    const { html, text } = invoiceEmail({ business: invoice.business, invoice, balanceDue: invoiceTracking(invoice).balanceDue, hasLogo: !!logo });
-
-    const cc = ccFromClient.length ? ccFromClient : undefined;
-
-    const toErrorText = (val: any) => {
-      if (!val) return "";
-      if (typeof val === "string") return val;
-      if (typeof val === "number" || typeof val === "boolean")
-        return String(val);
-      try {
-        return JSON.stringify(val);
-      } catch {
-        return String(val);
-      }
-    };
-
-    try {
-      await this.mailer.send({
-        to: clientEmail,
-        cc,
-        subject,
-        html,
-        text,
-        replyTo,
-        attachments: [
-          {
-            filename: `${invoiceNumber}.pdf`,
-            content: pdf,
-            contentType: "application/pdf",
+        const logo = await loadInvoiceLogo(invoice.business?.logoUrl);
+        const pdf = await generateInvoicePdf({
+          logo,
+          business: invoice.business,
+          invoice: {
+            ...invoice,
+            status: invoice.status === "DRAFT" ? "SENT" : invoice.status,
           },
-          ...(logo ? [{ filename: logo.format === 'PNG' ? 'business-logo.png' : 'business-logo.jpg', content: logo.bytes, contentType: logo.contentType, cid: 'business-logo@unitedlink-invoice', contentDisposition: 'inline' as const }] : []),
-        ],
-      });
-    } catch (e: any) {
-      console.error(
-        "[Invoice Email] Send failed",
-        e?.code || "",
-        e?.response || "",
-        e?.message || e,
-      );
-      const code = e?.code ? String(e.code) : "";
-      const response = toErrorText(e?.response || e?.responseText || "");
-      const msg = toErrorText(e?.message || "Unknown SMTP error");
-      const responseCode = e?.responseCode
-        ? ` responseCode=${e.responseCode}`
-        : "";
-      const command = e?.command ? ` command=${e.command}` : "";
-      const detail = [response, msg].filter(Boolean)[0] || "Unknown SMTP error";
-      throw new BadRequestException(
-        `Failed to send invoice email${code ? ` (${code})` : ""}${responseCode}${command}: ${detail}`,
-      );
-    }
+          businessEmail,
+        });
+        const invoiceNumber = invoice.invoiceNumber || "invoice";
+        const subject = `Invoice ${invoiceNumber} from ${invoice.business?.name || "United Link Group"}`;
 
-    await this.prisma.invoice.updateMany({
-      where: { id, status: "DRAFT", updatedAt: invoice.updatedAt },
-      data: { status: "SENT" },
-    });
-    return this.findOneInvoice(id, user, businessIdHeader);
+        const replyTo =
+          process.env.INVOICE_REPLY_TO ||
+          process.env.INVOICE_FROM ||
+          process.env.INVOICE_SMTP_USER ||
+          undefined;
+        const { html, text } = invoiceEmail({
+          business: invoice.business,
+          invoice,
+          balanceDue: invoiceTracking(invoice).balanceDue,
+          hasLogo: !!logo,
+        });
+
+        const cc = ccFromClient.length ? ccFromClient : undefined;
+
+        const toErrorText = (val: any) => {
+          if (!val) return "";
+          if (typeof val === "string") return val;
+          if (typeof val === "number" || typeof val === "boolean")
+            return String(val);
+          try {
+            return JSON.stringify(val);
+          } catch {
+            return String(val);
+          }
+        };
+
+        try {
+          await this.mailer.send({
+            to: clientEmail,
+            cc,
+            subject,
+            html,
+            text,
+            replyTo,
+            attachments: [
+              {
+                filename: `${invoiceNumber}.pdf`,
+                content: pdf,
+                contentType: "application/pdf",
+              },
+              ...(logo
+                ? [
+                    {
+                      filename:
+                        logo.format === "PNG"
+                          ? "business-logo.png"
+                          : "business-logo.jpg",
+                      content: logo.bytes,
+                      contentType: logo.contentType,
+                      cid: "business-logo@unitedlink-invoice",
+                      contentDisposition: "inline" as const,
+                    },
+                  ]
+                : []),
+            ],
+          });
+        } catch (e: any) {
+          console.error(
+            "[Invoice Email] Send failed",
+            e?.code || "",
+            e?.response || "",
+            e?.message || e,
+          );
+          const code = e?.code ? String(e.code) : "";
+          const response = toErrorText(e?.response || e?.responseText || "");
+          const msg = toErrorText(e?.message || "Unknown SMTP error");
+          const responseCode = e?.responseCode
+            ? ` responseCode=${e.responseCode}`
+            : "";
+          const command = e?.command ? ` command=${e.command}` : "";
+          const detail =
+            [response, msg].filter(Boolean)[0] || "Unknown SMTP error";
+          throw new BadRequestException(
+            `Failed to send invoice email${code ? ` (${code})` : ""}${responseCode}${command}: ${detail}`,
+          );
+        }
+
+        const updated = await tx.invoice.update({
+          where: { id },
+          data: {
+            ...sentTerms,
+            ...(invoice.status === "DRAFT" ? { status: "SENT" } : {}),
+          },
+          include,
+        });
+        await this.audit(tx, user, invoice.businessId, "INVOICE_EMAILED", {
+          invoiceId: id,
+          firstSentAt: updated.firstSentAt,
+          paymentDueDate: updated.paymentDueDate,
+          paymentTerms: updated.paymentTerms,
+          resend: !!current.firstSentAt,
+        });
+        return invoiceTracking(updated);
+      },
+      { timeout: 120000, maxWait: 10000 },
+    );
   }
 }
