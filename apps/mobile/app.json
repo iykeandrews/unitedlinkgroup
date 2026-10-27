@@ -2,7 +2,7 @@
   "expo": {
     "name": "United Link Group",
     "slug": "unitedlinkgroup",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "icon": "./assets/logo.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
