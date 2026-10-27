@@ -309,6 +309,53 @@ export function buildFinanceSummary(data: any, query: any) {
     });
   }
   for (const l of locations) {
+    l.originalRevenue = l.revenue;
+  }
+  let overrides: any;
+  try {
+    overrides = JSON.parse(query.manualAmounts || "{}");
+  } catch {
+    throw new BadRequestException("Invalid manual invoice amounts.");
+  }
+  if (
+    !overrides ||
+    Array.isArray(overrides) ||
+    typeof overrides !== "object" ||
+    Object.keys(overrides).length > 100
+  )
+    throw new BadRequestException("Invalid manual invoice amounts.");
+  for (const [id, input] of Object.entries(overrides) as [string, any][]) {
+    if (
+      !data.locations.some((l: any) => l.id === id) ||
+      !input ||
+      typeof input.amount !== "number" ||
+      !Number.isFinite(input.amount) ||
+      input.amount < 0 ||
+      input.amount > 100000000 ||
+      typeof input.reason !== "string" ||
+      !input.reason.trim() ||
+      input.reason.length > 300
+    )
+      throw new BadRequestException(
+        "Choose a valid location, non-negative amount and adjustment reason.",
+      );
+    const l = location(id);
+    l.originalRevenue = l.originalRevenue ?? l.revenue;
+    l.revenue = money(input.amount);
+    l.manualReason = input.reason.trim();
+    warnings.push(
+      "Manual revenue: " +
+        l.name +
+        "; original " +
+        money(l.originalRevenue).toFixed(2) +
+        "; adjusted " +
+        l.revenue.toFixed(2) +
+        ". Reason: " +
+        l.manualReason +
+        ". This replaces report revenue only; invoice totals, tax and balances remain unchanged.",
+    );
+  }
+  for (const l of locations) {
     for (const key of [
       "revenue",
       "salesTax",
@@ -327,7 +374,7 @@ export function buildFinanceSummary(data: any, query: any) {
   const sum = (key: string) => money(locations.reduce((n, l) => n + l[key], 0));
   const missing = workers.reduce((n, w) => n + w.missing, 0);
   const missingLabor = locations.filter(
-    (l) => l.invoiceCount > 0 && l.approvedHours === 0,
+    (l) => l.revenue > 0 && l.approvedHours === 0,
   ).length;
   if (missingLabor)
     warnings.push(
@@ -379,6 +426,7 @@ export function buildFinanceSummary(data: any, query: any) {
     options,
     totals,
     locations,
+    availableLocations: data.locations,
     workers,
     invoices,
     deductions: deductionRows,

@@ -20,6 +20,10 @@ export default function FinanceSummaryPage() {
     [basis, setBasis] = useState("SERVICE");
   const [extraRate, setExtraRate] = useState("0"),
     [extraCap, setExtraCap] = useState("9000");
+  const [manualDraft, setManualDraft] = useState<
+    Record<string, { amount: string; reason: string }>
+  >({});
+  const [manualAmounts, setManualAmounts] = useState("{}");
   const [report, setReport] = useState<any>(null),
     [loading, setLoading] = useState(false),
     [downloading, setDownloading] = useState(false),
@@ -28,7 +32,7 @@ export default function FinanceSummaryPage() {
   const admin = ["BUSINESS_ADMIN", "SUPER_ADMIN"].includes(user?.role || "");
   const field =
     "mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white";
-  const params = { from, to, basis, extraRate, extraCap };
+  const params = { from, to, basis, extraRate, extraCap, manualAmounts };
   const valid =
     !!from && !!to && from <= to && from.slice(0, 4) === to.slice(0, 4);
   const key = JSON.stringify({ business: selectedBusiness?.id, ...params }),
@@ -37,10 +41,16 @@ export default function FinanceSummaryPage() {
   useEffect(() => {
     version.current++;
     setReport(null);
+    setManualDraft({});
+    setManualAmounts("{}");
     setLoadedKey("");
     setError("");
     setLoading(false);
   }, [selectedBusiness?.id]);
+  useEffect(() => {
+    setManualDraft({});
+    setManualAmounts("{}");
+  }, [from, to, basis]);
   const message = (e: any) => {
     const m =
       e?.response?.data?.message || e?.message || "Unable to load the summary.";
@@ -263,6 +273,96 @@ export default function FinanceSummaryPage() {
           </p>
         )}
       </section>
+      {report && (
+        <section className="rounded-xl border p-5 dark:border-slate-700">
+          <h2 className="font-bold">Manual invoice amounts</h2>
+          <p className="text-sm text-slate-500 mt-2">
+            Optional: replace a location’s revenue before sales tax for this
+            report. Leave blank to use invoices. Add a reason for each
+            adjustment. These amounts are included in the PDF and do not edit
+            invoices. Recheck them when changing the reporting period.
+          </p>
+          <details className="mt-3">
+            <summary className="cursor-pointer font-medium">
+              Enter amounts by location
+            </summary>
+            <div className="space-y-3 mt-4">
+              {report.availableLocations.map((l: any) => (
+                <div
+                  key={l.id}
+                  className="grid md:grid-cols-3 gap-3 items-center"
+                >
+                  <label htmlFor={"manual-" + l.id}>{l.name}</label>
+                  <input
+                    id={"manual-" + l.id}
+                    aria-label={l.name + " manual revenue"}
+                    className={field}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Use invoice amount"
+                    value={manualDraft[l.id]?.amount || ""}
+                    onChange={(e) =>
+                      setManualDraft({
+                        ...manualDraft,
+                        [l.id]: {
+                          amount: e.target.value,
+                          reason: manualDraft[l.id]?.reason || "",
+                        },
+                      })
+                    }
+                  />
+                  <input
+                    aria-label={l.name + " adjustment reason"}
+                    className={field}
+                    maxLength={300}
+                    placeholder="Reason for adjustment"
+                    value={manualDraft[l.id]?.reason || ""}
+                    onChange={(e) =>
+                      setManualDraft({
+                        ...manualDraft,
+                        [l.id]: {
+                          amount: manualDraft[l.id]?.amount || "",
+                          reason: e.target.value,
+                        },
+                      })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+            <button
+              className="mt-4 rounded-lg bg-slate-800 text-white px-4 py-2"
+              onClick={() => {
+                const values: any = {};
+                for (const [id, v] of Object.entries(manualDraft)) {
+                  if (v.amount === "") continue;
+                  if (
+                    !Number.isFinite(Number(v.amount)) ||
+                    Number(v.amount) < 0 ||
+                    !v.reason.trim()
+                  ) {
+                    toast.error(
+                      "Enter a valid amount and reason for each adjustment.",
+                    );
+                    return;
+                  }
+                  values[id] = {
+                    amount: Number(v.amount),
+                    reason: v.reason.trim(),
+                  };
+                }
+                setManualAmounts(JSON.stringify(values));
+                toast.success(
+                  "Amounts applied. Select Prepare summary to refresh the report.",
+                );
+              }}
+            >
+              Apply amounts
+            </button>
+          </details>
+        </section>
+      )}
       {current && (
         <>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -314,7 +414,16 @@ export default function FinanceSummaryPage() {
                 l.invoiceCount,
                 l.scheduledHours.toFixed(2),
                 l.approvedHours.toFixed(2),
-                cash(l.revenue),
+                l.manualReason ? (
+                  <span>
+                    {cash(l.revenue)}
+                    <small className="block text-amber-700">
+                      Manual · original {cash(l.originalRevenue)}
+                    </small>
+                  </span>
+                ) : (
+                  cash(l.revenue)
+                ),
                 cash(l.gross),
                 cash(l.employerTax),
                 report.totals.incomplete ? "Review" : cash(l.margin),

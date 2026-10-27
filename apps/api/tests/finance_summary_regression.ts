@@ -143,6 +143,30 @@ async function main() {
     0,
   );
   assert.equal(report.totals.margin, 727.34);
+  const beforeManual = JSON.stringify(data);
+  const manual = buildFinanceSummary(data, {
+    ...query,
+    manualAmounts: JSON.stringify({
+      site: { amount: 1250, reason: "Verified client amount" },
+    }),
+  });
+  assert.equal(manual.totals.revenue, 1250);
+  assert.equal(manual.totals.invoicedTotal, 1050);
+  assert.equal(manual.totals.margin, 977.34);
+  assert.equal(manual.locations[0].originalRevenue, 1000);
+  assert(manual.warnings.some((w) => w.includes("Verified client amount")));
+  assert.equal(JSON.stringify(data), beforeManual);
+  for (const value of [
+    { site: { amount: -1, reason: "Invalid" } },
+    { foreign: { amount: 1, reason: "Invalid" } },
+    { site: { amount: 1, reason: "" } },
+  ])
+    assert.throws(() =>
+      buildFinanceSummary(data, {
+        ...query,
+        manualAmounts: JSON.stringify(value),
+      }),
+    );
   assert(report.warnings.some((w) => w.includes("overlap")));
   assert.equal(
     buildFinanceSummary(data, { ...query, basis: "SENT" }).totals.invoices,
