@@ -7,6 +7,7 @@ import {
 } from "../time-tracking/timesheet-report";
 import { invoiceTracking } from "../invoices/invoice-accounting";
 import { money, SOCIAL_SECURITY_CAPS } from "../payroll/us-tax";
+import { effectivePay } from "../employees/employment.util";
 
 export function summaryOptions(query: any) {
   validateReportPeriod(query.from, query.to);
@@ -394,6 +395,26 @@ export function buildFinanceSummary(data: any, query: any) {
         String(workerNames.get(b.employeeId) || b.name),
       ) || a.employeeId.localeCompare(b.employeeId),
   );
+  for (const w of workers) {
+    const employee = data.sheets.find(
+      (s: any) => s.employeeId === w.employeeId,
+    )?.employee;
+    const profileRate = employee ? effectivePay(employee).hourlyRate : null;
+    w.profileRate =
+      typeof profileRate === "number" &&
+      Number.isFinite(profileRate) &&
+      profileRate > 0
+        ? profileRate
+        : null;
+    const employeeGroups = workers.filter(
+      (other) => other.employeeId === w.employeeId,
+    );
+    const earned = employeeGroups.reduce((n, other) => n + other.gross, 0);
+    w.actualHours =
+      w.profileRate && !employeeGroups.some((other) => other.missing)
+        ? money(earned / w.profileRate)
+        : null;
+  }
   locations.sort((a, b) => a.name.localeCompare(b.name));
   const sum = (key: string) => money(locations.reduce((n, l) => n + l[key], 0));
   const missing = workers.reduce((n, w) => n + w.missing, 0);
@@ -463,6 +484,7 @@ export function buildFinanceSummary(data: any, query: any) {
     deductions: deductionRows,
     warnings: [...new Set(warnings)],
     notes: [
+      "Actual hours = total gross earnings across all locations in the selected period divided by the current hourly rate on the employee profile. This is a pay-equivalent figure, not clocked attendance. Missing or zero profile rates require review.",
       basis === "SERVICE"
         ? "Service-period revenue includes only sent/paid invoices fully contained in the selected service dates. Unsent drafts and void invoices are excluded. Revenue excludes invoice sales tax. Outstanding balance is current, not a historical balance."
         : "Email-date revenue includes invoices first emailed in the selected period. Legacy records without a recovered first-send date are excluded. Revenue excludes sales tax; outstanding balance is current.",

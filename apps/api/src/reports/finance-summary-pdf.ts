@@ -8,12 +8,11 @@ export function financeSummaryPdf(
   report: FinanceSummary,
   logo: InvoiceLogo | null,
 ) {
-  const doc = new jsPDF({ orientation: "landscape", format: "letter" }),
+  const doc = new jsPDF({ orientation: "portrait", format: "letter" }),
     width = doc.internal.pageSize.getWidth(),
     height = doc.internal.pageSize.getHeight();
   const cash = (n: number) =>
-    report.business.currency +
-    " " +
+    "$" +
     n.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -28,7 +27,7 @@ export function financeSummaryPdf(
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.text(
-      doc.splitTextToSize(report.business.address, 205),
+      doc.splitTextToSize(report.business.address, width - (logo ? 69 : 24)),
       logo ? 57 : 12,
       20,
     );
@@ -38,18 +37,16 @@ export function financeSummaryPdf(
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.text(
-      displayReportDate(report.from) +
-        " - " +
-        displayReportDate(report.to) +
-        " | " +
-        subtitle,
+      displayReportDate(report.from) + " - " + displayReportDate(report.to),
       12,
       43,
     );
+    doc.setFontSize(9);
+    doc.text(subtitle, 12, 49);
     doc.setDrawColor(210, 222, 230);
-    doc.line(12, 47, width - 12, 47);
+    doc.line(12, 53, width - 12, 53);
   };
-  const table = (head: string[], body: any[][], startY = 54, foot?: any[][]) =>
+  const table = (head: string[], body: any[][], startY = 60, foot?: any[][]) =>
     autoTable(doc, {
       head: [head],
       body: body.length
@@ -58,29 +55,31 @@ export function financeSummaryPdf(
       foot,
       showFoot: "lastPage",
       rowPageBreak: "avoid",
-      tableWidth: head[0] === "Location" ? 255 : "auto",
+      tableWidth: width - 24,
       startY,
-      margin: { left: 12, right: 12, top: 52, bottom: 17 },
+      margin: { left: 12, right: 12, top: 58, bottom: 17 },
       styles: {
         font: "helvetica",
         fontSize: 10.5,
-        cellPadding: head[0] === "Location" ? 1.4 : 2.2,
+        cellPadding: 1.8,
         overflow: "linebreak",
         textColor: [32, 48, 64],
       },
       columnStyles:
-        head[0] === "Location"
+        head[0] === "Worker" && head.length === 6
           ? {
-              0: { cellWidth: 48 },
-              1: { cellWidth: 18 },
+              0: { cellWidth: 49 },
+              1: { cellWidth: 25 },
               2: { cellWidth: 23 },
               3: { cellWidth: 23 },
               4: { cellWidth: 36 },
-              5: { cellWidth: 36 },
-              6: { cellWidth: 33 },
-              7: { cellWidth: 38 },
+              5: { cellWidth: width - 180 },
             }
-          : {},
+          : head[0] === "Location"
+            ? { 0: { cellWidth: 39 } }
+            : head[0] === "Measure"
+              ? { 0: { cellWidth: 45 } }
+              : {},
       headStyles: {
         fillColor: [20, 46, 68],
         textColor: [255, 255, 255],
@@ -112,15 +111,16 @@ export function financeSummaryPdf(
     ],
   ];
   cards.forEach(([label, value], i) => {
-    const x = 12 + (i * (width - 24)) / 4;
+    const x = 12 + ((i % 2) * (width - 20)) / 2;
+    const y = 59 + Math.floor(i / 2) * 26;
     doc.setFillColor(239, 245, 248);
-    doc.roundedRect(x, 53, (width - 30) / 4, 22, 2, 2, "F");
+    doc.roundedRect(x, y, (width - 28) / 2, 22, 2, 2, "F");
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.text(label, x + 3, 60);
+    doc.text(label, x + 3, y + 7);
     doc.setFontSize(13);
     doc.setFont("helvetica", "bold");
-    doc.text(value, x + 3, 69);
+    doc.text(value, x + 3, y + 16);
   });
   table(
     [
@@ -130,7 +130,6 @@ export function financeSummaryPdf(
       "Approved h",
       "Revenue",
       "Gross pay",
-      "Employer tax est.",
       "Contribution",
     ],
     report.locations.map((l) => [
@@ -142,10 +141,9 @@ export function financeSummaryPdf(
         ? "Enter manually"
         : cash(l.revenue),
       cash(l.gross),
-      cash(l.employerTax),
       t.incomplete ? "Review" : cash(l.margin),
     ]),
-    83,
+    115,
     [
       [
         "TOTAL",
@@ -154,7 +152,6 @@ export function financeSummaryPdf(
         t.approvedHours.toFixed(2),
         cash(t.revenue),
         cash(t.grossPay),
-        cash(t.employerTaxes),
         t.incomplete ? "Review" : cash(t.margin),
       ],
     ],
@@ -171,25 +168,19 @@ export function financeSummaryPdf(
     table(
       [
         "Worker",
-        "Rate / hour",
-        "Approved h",
-        "OT h",
+        "Profile rate",
+        "Approved hours",
+        "Actual hours",
         "Gross pay",
-        "Recorded deductions",
-        "Scheduled / pay period",
-        "Employer tax est.",
+        "Deductions",
       ],
       workers.map((w) => [
         w.name,
-        w.rates.length
-          ? w.rates.map((r: number) => cash(r)).join(" / ")
-          : "Review",
+        w.profileRate == null ? "Review" : cash(w.profileRate),
         w.hours.toFixed(2),
-        w.overtimeHours.toFixed(2),
+        w.actualHours == null ? "Review" : w.actualHours.toFixed(2),
         w.missing ? "Review" : cash(w.gross),
         cash(w.deductions),
-        cash(w.scheduledDeductions),
-        cash(w.employerTax),
       ]),
     );
   }
@@ -197,20 +188,18 @@ export function financeSummaryPdf(
   header("Invoice detail | Whole service periods; no prorating");
   table(
     [
-      "Invoice",
-      "Location",
-      "Service from",
-      "Service to",
+      "Invoice / location",
+      "Service period",
       "Revenue before tax",
       "Sales tax",
       "Invoice total",
       "Current balance",
     ],
     report.invoices.map((i) => [
-      i.number,
-      i.location,
-      displayReportDate(i.serviceFrom),
-      displayReportDate(i.serviceTo),
+      i.number + "\n" + i.location,
+      displayReportDate(i.serviceFrom) +
+        " -\n" +
+        displayReportDate(i.serviceTo),
       cash(i.revenue),
       cash(i.salesTax),
       cash(i.total),
@@ -220,13 +209,12 @@ export function financeSummaryPdf(
   doc.addPage();
   header("Deduction detail | Recorded and scheduled shown separately");
   table(
-    ["Worker", "Deduction", "Amount", "Basis", "Reference"],
+    ["Worker", "Deduction", "Amount", "Basis"],
     report.deductions.map((d) => [
       d.name.toUpperCase(),
       d.type,
       cash(d.amount),
       d.status,
-      d.reference,
     ]),
   );
   doc.addPage();

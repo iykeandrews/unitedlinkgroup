@@ -143,6 +143,15 @@ async function main() {
     0,
   );
   assert.equal(report.totals.margin, 727.34);
+  const locationRateData = structuredClone(data);
+  locationRateData.sheets.find((s) => s.id === "w2")!.shiftHourlyRate = 22;
+  const actualWorker = buildFinanceSummary(
+    locationRateData,
+    query,
+  ).workers.find((w) => w.employeeId === "W2");
+  assert.equal(actualWorker.profileRate, 20);
+  assert.equal(actualWorker.gross, 176);
+  assert.equal(actualWorker.actualHours, 8.8);
   const orderedData = structuredClone(data);
   for (const s of orderedData.sheets) {
     s.employee.firstName = s.employeeId === "W2" ? "ZOE" : "AMY";
@@ -224,6 +233,7 @@ async function main() {
   const source = JSON.stringify(data);
   const pdf = financeSummaryPdf(report, null);
   assert(pdf.length > 1000);
+  assert(pdf.toString("latin1").includes("/MediaBox [0 0 612. 792.]"));
   assert.equal(JSON.stringify(data), source);
   const service = new ReportsService({
     business: { findUnique: async () => ({ id: "b", ownerId: "owner" }) },

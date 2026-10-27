@@ -454,25 +454,21 @@ export default function FinanceSummaryPage() {
               {table(
                 [
                   "Worker",
-                  "Hourly rates",
+                  "Profile rate",
                   "Approved hours",
-                  "OT hours",
+                  "Actual hours",
                   "Gross pay",
                   "Recorded deductions",
-                  "Scheduled / pay period",
-                  "Employer tax est.",
                 ],
                 report.workers
                   .filter((w: any) => w.workerType === type)
                   .map((w: any) => [
                     w.name,
-                    w.rates.map(cash).join(" / ") || "Review",
+                    w.profileRate == null ? "Review" : cash(w.profileRate),
                     w.hours.toFixed(2),
-                    w.overtimeHours.toFixed(2),
+                    w.actualHours == null ? "Review" : w.actualHours.toFixed(2),
                     w.missing ? "Review" : cash(w.gross),
                     cash(w.deductions),
-                    cash(w.scheduledDeductions),
-                    cash(w.employerTax),
                   ]),
               )}
             </section>
