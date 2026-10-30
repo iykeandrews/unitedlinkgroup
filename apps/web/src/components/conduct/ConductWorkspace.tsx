@@ -307,7 +307,7 @@ export default function ConductWorkspace({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[.2em] text-indigo-600">
-            Insights · Accountability
+            Operations · Accountability
           </p>
           <h1 className="mt-2 text-3xl font-bold">
             {kind === "COMPLAINT"
