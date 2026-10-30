@@ -10,6 +10,11 @@ import { PrismaService } from "../prisma.service";
 import { SmtpMailerService } from "../common/email/smtp-mailer.service";
 import { ConductService } from "./conduct.service";
 import { PublicComplaintDto } from "./complaint-portal.dto";
+import {
+  complaintOrigin,
+  complaintHosts,
+  complaintVerificationKey,
+} from "./complaint-origin";
 
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -29,11 +34,7 @@ export class ComplaintPortalService {
     private mail: SmtpMailerService,
   ) {}
   private origin() {
-    return new URL(
-      process.env.PUBLIC_WEB_URL ||
-        process.env.FRONTEND_URL ||
-        "https://www.unitedlinkgroup.com",
-    ).origin;
+    return complaintOrigin();
   }
   private token(id: string, submissionId: string) {
     const secret = process.env.JWT_SECRET;
@@ -65,7 +66,10 @@ export class ComplaintPortalService {
       where: { id: businessId },
     });
     if (!business) throw new NotFoundException("Business not found");
-    if(business.status!=='ACTIVE')throw new BadRequestException('Activate this business before sharing a complaint portal');
+    if (business.status !== "ACTIVE")
+      throw new BadRequestException(
+        "Activate this business before sharing a complaint portal",
+      );
     if (!business.complaintPortalKey) {
       await this.db.business.updateMany({
         where: { id: businessId, complaintPortalKey: null },
@@ -113,7 +117,7 @@ export class ComplaintPortalService {
           body: JSON.stringify({
             secret: process.env.TURNSTILE_SECRET_KEY,
             response: token,
-            idempotency_key: submissionId,
+            idempotency_key: complaintVerificationKey(submissionId, token),
           }),
           signal: AbortSignal.timeout(8000),
         },
@@ -125,11 +129,7 @@ export class ComplaintPortalService {
         "Human verification is temporarily unavailable. Please retry.",
       );
     }
-    const hosts = (
-      process.env.TURNSTILE_ALLOWED_HOSTNAMES || new URL(this.origin()).hostname
-    )
-      .split(",")
-      .map((host) => host.trim().toLowerCase());
+    const hosts = complaintHosts();
     if (
       result?.success !== true ||
       result.action !== "complaint" ||

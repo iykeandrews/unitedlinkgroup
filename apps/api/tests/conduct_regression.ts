@@ -349,6 +349,10 @@ async function main() {
     verifyCalls = 0;
   try {
     process.env.JWT_SECRET = "UNIT_TEST_SECRET_ONLY";
+    process.env.FRONTEND_URL =
+      "https://unitedlinkgroup.com,https://www.unitedlinkgroup.com,https://unitedlinkgroup-1.onrender.com";
+    delete process.env.PUBLIC_WEB_URL;
+    delete process.env.TURNSTILE_ALLOWED_HOSTNAMES;
     process.env.TURNSTILE_SITE_KEY = "unit-test-site";
     process.env.TURNSTILE_SECRET_KEY = "unit-test-secret";
     global.fetch = (async (url: string, options: any) => {
@@ -414,6 +418,12 @@ async function main() {
     assert.equal(ticket.receipt, "SENT");
     assert.equal(emails.length, 1);
     assert(emails[0].text.includes(ticket.ticketNumber));
+    assert(
+      ticket.trackingUrl.startsWith(
+        "https://www.unitedlinkgroup.com/complaints/track/",
+      ),
+    );
+    assert(!ticket.trackingUrl.includes(","));
     const repeat = await portal.submit(business.complaintPortalKey, publicData);
     assert.equal(repeat.ticketNumber, ticket.ticketNumber);
     assert.equal(
