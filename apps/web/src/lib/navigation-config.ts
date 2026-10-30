@@ -111,6 +111,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Insights',
     icon: BarChart,
     moduleIds: [
+      'Insights_Complaints',
+      'Insights_Queries',
       'Attendance_Report',
       'Reports_Payroll',
       'Reports_Performance',

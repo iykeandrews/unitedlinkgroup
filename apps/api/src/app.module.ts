@@ -31,6 +31,7 @@ import { AnnouncementsModule } from './announcements/announcements.module';
 import { EmailCampaignsModule } from './email-campaigns/email-campaigns.module';
 import { EmailTemplatesModule } from './email-templates/email-templates.module';
 import { IncidentReportsModule } from './incident-reports/incident-reports.module';
+import { ConductModule } from './conduct/conduct.module';
 import { AssetsModule } from './assets/assets.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ChatsModule } from './chats/chats.module';
@@ -79,6 +80,7 @@ import { VendorsModule } from './vendors/vendors.module';
     EmailCampaignsModule,
     EmailTemplatesModule,
     IncidentReportsModule,
+    ConductModule,
     AssetsModule,
     PaymentsModule,
     ChatsModule,

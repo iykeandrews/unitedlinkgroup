@@ -51,6 +51,8 @@ model User {
 
 // The Tenant
 model Business {
+  complaintPortalKey String? @unique
+  conductCases ConductCase[]
   id          String   @id @default(uuid())
   name        String
   logoUrl     String?
@@ -160,6 +162,7 @@ model Role {
 }
 
 model Employee {
+  conductCases ConductCase[]
   officerCategory String? // ARMED_SPO, UNARMED_SPO, SO, SG, PD, ASG; separate from access roles
   id          String   @id @default(uuid())
   firstName   String
@@ -1648,4 +1651,61 @@ model MobileSession {
   revokedAt DateTime?
   createdAt DateTime @default(now())
   @@index([userId, expiresAt])
+}
+
+model ConductCase {
+  customerEmail String?
+  publicTrackingHash String? @unique
+  publicSubmissionId String? @unique
+  id String @id @default(uuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id])
+  reference String @unique
+  kind String
+  subject String
+  title String
+  description String
+  category String
+  priority String @default("MEDIUM")
+  status String @default("DRAFT")
+  employeeId String?
+  employee Employee? @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  locationId String?
+  locationName String?
+  customerName String?
+  customerContact String?
+  ownerEmployeeId String?
+  ownerName String?
+  sourceCaseId String?
+  dueAt DateTime?
+  followUpAt DateTime?
+  issuedAt DateTime?
+  resolvedAt DateTime?
+  closedAt DateTime?
+  outcome String?
+  resolution String?
+  rootCause String?
+  correctiveAction String?
+  preventiveAction String?
+  createdById String
+  version Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  events ConductCaseEvent[]
+  @@index([businessId, kind, status, createdAt])
+  @@index([employeeId, issuedAt])
+}
+
+model ConductCaseEvent {
+  id String @id @default(uuid())
+  caseId String
+  case ConductCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  actorUserId String
+  actorName String
+  type String
+  visibility String @default("INTERNAL")
+  message String
+  changes String?
+  createdAt DateTime @default(now())
+  @@index([caseId, createdAt])
 }

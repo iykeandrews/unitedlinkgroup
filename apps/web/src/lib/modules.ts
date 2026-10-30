@@ -75,6 +75,8 @@ export function canAccessModule(userRole: string | null, moduleId: string) {
   if (isOnboarding) {
     return moduleId === 'My_Forms';
   }
+  if (moduleId === 'Insights_Complaints') return ['SUPER_ADMIN', 'BUSINESS_ADMIN', 'MANAGER'].includes(normalizedRole);
+  if (moduleId === 'Insights_Queries') return ['SUPER_ADMIN', 'BUSINESS_ADMIN', 'MANAGER', 'EMPLOYEE'].includes(normalizedRole);
   if (moduleId === 'Vendors') return normalizedRole === UserRole.SUPER_ADMIN;
   if (moduleId === 'My_Profile') return normalizedRole === UserRole.EMPLOYEE || normalizedRole === UserRole.MANAGER;
   if (normalizedRole === UserRole.SUPER_ADMIN || normalizedRole === UserRole.BUSINESS_ADMIN) return true;
@@ -375,6 +377,9 @@ export const MODULES: Module[] = [
     category: 'Core',
     route: '/dashboard/reports/compliance'
   },
+
+  { id: 'Insights_Complaints', name: 'Customer Complaints', description: 'Customer concerns and resolution records', icon: MessageSquare, category: 'Core', route: '/dashboard/insights/complaints' },
+  { id: 'Insights_Queries', name: 'Officer Queries & Decisions', description: 'Misconduct queries, responses and decisions', icon: ClipboardList, category: 'Core', route: '/dashboard/insights/queries' },
 
   // Core Modules - Communications
   { 
