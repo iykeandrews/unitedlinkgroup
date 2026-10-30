@@ -197,6 +197,7 @@ async function main() {
       "Please provide your account of the reported attendance issue.",
     category: "Attendance",
     employeeId: "e1",
+    ownerEmployeeId: "e2",
     dueAt: new Date(Date.now() + 86400000).toISOString(),
   };
   let query: any = await service.create(payload, admin, "b1");
@@ -221,6 +222,23 @@ async function main() {
   );
   assert.equal(query.status, "AWAITING_RESPONSE");
   assert.equal(notifications.length, 1);
+  query = await service.action(
+    query.id,
+    {
+      version: query.version,
+      action: "ASSIGN",
+      priority: "URGENT",
+      category: "Attendance review",
+    },
+    admin,
+    "b1",
+  );
+  assert.equal(query.priority, "URGENT");
+  assert.equal(
+    query.ownerEmployeeId,
+    "e2",
+    "triage changes must preserve an existing owner",
+  );
   query = await service.action(
     query.id,
     {

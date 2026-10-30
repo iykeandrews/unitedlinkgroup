@@ -43,6 +43,8 @@ export class CreateConductDto {
   @IsOptional() @IsDateString() dueAt?: string;
 }
 export class ConductActionDto {
+  @IsOptional() @IsIn(["LOW", "MEDIUM", "HIGH", "URGENT"]) priority?: string;
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(80) category?: string;
   @IsOptional() @IsString() employeeId?: string;
   @IsInt() @Min(0) version!: number;
   @IsIn([

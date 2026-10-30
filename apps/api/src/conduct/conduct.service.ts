@@ -407,6 +407,8 @@ export class ConductService {
           throw new BadRequestException("Select the officer concerned");
       }
       Object.assign(update, {
+        ...(data.priority ? { priority: data.priority } : {}),
+        ...(data.category?.trim() ? { category: data.category.trim() } : {}),
         ...(data.ownerEmployeeId !== undefined
           ? {
               ownerEmployeeId: owner?.id || null,

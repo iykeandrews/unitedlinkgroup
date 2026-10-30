@@ -709,6 +709,20 @@ export default function ConductWorkspace({
                 {choose("action", "Action", actions, task, setTask)}
                 {task.action === "ASSIGN" && (
                   <>
+                    {choose(
+                      "priority",
+                      "Priority update",
+                      ["LOW", "MEDIUM", "HIGH", "URGENT"],
+                      task,
+                      setTask,
+                    )}
+                    {input(
+                      "category",
+                      "Category update (optional)",
+                      "text",
+                      task,
+                      setTask,
+                    )}
                     {(selected.kind === "COMPLAINT" ||
                       selected.status === "DRAFT") &&
                       choose(
