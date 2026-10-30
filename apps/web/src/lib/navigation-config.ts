@@ -43,6 +43,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Operations',
     icon: Briefcase, // Generic briefcase for work/ops
     moduleIds: [
+      'Insights_Complaints',
+      'Insights_Queries',
       'Schedule',
       'Ops_Assignments',
       'Time',
@@ -111,8 +113,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Insights',
     icon: BarChart,
     moduleIds: [
-      'Insights_Complaints',
-      'Insights_Queries',
       'Attendance_Report',
       'Reports_Payroll',
       'Reports_Performance',
