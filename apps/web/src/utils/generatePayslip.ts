@@ -1,10 +1,11 @@
+import api from '../lib/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { formatCurrency } from '../lib/localization';
 import { getBase64ImageFromURL } from './image-utils';
 
-export const generatePayslip = async (payroll: any, business: any) => {
+const generateDraftPayslip = async (payroll: any, business: any) => {
   const doc = new jsPDF();
   const stubs = payroll.payStubs || [];
 
@@ -307,4 +308,23 @@ export const generatePayslip = async (payroll: any, business: any) => {
   }
 
   doc.save(`Payroll_${format(new Date(payroll.payDate), 'yyyy-MM-dd')}.pdf`);
+};
+
+export const generatePayslip = async (payroll: any, business: any) => {
+  if (payroll.status !== 'PAID') return generateDraftPayslip(payroll, business);
+  const ids = (payroll.payStubs || []).map((stub: any) => stub.id);
+  if (!ids.length) throw new Error('No payslips are available for this payroll');
+  const response = ids.length === 1
+    ? await api.get(`/payroll/paystubs/${ids[0]}/download`, { responseType: 'blob' })
+    : await api.post('/payroll/paystubs/download', { ids }, { responseType: 'blob' });
+  const blob = response.data as Blob;
+  if (!(await blob.slice(0, 5).text()).startsWith('%PDF-')) throw new Error('Invalid payslip PDF');
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Payslips_${String(payroll.periodStart || 'payroll').slice(0, 10)}_${String(payroll.periodEnd || '').slice(0, 10)}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 };

@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsDateString, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Matches, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class IncidentPersonInputDto {
@@ -14,6 +14,15 @@ export class IncidentPersonInputDto {
 }
 
 export class CreateIncidentReportDto {
+  @IsString()
+  @Matches(/^[a-zA-Z0-9-]{16,80}$/)
+  @IsOptional()
+  submissionId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  deferEmail?: boolean;
+
   @IsString()
   title!: string;
 

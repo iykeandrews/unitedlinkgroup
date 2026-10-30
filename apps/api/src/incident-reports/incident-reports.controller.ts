@@ -130,6 +130,12 @@ export class IncidentReportsController {
     return this.incidentReportsService.deliverToClient(id,req.user);
   }
 
+  @Post(':id/complete-submission')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN, UserRole.MANAGER, UserRole.EMPLOYEE)
+  completeSubmission(@Param('id') id: string, @Request() req: any) {
+    return this.incidentReportsService.completeSubmission(id, req.user);
+  }
+
   @Patch(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.BUSINESS_ADMIN, UserRole.MANAGER)
   @UsePipes(new ValidationPipe({ whitelist: true }))

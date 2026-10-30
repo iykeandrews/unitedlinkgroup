@@ -7,6 +7,7 @@ import {ReportQuery, reportWhere, reportOrder} from './report-query';
 import {reportPdf, reportDate} from './report-document';
 import {Workbook} from 'exceljs';
 import {SmtpMailerService} from '../common/email/smtp-mailer.service';
+import { reportCategoryLabel } from './report-category';
 
 @Injectable()
 export class IncidentReportsService {
@@ -105,6 +106,13 @@ export class IncidentReportsService {
     await this.validateBusinessAccess(businessId, user);
 
     const submittedById = this.getUserId(user);
+    if (data.submissionId) {
+      const existing = await this.prisma.incidentReport.findUnique({ where: { id: data.submissionId } });
+      if (existing) {
+        if (existing.businessId !== businessId || existing.submittedById !== submittedById) throw new BadRequestException('Invalid report submission reference');
+        return { ...existing, clientDelivery: { status: 'PENDING' } };
+      }
+    }
 
     const userEmployee = await this.prisma.employee.findFirst({
       where: { userId: submittedById, businessId },
@@ -140,7 +148,7 @@ export class IncidentReportsService {
     const incidentAt = this.parseIsoDate(data.incidentAt || data.date) || null;
     const reportNumber = await this.generateReportNumber();
 
-    const { images, persons, evidenceCollected, incidentAt: _incidentAt, date: _date, deviceInfo: clientDeviceInfo, geoLat, geoLng, ...rest } = data;
+    const { submissionId, deferEmail, images, persons, evidenceCollected, incidentAt: _incidentAt, date: _date, deviceInfo: clientDeviceInfo, geoLat, geoLng, ...rest } = data;
 
     const deviceInfo = JSON.stringify({
       userAgent: context?.userAgent || null,
@@ -177,6 +185,7 @@ export class IncidentReportsService {
       const incident = await tx.incidentReport.create({
         data: {
           ...rest,
+          id: submissionId || undefined,
           reportNumber,
           businessId,
           reporterId: submittedById,
@@ -273,8 +282,23 @@ export class IncidentReportsService {
       }
     }
 
-    const clientDelivery = await this.deliverToClient(created.id, user, true);
+    const clientDelivery = deferEmail ? { status: 'PENDING' } : await this.deliverToClient(created.id, user, true);
     return {...created, clientDelivery};
+  }
+
+  async completeSubmission(id: string, user: any) {
+    const report = await this.findOne(id, user);
+    if (!JSON.parse(report.location?.incidentReportEmails || '[]').length) return { status: 'NOT_CONFIGURED' };
+    try {
+      await this.prisma.incidentTimelineEvent.create({ data: {
+        id: `submission-email-${id}`, incidentId: id, actorUserId: this.getUserId(user), eventType: 'EMAIL_REQUESTED',
+      } });
+    } catch (error: any) {
+      if (error?.code !== 'P2002') throw error;
+      const latest = await this.prisma.incidentTimelineEvent.findFirst({ where: { incidentId: id, eventType: { in: ['EMAIL_SENT', 'EMAIL_FAILED'] } }, orderBy: { createdAt: 'desc' } });
+      return { status: latest?.eventType === 'EMAIL_SENT' ? 'SENT' : latest ? 'FAILED' : 'PENDING' };
+    }
+    return this.deliverToClient(id, user, true);
   }
 
   async deliverToClient(id:string,user:any,initial=false) {
@@ -288,9 +312,9 @@ export class IncidentReportsService {
     const business=await this.prisma.business.findUnique({where:{id:report.businessId}});
     let status='EMAIL_SENT';
     try {
-      const text=[business?.name,'Incident report '+(report.reportNumber||report.id),report.title,'Location: '+report.location?.name,'Occurred: '+reportDate(report.incidentAt||report.date),'Severity: '+report.severity,report.description,'Response: '+(report.responseAction||''),'The full report is attached as a PDF.'].filter(Boolean).join('\n\n');
+      const text=[business?.name,reportCategoryLabel(report.type)+' '+(report.reportNumber||report.id),report.title,'Location: '+report.location?.name,'Occurred: '+reportDate(report.incidentAt||report.date),'Severity: '+report.severity,report.description,'Response: '+(report.responseAction||''),'The full report is attached as a PDF.'].filter(Boolean).join('\n\n');
       const escaped=text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-      await this.mailer.send({to:recipients[0],cc,subject:`Incident ${report.reportNumber||report.id} · ${report.location?.name||business?.name}`,text,html:`<div style="font-family:Arial;color:#142d47;white-space:pre-wrap">${escaped}</div>`,attachments:[{filename:`incident-${report.reportNumber||report.id}.pdf`,content:reportPdf([report],business),contentType:'application/pdf'}]});
+      await this.mailer.send({to:recipients[0],cc,subject:`${reportCategoryLabel(report.type)} ${report.reportNumber||report.id} · ${report.location?.name||business?.name}`,text,html:`<div style="font-family:Arial;color:#142d47;white-space:pre-wrap">${escaped}</div>`,attachments:[{filename:`report-${report.reportNumber||report.id}.pdf`,content:reportPdf([report],business),contentType:'application/pdf'}]});
     } catch {
       status='EMAIL_FAILED';
     }
@@ -322,6 +346,10 @@ export class IncidentReportsService {
     const skip = (page - 1) * pageSize;
 
     const where = reportWhere(businessId, query);
+    if (user.role === 'EMPLOYEE') where.AND = [{ OR: [
+      { submittedById: this.getUserId(user) }, { reporterId: this.getUserId(user) },
+      { reportingOfficer: { userId: this.getUserId(user) } },
+    ] }];
 
     const [total, items] = await this.prisma.$transaction([
       this.prisma.incidentReport.count({ where }),
@@ -363,6 +391,8 @@ export class IncidentReportsService {
     if (!report) throw new NotFoundException('Incident report not found');
 
     await this.validateBusinessAccess(report.businessId, user);
+    if (user.role === 'EMPLOYEE' && report.submittedById !== this.getUserId(user) && report.reporterId !== this.getUserId(user) && report.reportingOfficer?.userId !== this.getUserId(user))
+      throw new BadRequestException('You can only access your own reports');
     return report;
   }
 
@@ -373,7 +403,7 @@ export class IncidentReportsService {
     await this.validateBusinessAccess(report.businessId, user);
 
     const userId = this.getUserId(user);
-    const { images, persons, evidenceCollected, incidentAt, date, deviceInfo: clientDeviceInfo, geoLat, geoLng, ...rest } = data;
+    const { submissionId: _submissionId, deferEmail: _deferEmail, images, persons, evidenceCollected, incidentAt, date, deviceInfo: clientDeviceInfo, geoLat, geoLng, ...rest } = data;
     const nextIncidentAt = this.parseIsoDate(incidentAt || date) || null;
     const nextEvidenceCollected = evidenceCollected ? JSON.stringify(evidenceCollected) : undefined;
 
@@ -552,9 +582,7 @@ export class IncidentReportsService {
     user: any,
     file: { url: string; filename: string; originalName: string; mimeType?: string; sizeBytes?: number }
   ) {
-    const incident = await this.prisma.incidentReport.findUnique({ where: { id } });
-    if (!incident) throw new NotFoundException('Incident report not found');
-    await this.validateBusinessAccess(incident.businessId, user);
+    const incident = await this.findOne(id, user);
 
     const userId = this.getUserId(user);
     const mimeType = file.mimeType || '';

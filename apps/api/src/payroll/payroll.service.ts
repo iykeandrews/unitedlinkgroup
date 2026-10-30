@@ -23,6 +23,8 @@ import {
 } from "./us-tax";
 import { manualTaxes, validateRules } from "./manual-tax";
 import { createHash } from "crypto";
+import { PDFDocument } from 'pdf-lib';
+import { brandIssuedPayslip, PayslipLogoCache } from './payslip-branding';
 import { calculateHours } from "./hours";
 import { calendarBoundary, fullSalaryPeriod } from "./dates";
 
@@ -130,6 +132,7 @@ export class PayrollService {
   async downloadPayStubPdf(
     payStubId: string,
     user: any,
+    logos?: PayslipLogoCache,
   ): Promise<{ filename: string; data: Buffer }> {
     const stub = await this.prisma.payStub.findUnique({
       where: { id: payStubId },
@@ -154,7 +157,7 @@ export class PayrollService {
         throw new BadRequestException(
           "Original paystub verification failed. Contact payroll support.",
         );
-      return { filename: source.fileName, data };
+      return { filename: source.fileName, data: await brandIssuedPayslip(data, stub.payroll?.business, logos) };
     }
 
     const payDate = stub.payroll?.payDate
@@ -176,6 +179,21 @@ export class PayrollService {
     const pdf = await generatePayslipPdfBuffer(payrollData, businessData);
     const filename = `Payroll_${datePart}.pdf`;
     return { filename, data: pdf };
+  }
+
+  async downloadPayslipBatch(ids: string[], user: any): Promise<Buffer> {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 250 || ids.some(id => typeof id !== 'string' || !id))
+      throw new BadRequestException('Select between 1 and 250 payslips');
+    const doc = await PDFDocument.create();
+    const logos: PayslipLogoCache = new Map();
+    for (const id of [...new Set(ids)]) {
+      // Use precisely the same document and access checks as the mobile download.
+      const file = await this.downloadPayStubPdf(id, user, logos);
+      const source = await PDFDocument.load(file.data);
+      const pages = await doc.copyPages(source, source.getPageIndices());
+      pages.forEach(page => doc.addPage(page));
+    }
+    return Buffer.from(await doc.save());
   }
 
   private async assertPayStubAccess(stub: any, user: any) {

@@ -1,3 +1,4 @@
+import { loadInvoiceLogo } from "../invoices/invoice-logo";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -27,18 +28,7 @@ const formatCurrency = (amount: number, currencyCode: string = 'USD'): string =>
   }
 };
 
-const fetchLogo = async (url: string): Promise<LogoPayload> => {
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const contentType = res.headers.get('content-type') || '';
-  const arrayBuffer = await res.arrayBuffer();
-  const base64 = Buffer.from(arrayBuffer).toString('base64');
-  const isPng = contentType.toLowerCase().includes('png');
-  const isJpeg = contentType.toLowerCase().includes('jpeg') || contentType.toLowerCase().includes('jpg');
-  const format = isPng ? 'PNG' : isJpeg ? 'JPEG' : null;
-  if (!format) return null;
-  return { dataUrl: `data:${contentType};base64,${base64}`, format };
-};
+const fetchLogo = loadInvoiceLogo;
 
 export const generatePayslipPdfBuffer = async (payroll: any, business: any): Promise<Buffer> => {
   const doc = new jsPDF();
@@ -48,11 +38,7 @@ export const generatePayslipPdfBuffer = async (payroll: any, business: any): Pro
 
   let logo: LogoPayload = null;
   if (business?.logoUrl) {
-    try {
-      logo = await fetchLogo(String(business.logoUrl));
-    } catch {
-      logo = null;
-    }
+    logo = await fetchLogo(String(business.logoUrl));
   }
 
   for (let i = 0; i < stubs.length; i++) {
@@ -63,7 +49,7 @@ export const generatePayslipPdfBuffer = async (payroll: any, business: any): Pro
       doc.addPage();
     }
 
-    doc.setFontSize(22);
+    doc.setFontSize(18);
     doc.setTextColor(53, 101, 144);
     doc.setFont('helvetica', 'bold');
 
@@ -103,10 +89,10 @@ export const generatePayslipPdfBuffer = async (payroll: any, business: any): Pro
       doc.text(`Phone: ${business?.mobile || 'N/A'}`, 14, 38);
     }
 
-    doc.setFontSize(24);
+    doc.setFontSize(16);
     doc.setTextColor(53, 101, 144);
     doc.setFont('helvetica', 'bold');
-    doc.text(payroll.status === 'PAID' ? 'PAYSLIP' : 'DRAFT PAYSLIP', 196, 25, { align: 'right' });
+    doc.text(payroll.status === 'PAID' ? 'PAYSLIP' : 'DRAFT PAYSLIP', 196, 49, { align: 'right' });
 
     const topGridY = 55;
 

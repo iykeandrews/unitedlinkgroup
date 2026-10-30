@@ -158,6 +158,16 @@ export class PayrollController {
     return this.payrollService.getPayStubsForUser(req.user.userId);
   }
 
+  @Post('paystubs/download')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.FINANCE)
+  async downloadPayslipBatch(@Body() body: { ids: string[] }, @Request() req: any, @Res() res: Response) {
+    const data = await this.payrollService.downloadPayslipBatch(body?.ids, req.user);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="Payslips.pdf"');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.status(200).send(data);
+  }
+
   @Get("paystubs/:id/download")
   @Roles(
     UserRole.BUSINESS_ADMIN,
@@ -173,6 +183,7 @@ export class PayrollController {
   ) {
     const out = await this.payrollService.downloadPayStubPdf(id, req.user);
     res.setHeader("Content-Type", "application/pdf");
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="${out.filename}"`,

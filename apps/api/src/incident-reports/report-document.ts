@@ -1,5 +1,6 @@
 import {jsPDF} from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { reportCategoryLabel } from './report-category';
 export const reportDate=(value:any)=>value?new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',month:'2-digit',day:'2-digit',year:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(value)):'';
 const name=(person:any)=>person?`${person.firstName||''} ${person.lastName||''}`.trim():'';
 /** Client-facing document deliberately excludes internal investigation notes. */
@@ -8,7 +9,7 @@ export function reportPdf(reports:any[],business:any) {
   reports.forEach((report,index)=>{
     if(index) doc.addPage();
     doc.setFontSize(18);doc.setTextColor('#142d47');
-    doc.text('INCIDENT REPORT',14,20);
+    doc.text(reportCategoryLabel(report.type).toUpperCase(),14,20);
     doc.setFontSize(10);doc.setTextColor('#526477');
     const address=[business?.name,business?.address,[business?.city,business?.state,business?.zip].filter(Boolean).join(', ')].filter(Boolean).join('\n');
     doc.text(doc.splitTextToSize(address||'Security incident report',180),14,28);

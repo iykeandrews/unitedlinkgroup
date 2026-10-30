@@ -8,6 +8,7 @@ import { PushService } from '../push/push.service';
 import { UserRole } from '@unitedlinkgroup/types';
 import * as bcrypt from 'bcryptjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class EmployeesService {
@@ -264,6 +265,7 @@ export class EmployeesService {
     const whereClause: any = {
       employee: {
         businessId,
+        status: { in: ['ACTIVE', 'ON_LEAVE'] },
       },
       OR: [
         { status: 'EXPIRED' },
@@ -281,9 +283,8 @@ export class EmployeesService {
       const employee = await this.prisma.employee.findFirst({
         where: { userId: user.userId, businessId },
       });
-      if (employee) {
-        whereClause.employeeId = employee.id;
-      }
+      if (!employee) return [];
+      whereClause.employeeId = employee.id;
     }
 
     const qualifications = await this.prisma.qualification.findMany({
@@ -555,13 +556,15 @@ export class EmployeesService {
   async checkExpiringQualifications() {
     this.logger.log('Running checkExpiringQualifications cron job...');
     const now = new Date();
+    const reminderDay = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const today = new Date(`${reminderDay}T00:00:00Z`);
 
     // 1. Auto-update EXPIRED status
     // Find all active qualifications that have expired
     const expired = await this.prisma.qualification.findMany({
       where: {
-        status: { not: 'EXPIRED' },
-        expiryDate: { lt: now }
+        status: 'ACTIVE',
+        expiryDate: { lt: today }
       }
     });
 
@@ -578,58 +581,76 @@ export class EmployeesService {
     const expiringCandidates = await this.prisma.qualification.findMany({
       where: {
         status: 'ACTIVE',
-        expiryDate: { not: null, gt: now },
+        expiryDate: { not: null, gte: today },
+        employee: { status: { in: ['ACTIVE', 'ON_LEAVE'] } },
         type: { in: ['CERTIFICATION', 'LICENSE'] },
       },
       include: {
-        employee: { select: { id: true, firstName: true, lastName: true, userId: true } },
+        employee: { select: { id: true, firstName: true, lastName: true, userId: true, businessId: true, business: { select: { ownerId: true } } } },
       },
     });
 
     for (const qual of expiringCandidates) {
       const employee = (qual as any).employee;
-      const userId = employee?.userId;
-      if (!userId) continue;
-      if (!qual.expiryDate) continue;
+      const admins = qual.type === 'LICENSE' ? await this.prisma.employee.findMany({
+        where: { businessId: employee.businessId, status: 'ACTIVE', user: { role: UserRole.BUSINESS_ADMIN } },
+        select: { userId: true },
+      }) : [];
+      const recipients = [...new Set<string>([employee?.userId, ...(qual.type === 'LICENSE' ? [employee?.business?.ownerId, ...admins.map(a => a.userId)] : [])].filter(Boolean))];
+      for (const userId of recipients) {
+        if (!qual.expiryDate) continue;
 
-      const diffMs = new Date(qual.expiryDate).getTime() - now.getTime();
-      const daysUntil = diffMs / (1000 * 60 * 60 * 24);
+        const diffMs = new Date(new Date(qual.expiryDate).toISOString().slice(0, 10)).getTime() - today.getTime();
+        const daysUntil = diffMs / (1000 * 60 * 60 * 24);
 
-      let cadence: '48H' | '24H' | null = null;
-      let title = '';
-      let message = '';
+        let cadence: '48H' | '24H' | null = null;
+        let title = '';
+        let message = '';
 
-      if (daysUntil >= 60 && daysUntil <= 90) {
-        cadence = '48H';
-        title = 'Certification/license renewal reminder';
-        message = `Your ${String(qual.type).toLowerCase()} "${qual.name}" expires on ${new Date(qual.expiryDate).toLocaleDateString()}. Please renew it soon.`;
-      } else if (String(qual.type).toUpperCase() === 'LICENSE' && daysUntil > 0 && daysUntil < 30) {
-        cadence = '24H';
-        title = 'License expiring soon';
-        message = `Your license "${qual.name}" expires on ${new Date(qual.expiryDate).toLocaleDateString()}. Renew now to avoid interruption.`;
+        if (String(qual.type).toUpperCase() === 'LICENSE' && daysUntil >= 0 && daysUntil <= 90) {
+          cadence = '24H';
+          title = 'License renewal reminder';
+          const subject = userId === employee?.userId ? 'Your' : `${employee.firstName} ${employee.lastName}’s`;
+          message = `${subject} license "${qual.name}" expires on ${new Date(qual.expiryDate).toLocaleDateString('en-US', { timeZone: 'UTC' })}. ${daysUntil === 0 ? 'It expires today.' : `${daysUntil} days remaining.`} Please arrange renewal.`;
+        } else if (String(qual.type).toUpperCase() === 'CERTIFICATION' && daysUntil >= 60 && daysUntil <= 90) {
+          cadence = '48H';
+          title = 'Certification/license renewal reminder';
+          message = `Your ${String(qual.type).toLowerCase()} "${qual.name}" expires on ${new Date(qual.expiryDate).toLocaleDateString()}. Please renew it soon.`;
+
+        }
+
+        if (!cadence) continue;
+
+        const intervalHours = cadence === '48H' ? 48 : 24;
+        const cutoff = new Date(now.getTime() - intervalHours * 60 * 60 * 1000);
+        const needle = `"qualificationId":"${qual.id}"`;
+        const cadenceNeedle = `"cadence":"${cadence}"`;
+        const existing = qual.type === 'LICENSE' ? null : await this.prisma.notification.findFirst({
+          where: {
+            userId,
+            type: 'WARNING',
+            createdAt: { gte: cutoff },
+            AND: [{ metadata: { contains: needle } }, { metadata: { contains: cadenceNeedle } }],
+          },
+          select: { id: true },
+        });
+        if (existing) continue;
+
+        const metadata = { kind: 'QUALIFICATION_REMINDER', qualificationId: qual.id, cadence, expiryDate: new Date(qual.expiryDate).toISOString().slice(0, 10), reminderDate: reminderDay };
+        if (qual.type === 'LICENSE') {
+          const id = createHash('sha256').update(`license:${userId}:${qual.id}:${metadata.expiryDate}:${reminderDay}`).digest('hex');
+          try {
+            await this.prisma.notification.create({ data: { id, userId, type: 'WARNING', title, message, metadata: JSON.stringify(metadata) } });
+          } catch (error: any) {
+            if (error?.code === 'P2002') continue;
+            throw error;
+          }
+        } else {
+          await this.notificationsService.createNotification(userId, 'WARNING', title, message, metadata);
+        }
+        await this.notificationsService.sendPush(userId, { type: 'WARNING', title, message, metadata });
+        await this.push.send(userId, { type: 'WARNING', title, message, metadata, actionUrl: userId === employee?.userId ? '/dashboard/profile?tab=qualifications' : '/dashboard' });
       }
-
-      if (!cadence) continue;
-
-      const intervalHours = cadence === '48H' ? 48 : 24;
-      const cutoff = new Date(now.getTime() - intervalHours * 60 * 60 * 1000);
-      const needle = `"qualificationId":"${qual.id}"`;
-      const cadenceNeedle = `"cadence":"${cadence}"`;
-      const existing = await this.prisma.notification.findFirst({
-        where: {
-          userId,
-          type: 'WARNING',
-          createdAt: { gte: cutoff },
-          AND: [{ metadata: { contains: needle } }, { metadata: { contains: cadenceNeedle } }],
-        },
-        select: { id: true },
-      });
-      if (existing) continue;
-
-      const metadata = { kind: 'QUALIFICATION_REMINDER', qualificationId: qual.id, cadence };
-      await this.notificationsService.createNotification(userId, 'WARNING', title, message, metadata);
-      await this.notificationsService.sendPush(userId, { type: 'WARNING', title, message, metadata });
-      await this.push.send(userId, { type: 'WARNING', title, message, metadata, actionUrl: '/dashboard/profile?tab=qualifications' });
     }
   }
 
