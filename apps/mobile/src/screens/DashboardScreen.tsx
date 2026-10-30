@@ -94,9 +94,12 @@ export default function DashboardScreen() {
   const isEmployee = roleUpper === 'EMPLOYEE';
   const canFetchBusinessMine = roleUpper !== 'SUPER_ADMIN';
 
+  const [licenseReminders, setLicenseReminders] = useState<any[]>([]);
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      const qualifications = await api.get('/employees/qualifications/expiring').catch(() => ({ data: [] }));
+      setLicenseReminders((qualifications.data || []).filter((q: any) => q.type === 'LICENSE' && q.expiryDate));
       if (!isEmployee) {
         if (canFetchBusinessMine) {
           const businessRes = await api.get('/businesses/mine').catch(() => ({ data: null }));
@@ -478,6 +481,13 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchData} tintColor={palette.cyan as any} />}
       >
+        {licenseReminders.length > 0 && <View accessibilityLabel="License renewal reminders" style={{ backgroundColor: '#fff7ed', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+          <Text style={{ color: '#78350f', fontSize: 18, fontWeight: '700', marginBottom: 8 }}>License renewal reminders</Text>
+          {licenseReminders.map(q => {
+            const date = String(q.expiryDate).slice(0, 10).split('-');
+            return <Text key={q.id} style={{ color: '#78350f', marginBottom: 8 }}>{q.employee?.firstName} {q.employee?.lastName} — {q.name}: {q.status === 'EXPIRED' ? 'Expired' : 'Expires'} {date[1]}/{date[2]}/{date[0]}</Text>;
+          })}
+        </View>}
         <View style={styles.header}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={[styles.kicker, { color: palette.muted }]}>{designation ? `${designation} Command Center` : 'Command Center'}</Text>

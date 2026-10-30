@@ -3,6 +3,7 @@ import { AuthProvider } from './src/context/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import AppUpdateReminder from './src/components/AppUpdateReminder';
 
 export default function App() {
   console.log('App render');
@@ -10,6 +11,7 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <ErrorBoundary>
+          <AppUpdateReminder />
           <AppNavigator />
         </ErrorBoundary>
       </AuthProvider>

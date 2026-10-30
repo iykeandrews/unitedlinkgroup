@@ -3,10 +3,39 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import api, { refreshSession } from "./api";
 import { getAccessToken } from "./sessionStore";
+
+async function downloadFile(
+  url: string,
+  uri: string,
+  headers: Record<string, string>,
+) {
+  const task = FileSystem.createDownloadResumable(url, uri, { headers });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      task.downloadAsync(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          void task.cancelAsync().catch(() => {});
+          reject(
+            Error(
+              "The download timed out. Please check your connection and try again.",
+            ),
+          );
+        }, 60000);
+      }),
+    ]);
+    if (!result) throw Error("The download was cancelled. Please try again.");
+    return result;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 export async function shareMobileFile(
   path: string,
   filename: string,
   pdf = false,
+  onShareReady?: () => void,
 ) {
   const base = String(api.defaults.baseURL || "").replace(/\/$/, "");
   const target = new URL(
@@ -48,14 +77,10 @@ export async function shareMobileFile(
   }
   const directory = FileSystem.cacheDirectory;
   if (!directory) throw Error("File storage is unavailable");
-  let result = await FileSystem.downloadAsync(target.href, directory + safe, {
-    headers,
-  });
+  let result = await downloadFile(target.href, directory + safe, headers);
   if (trusted && result.status === 401 && (await getAccessToken())) {
     headers.Authorization = "Bearer " + (await refreshSession());
-    result = await FileSystem.downloadAsync(target.href, directory + safe, {
-      headers,
-    });
+    result = await downloadFile(target.href, directory + safe, headers);
   }
   if (result.status !== 200) {
     await FileSystem.deleteAsync(result.uri, { idempotent: true });
@@ -76,6 +101,9 @@ export async function shareMobileFile(
   }
   if (!(await Sharing.isAvailableAsync()))
     throw Error("File sharing is not available on this device");
+  // Some share extensions never settle their native promise after cancellation.
+  // The download is finished; callers must not keep their UI locked on that promise.
+  onShareReady?.();
   await Sharing.shareAsync(
     result.uri,
     pdf

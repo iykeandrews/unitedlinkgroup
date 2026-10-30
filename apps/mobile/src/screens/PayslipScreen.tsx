@@ -1,10 +1,10 @@
 import { shareMobileFile } from "../services/mobileFiles";
 import { useFocusEffect } from "@react-navigation/native";
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
+  BackHandler,
   RefreshControl,
   ScrollView,
   StatusBar,
@@ -30,6 +30,16 @@ export default function PayslipScreen() {
   const [selected, setSelected] = useState<any | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const downloadInProgress = useRef(false);
+  const downloadAttempt = useRef(0);
+  useEffect(() => {
+    if (!showDetails) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setShowDetails(false);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [showDetails]);
   const isEmployee = useMemo(() => !!user?.employeeId, [user?.role]);
 
   const fetchPayslips = useCallback(async () => {
@@ -55,7 +65,9 @@ export default function PayslipScreen() {
 
   const downloadPayStub = useCallback(async () => {
     if (!selected?.id) return;
-    if (downloading) return;
+    if (downloadInProgress.current) return;
+    downloadInProgress.current = true;
+    const attempt = ++downloadAttempt.current;
 
     try {
       setDownloading(true);
@@ -63,6 +75,11 @@ export default function PayslipScreen() {
         `/payroll/paystubs/${selected.id}/download`,
         `paystub_${selected.id}.pdf`,
         true,
+        () => {
+          if (downloadAttempt.current !== attempt) return;
+          downloadInProgress.current = false;
+          setDownloading(false);
+        },
       );
     } catch (e: any) {
       Alert.alert(
@@ -74,7 +91,10 @@ export default function PayslipScreen() {
         ),
       );
     } finally {
-      setDownloading(false);
+      if (downloadAttempt.current === attempt) {
+        downloadInProgress.current = false;
+        setDownloading(false);
+      }
     }
   }, [downloading, selected]);
 
@@ -497,7 +517,9 @@ export default function PayslipScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={showDetails} animationType="slide" transparent>
+      {/* Keep details in the screen hierarchy so native Save/WhatsApp sharing
+          does not compete with another presented native modal. */}
+      {showDetails && <View accessibilityViewIsModal style={StyleSheet.absoluteFill}>
         <View style={styles.modalOverlay}>
           <View
             style={[
@@ -726,7 +748,7 @@ export default function PayslipScreen() {
             )}
           </View>
         </View>
-      </Modal>
+      </View>}
     </SafeAreaView>
   );
 }

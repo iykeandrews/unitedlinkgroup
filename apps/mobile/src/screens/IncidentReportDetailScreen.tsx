@@ -1,3 +1,4 @@
+import { reportAssetUrl } from "../services/reportAssetUrl";
 import { getAccessToken } from "../services/sessionStore";
 import React, { useCallback, useState } from "react";
 import {
@@ -94,23 +95,7 @@ export default function IncidentReportDetailScreen() {
   const [error, setError] = useState<string>("");
   const [incident, setIncident] = useState<IncidentDetail | null>(null);
 
-  const toAuthedUrl = useCallback(
-    (pathOrUrl: string) => {
-      const base = String((api.defaults as any).baseURL || "").replace(
-        /\/$/,
-        "",
-      );
-      const p = String(pathOrUrl || "").trim();
-      const url = p.startsWith("http")
-        ? p
-        : `${base}${p.startsWith("/") ? "" : "/"}${p}`;
-      const t = String(token || "").trim();
-      if (!t) return url;
-      const sep = url.includes("?") ? "&" : "?";
-      return `${url}${sep}token=${encodeURIComponent(t)}`;
-    },
-    [token],
-  );
+  const toAuthedUrl = useCallback((path: string) => reportAssetUrl(String(api.defaults.baseURL || ""), path, token), [token]);
 
   const fetchDetail = useCallback(
     async (opts?: { showSpinner?: boolean }) => {
