@@ -15,6 +15,7 @@ import ChatThreadScreen from "../screens/ChatThreadScreen";
 import IncidentReportCreateScreen from "../screens/IncidentReportCreateScreen";
 import IncidentReportHistoryScreen from "../screens/IncidentReportHistoryScreen";
 import IncidentReportDetailScreen from "../screens/IncidentReportDetailScreen";
+import MyQueriesScreen from '../screens/MyQueriesScreen';
 import { useAuth } from "../context/AuthContext";
 import {
   addNotificationResponseListener,
@@ -35,7 +36,11 @@ export default function AppNavigator() {
   const pendingOperations = React.useRef(false),
     signedIn = React.useRef(user);
   signedIn.current = user;
+  const pendingQuery = React.useRef('');
   const flushOperations = () => {
+    if(pendingQuery.current && signedIn.current && navigationRef.isReady()) {
+      const caseId=pendingQuery.current;pendingQuery.current='';navigate('MyQueries',{caseId});
+    }
     if (
       pendingOperations.current &&
       signedIn.current &&
@@ -58,6 +63,10 @@ export default function AppNavigator() {
       await configureExpoNotifications();
       sub = await addNotificationResponseListener((url?: string) => {
         const raw = String(url || "");
+        if(raw.includes('/dashboard/insights/queries')) {
+          pendingQuery.current=decodeURIComponent(raw.match(/[?&]caseId=([^&]+)/)?.[1]||'');
+          flushOperations();return;
+        }
         const threadIdMatch = raw.match(/[?&]threadId=([^&]+)/);
         if (threadIdMatch?.[1]) {
           const threadId = decodeURIComponent(threadIdMatch[1]);
@@ -143,6 +152,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Availability" component={AvailabilityScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Information" component={InformationScreen} />
+            <Stack.Screen name="MyQueries" component={MyQueriesScreen} />
             <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
             <Stack.Screen
               name="IncidentReportCreate"

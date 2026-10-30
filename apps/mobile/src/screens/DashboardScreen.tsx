@@ -715,6 +715,7 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        <TouchableOpacity accessibilityRole="button" onPress={() => navigation.navigate("MyQueries")} style={{ backgroundColor: palette.panel, padding: 18, borderRadius: 16, borderWidth: 1, borderColor: palette.border, marginBottom: 16 }}><Text style={{ color: palette.text, fontWeight: "800", fontSize: 16 }}>My queries & company decisions</Text><Text style={{ color: palette.muted, marginTop: 6 }}>Review queries, submit your response and follow resolutions.</Text></TouchableOpacity>
         <Text style={[styles.sectionTitle, { color: palette.text }]}>Quick actions</Text>
         <View style={styles.quickRow}>
           <TouchableOpacity
