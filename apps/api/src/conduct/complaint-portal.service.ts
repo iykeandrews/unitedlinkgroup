@@ -250,7 +250,7 @@ export class ComplaintPortalService {
           to: email,
           subject: `Complaint received · ${row!.reference} · ${business.name}`,
           text,
-          html: `<div style="font-family:Arial,sans-serif;max-width:620px;color:#142d47;line-height:1.7"><h2>Your complaint has been received</h2><p>Ticket <strong>${escape(row!.reference)}</strong></p><div style="white-space:pre-wrap">${escape(text)}</div></div>`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:620px;color:#142d47;line-height:1.7"><h2>Your complaint has been received</h2><p>Ticket <strong>${escape(row!.reference)}</strong></p><p><a href="${escape(trackingUrl)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Track your complaint</a></p><div style="white-space:pre-wrap">${escape(text)}</div></div>`,
         });
         receipt = "SENT";
       } catch {
