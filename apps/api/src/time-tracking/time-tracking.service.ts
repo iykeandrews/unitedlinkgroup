@@ -644,13 +644,45 @@ export class TimeTrackingService {
     return employee.id;
   }
 
+  private async requireFieldManager(user:any) {
+    const access=await this.operations?.access(user);
+    if(!access?.canFieldClock || !access.employeeId) throw new ForbiddenException('Manager clock-in requires an active manager employee profile');
+    return access;
+  }
+
+  async fieldStatus(user:any) {
+    const access=await this.requireFieldManager(user);
+    return this.prisma.timesheet.findFirst({where:{employeeId:access.employeeId,endTime:null},select:{id:true,startTime:true,location:{select:{id:true,name:true}},breaks:{where:{endTime:null},select:{id:true,startTime:true}}}});
+  }
+
+  async fieldAction(user:any,body:{action:string;lat?:number;lng?:number},ip?:string) {
+    const access=await this.requireFieldManager(user);
+    if(body.action==='clock-out')return this.clockOut(access.employeeId!,ip,undefined,body.lat,body.lng);
+    if(body.action==='break')return this.startBreak(access.employeeId!,'UNPAID',body.lat,body.lng);
+    if(body.action==='resume')return this.endBreak(access.employeeId!,body.lat,body.lng);
+    throw new BadRequestException('Choose clock-out, break or resume');
+  }
+
+  async fieldClockIn(user:any,body:{lat?:number;lng?:number;locationId?:string},ip?:string) {
+    const access=await this.requireFieldManager(user);
+    const {lat,lng}=body;
+    if(typeof lat!=='number'||!Number.isFinite(lat)||Math.abs(lat)>90||typeof lng!=='number'||!Number.isFinite(lng)||Math.abs(lng)>180)throw new BadRequestException('Enable GPS to identify your work location');
+    const sites=await this.prisma.location.findMany({where:{businessId:access.businessId,status:'ACTIVE',...(body.locationId?{id:body.locationId}:{})},select:{id:true,name:true,geoLat:true,geoLng:true,radius:true,timeZone:true}});
+    const nearby=sites.filter(s=>typeof s.geoLat==='number'&&typeof s.geoLng==='number').map(s=>({...s,distance:this.calculateDistance(lat,lng,s.geoLat!,s.geoLng!)})).filter(s=>s.distance<=(s.radius&&s.radius>0?s.radius:100)).sort((a,b)=>a.distance-b.distance);
+    if(!nearby.length)throw new BadRequestException('No registered site is within your GPS clock-in boundary. Contact the administrator to check the site location.');
+    // Do not silently choose between overlapping client-site boundaries.
+    if(nearby.length>1&&!body.locationId)return {requiresLocationSelection:true,locations:nearby.map(s=>({id:s.id,name:s.name}))};
+    const site=nearby[0];
+    return this.clockIn(access.employeeId!,site.id,lat,lng,ip,{timeZone:site.timeZone,fieldSchedule:{businessId:access.businessId,userId:user.userId||user.sub||user.id}});
+  }
+
   async clockIn(
     employeeId: string,
     locationId: string | undefined,
     lat: number | undefined,
     lng: number | undefined,
     ip?: string,
-    opts?: { bypassGeofence?: boolean; workerType?: string; timeZone?: string },
+    opts?: { bypassGeofence?: boolean; workerType?: string; timeZone?: string; fieldSchedule?: {businessId:string;userId:string} },
   ): Promise<Timesheet> {
     // Check if already clocked in
     const activeTimesheet = await this.prisma.timesheet.findFirst({
@@ -768,7 +800,7 @@ export class TimeTrackingService {
           "This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.",
         );
       }
-      return tx.timesheet.create({
+      const created = await tx.timesheet.create({
         data: {
           timeZone: opts?.timeZone || siteZone?.timeZone || "America/New_York",
           employeeId,
@@ -783,6 +815,12 @@ export class TimeTrackingService {
             typeof lng === "number" && Number.isFinite(lng) ? lng : undefined,
         },
       });
+      if(opts?.fieldSchedule) {
+        const planned=await tx.shift.findFirst({where:{businessId:opts.fieldSchedule.businessId,employeeId,locationId,status:{in:['PUBLISHED','COMPLETED']},startTime:{lte:created.startTime},endTime:{gt:created.startTime}}});
+        if(!planned)await tx.shift.create({data:{businessId:opts.fieldSchedule.businessId,employeeId,locationId,startTime:created.startTime,endTime:new Date(+created.startTime+8*3600000),timeZone:created.timeZone,status:'PUBLISHED',groupId:`FIELD_CLOCK:${created.id}`,notes:'Manager site attendance. End time is provisional until clock-out.',reminderSent1h:true,reminderSent30m:true,reminderSent10m:true,reminderEnd5mSent:true,reminderEndLate10mSent:true,autoClockout1hDone:true}});
+        await tx.auditLog.create({data:{businessId:opts.fieldSchedule.businessId,userId:opts.fieldSchedule.userId,action:'MANAGER_SITE_CLOCK_IN',resource:'TIMESHEET',resourceId:created.id,details:JSON.stringify({employeeId,locationId,calendarEntryCreated:!planned})}});
+      }
+      return created;
     });
 
     void this.operations?.notify(employeeId, "clocked in", timesheet);
@@ -1278,6 +1316,7 @@ export class TimeTrackingService {
           },
         });
         await this.applyShortShiftBreakRule(tx, updated);
+        await tx.shift.updateMany({where:{groupId:`FIELD_CLOCK:${updated.id}`,employeeId:updated.employeeId,locationId:updated.locationId},data:{endTime:updated.endTime!,status:'COMPLETED',notes:'Manager site attendance recorded from GPS clock-in to clock-out.'}});
         return updated;
       },
       { timeout: 15000 },

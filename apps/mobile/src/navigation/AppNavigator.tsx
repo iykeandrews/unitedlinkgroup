@@ -15,6 +15,7 @@ import ChatThreadScreen from "../screens/ChatThreadScreen";
 import IncidentReportCreateScreen from "../screens/IncidentReportCreateScreen";
 import IncidentReportHistoryScreen from "../screens/IncidentReportHistoryScreen";
 import IncidentReportDetailScreen from "../screens/IncidentReportDetailScreen";
+import OfficerAssessmentsScreen from '../screens/OfficerAssessmentsScreen';
 import MyQueriesScreen from '../screens/MyQueriesScreen';
 import { useAuth } from "../context/AuthContext";
 import {
@@ -37,7 +38,9 @@ export default function AppNavigator() {
     signedIn = React.useRef(user);
   signedIn.current = user;
   const pendingQuery = React.useRef('');
+  const pendingAssessment=React.useRef(false);
   const flushOperations = () => {
+    if(pendingAssessment.current && signedIn.current && navigationRef.isReady()){pendingAssessment.current=false;navigate("OfficerAssessments");}
     if(pendingQuery.current && signedIn.current && navigationRef.isReady()) {
       const caseId=pendingQuery.current;pendingQuery.current='';navigate('MyQueries',{caseId});
     }
@@ -63,6 +66,7 @@ export default function AppNavigator() {
       await configureExpoNotifications();
       sub = await addNotificationResponseListener((url?: string) => {
         const raw = String(url || "");
+        if(raw.includes("/mobile/assessments")){pendingAssessment.current=true;flushOperations();return;}
         if(raw.includes('/dashboard/insights/queries')) {
           pendingQuery.current=decodeURIComponent(raw.match(/[?&]caseId=([^&]+)/)?.[1]||'');
           flushOperations();return;
@@ -152,6 +156,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Availability" component={AvailabilityScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Information" component={InformationScreen} />
+            <Stack.Screen name="OfficerAssessments" component={OfficerAssessmentsScreen} />
             <Stack.Screen name="MyQueries" component={MyQueriesScreen} />
             <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
             <Stack.Screen

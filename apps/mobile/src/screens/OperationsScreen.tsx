@@ -68,7 +68,7 @@ export default function OperationsScreen() {
             setData(response.data);
             setError("");
           }
-          if (response.data.canManage) {
+          if (response.data.canView) {
             const notifications = await api.get("/notifications", {
               signal: controller.signal,
             });
@@ -350,16 +350,17 @@ export default function OperationsScreen() {
         }
       >
         <Text style={styles.title}>Team operations</Text>
+        {data?.canView && button("Officer assessments",()=>navigate("OfficerAssessments"))}
         <Text style={styles.muted}>
           {data?.canManage
             ? "Business-wide scheduling and attendance"
-            : "Read-only follow-up at your scheduled locations and dates"}{" "}
+            : "Business-wide schedule and attendance monitoring"}{" "}
           · Refreshes every 15 seconds
         </Text>
         <View style={styles.row}>
           {user?.employeeId &&
             button("My schedule", () =>
-              navigate("Schedule", { screen: "PersonalSchedule" }),
+              navigate("Main", {screen:"Schedule",params:{screen:"PersonalSchedule"}}),
             )}
           {button(
             date.split("-").slice(1).concat(date.slice(0, 4)).join("/"),
@@ -368,7 +369,7 @@ export default function OperationsScreen() {
               setDatePicker(true);
             },
           )}
-          {data?.canManage &&
+          {data?.canView &&
             button(`Alerts (${alerts.filter((a) => !a.read).length})`, () =>
               setShowAlerts(true),
             )}

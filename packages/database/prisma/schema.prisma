@@ -10,6 +10,7 @@ datasource db {
 
 // Global Users (Super Admins / Owners)
 model User {
+  officerAssessments OfficerAssessment[]
   mobileSessions MobileSession[]
   id        String   @id @default(uuid())
   email     String   @unique
@@ -51,6 +52,7 @@ model User {
 
 // The Tenant
 model Business {
+  officerAssessments OfficerAssessment[]
   complaintPortalKey String? @unique
   conductCases ConductCase[]
   id          String   @id @default(uuid())
@@ -162,6 +164,7 @@ model Role {
 }
 
 model Employee {
+  officerAssessments OfficerAssessment[]
   conductCases ConductCase[]
   officerCategory String? // ARMED_SPO, UNARMED_SPO, SO, SG, PD, ASG; separate from access roles
   id          String   @id @default(uuid())
@@ -541,6 +544,7 @@ model Client {
 }
 
 model Location {
+  officerAssessments OfficerAssessment[]
   billingServices String @default("[]") // Client service descriptions and hourly billing rates; independent of employee pay.
   billingServicesVersion Int @default(0)
   timeZone String @default("America/New_York")
@@ -1708,4 +1712,29 @@ model ConductCaseEvent {
   changes String?
   createdAt DateTime @default(now())
   @@index([caseId, createdAt])
+}
+
+
+// Immutable, employee-visible field assessments. Corrections are new assessments.
+model OfficerAssessment {
+  id String @id @default(uuid())
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  locationId String
+  location Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  evaluatorUserId String
+  evaluator User @relation(fields: [evaluatorUserId], references: [id], onDelete: Restrict)
+  submissionId String @unique
+  observedAt DateTime
+  ratings String
+  checklist String
+  score Float
+  notes String
+  action String
+  followUpAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([businessId, createdAt])
+  @@index([businessId, employeeId, createdAt])
 }

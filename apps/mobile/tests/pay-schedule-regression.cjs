@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const ts=require('typescript'),fs=require('node:fs');
+const source=fs.readFileSync('apps/mobile/src/services/paySchedule.ts','utf8');
+const mod={exports:{}};new Function('exports',ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText)(mod.exports);
+const next=mod.exports.nextPaycheck;
+assert.deepEqual(next(new Date('2026-11-03T12:00Z')),{due:'2026-11-15',start:'2026-10-16',end:'2026-10-31'});
+assert.deepEqual(next(new Date('2026-11-16T12:00Z')),{due:'2026-12-01',start:'2026-11-01',end:'2026-11-15'});
+assert.deepEqual(next(new Date('2027-01-01T12:00Z')),{due:'2027-01-01',start:'2026-12-01',end:'2026-12-15'});
+assert.deepEqual(next(new Date('2028-03-02T12:00Z')),{due:'2028-03-15',start:'2028-02-16',end:'2028-02-29'});
+assert.equal(next(new Date('2026-11-16T02:00Z')).due,'2026-11-15');
+assert.equal(mod.exports.payDateLabel('2026-11-15'),'11/15/2026');
+console.log('Pay schedule passed: both pay periods, deadline days, year rollover, leap years and US operating dates.');

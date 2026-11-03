@@ -536,7 +536,7 @@ export default function SchedulingScreen() {
           {teamAccess && (
             <TouchableOpacity
               accessibilityLabel="Team operations"
-              onPress={() => navigate("Schedule", { screen: "TeamOperations" })}
+              onPress={() => navigate("Main", {screen:"Schedule",params:{screen:"TeamOperations"}})}
               style={[styles.historyBtn, { borderColor: palette.border }]}
             >
               <Ionicons name="people-outline" size={18} color={palette.cyan} />
@@ -550,7 +550,7 @@ export default function SchedulingScreen() {
                 backgroundColor: palette.panelStrong,
               },
             ]}
-            onPress={() => navigate("Schedule", { screen: "CalloutHistory" })}
+            onPress={() => navigate("Main", {screen:"Schedule",params:{screen:"CalloutHistory"}})}
           >
             <Ionicons
               name="time-outline"

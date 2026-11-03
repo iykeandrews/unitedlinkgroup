@@ -96,7 +96,8 @@ export class MobileOperationsService {
       employeeId: employee?.id,
       canManage,
       canView,
-      scope: canManage ? "BUSINESS" : "SCHEDULED_LOCATIONS",
+      canFieldClock: !!employee && (canManage || /\bMANAGER\b/i.test(`${employee.role} ${account.role} ${employee.customRole?.name || ""} ${employee.department?.name || ""}`)),
+      scope: "BUSINESS",
     };
   }
   async roster(user: any, dateText?: string) {
@@ -116,28 +117,6 @@ export class MobileOperationsService {
     const lower = new Date(Date.parse(date + "T00:00:00Z") - 86400000),
       upper = new Date(Date.parse(date + "T00:00:00Z") + 2 * 86400000);
     let locationIds: string[] | undefined;
-    if (!access.canManage) {
-      const own = await this.prisma.shift.findMany({
-        where: {
-          businessId: access.businessId,
-          employeeId: access.employeeId,
-          status: { in: ["PUBLISHED", "COMPLETED"] },
-          startTime: { lt: upper },
-          endTime: { gt: lower },
-        },
-        include: { location: true },
-      });
-      locationIds = [
-        ...new Set(
-          own
-            .filter((s) => onSiteDate(s, date))
-            .map((s) => s.locationId)
-            .filter(Boolean),
-        ),
-      ] as string[];
-      if (!locationIds.length)
-        return { ...access, date, shifts: [], active: [], officers: [] };
-    }
     const shifts = await this.prisma.shift.findMany({
       where: {
         businessId: access.businessId,
@@ -218,14 +197,14 @@ export class MobileOperationsService {
                 : "SCHEDULED";
       return { ...s, attendance, state };
     });
-    const officers = access.canManage
+    const officers = access.canView
       ? await this.prisma.employee.findMany({
           where: { businessId: access.businessId, status: "ACTIVE" },
           select: officerSelect,
           orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
         })
       : [];
-    const active = access.canManage
+    const active = access.canView
       ? await this.prisma.timesheet.findMany({
           where: {
             employee: { businessId: access.businessId },
@@ -309,13 +288,9 @@ export class MobileOperationsService {
           where: {
             businessId: employee.businessId,
             status: "ACTIVE",
-            OR: [
-              { role: "BUSINESS_ADMIN" },
-              { user: { role: "BUSINESS_ADMIN" } },
-            ],
             userId: { not: null },
           },
-          select: { userId: true },
+          include: { user: {select: {role: true}}, customRole: true, department: true },
         }),
         this.prisma.user.findMany({
           where: { role: "SUPER_ADMIN" },
@@ -325,7 +300,7 @@ export class MobileOperationsService {
       const recipients = new Set(
         [
           employee.business.ownerId,
-          ...admins.map((a) => a.userId),
+          ...admins.filter(a => a.role === "BUSINESS_ADMIN" || a.user?.role === "BUSINESS_ADMIN" || isFieldLeader({...a,role:a.role+" "+a.user?.role})).map((a) => a.userId),
           ...supers.map((a) => a.id),
         ].filter(Boolean) as string[],
       );

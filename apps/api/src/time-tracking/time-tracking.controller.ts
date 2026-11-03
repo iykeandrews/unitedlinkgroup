@@ -1,4 +1,5 @@
 import { MobileOperationsService } from "./mobile-operations.service";
+import { OfficerAssessmentsService } from './officer-assessments.service';
 import {
   Controller,
   Post,
@@ -32,15 +33,33 @@ export class TimeTrackingController {
   constructor(
     private readonly timeTrackingService: TimeTrackingService,
     private readonly operations: MobileOperationsService,
+    private readonly assessments: OfficerAssessmentsService,
   ) {}
 
+  @Get('assessments/options')
+  assessmentOptions(@User() user:any,@Headers("x-business-id") businessId?:string) {return this.assessments.options({...user,businessId:businessId||user.businessId});}
+  @Get('assessments')
+  assessmentList(@User() user:any,@Query('page') page?:string,@Headers("x-business-id") businessId?:string) {return this.assessments.list({...user,businessId:businessId||user.businessId},page);}
+  @Post('assessments')
+  assessmentCreate(@User() user:any,@Body() body:any,@Headers("x-business-id") businessId?:string) {return this.assessments.create({...user,businessId:businessId||user.businessId},body);}
+  @Post('field/clock-in')
+  fieldClockIn(@User() user:any,@Body() body:{lat?:number;lng?:number;locationId?:string},@Ip() ip:string,@Headers("x-business-id") businessId?:string) {
+    return this.timeTrackingService.fieldClockIn({...user,businessId:businessId||user.businessId},body,ip);
+  }
+  @Post('field/action')
+  fieldAction(@User() user:any,@Body() body:{action:string;lat?:number;lng?:number},@Ip() ip:string,@Headers("x-business-id") businessId?:string) {
+    return this.timeTrackingService.fieldAction({...user,businessId:businessId||user.businessId},body,ip);
+  }
+  @Get('field/status')
+  fieldStatus(@User() user:any,@Headers("x-business-id") businessId?:string) {return this.timeTrackingService.fieldStatus({...user,businessId:businessId||user.businessId});}
+
   @Get("operations/access")
-  operationsAccess(@User() user: any) {
-    return this.operations.access(user);
+  operationsAccess(@User() user: any,@Headers("x-business-id") businessId?:string) {
+    return this.operations.access({...user,businessId:businessId||user.businessId});
   }
   @Get("operations/roster")
-  operationsRoster(@User() user: any, @Query("date") date?: string) {
-    return this.operations.roster(user, date);
+  operationsRoster(@User() user: any, @Query("date") date?: string,@Headers("x-business-id") businessId?:string) {
+    return this.operations.roster({...user,businessId:businessId||user.businessId}, date);
   }
   @Post("operations/break")
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)

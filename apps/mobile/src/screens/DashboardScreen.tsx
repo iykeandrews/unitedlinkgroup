@@ -1,3 +1,4 @@
+import FieldOperationsPanel from '../components/FieldOperationsPanel';
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, Alert, StatusBar, Image, Linking, Platform } from 'react-native';
 import { useAuth } from '../context/AuthContext';
@@ -481,6 +482,7 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchData} tintColor={palette.cyan as any} />}
       >
+        <FieldOperationsPanel />
         {licenseReminders.length > 0 && <View accessibilityLabel="License renewal reminders" style={{ backgroundColor: '#fff7ed', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 12, padding: 16, marginBottom: 16 }}>
           <Text style={{ color: '#78350f', fontSize: 18, fontWeight: '700', marginBottom: 8 }}>License renewal reminders</Text>
           {licenseReminders.map(q => {

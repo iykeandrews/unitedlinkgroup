@@ -58,20 +58,29 @@ async function main() {
   const result = await service.roster(actor, "2026-10-19");
   assert.equal(result.canManage, false);
   assert.equal(result.shifts.length, 1);
-  assert.deepEqual(queried.where.locationId, { in: ["a"] });
+  assert.equal(queried.where.locationId, undefined);
   assert.equal(queried.where.status.in.includes("DRAFT"), false);
   await assert.rejects(
     () => service.requireAdmin(actor),
     /Only administrators/,
   );
   own = false;
-  assert.equal((await service.roster(actor, "2026-10-19")).shifts.length, 0);
+  assert.equal((await service.roster(actor, "2026-10-19")).shifts.length, 1);
   own = true;
   title = "Security Officer";
   await assert.rejects(
     () => service.roster({ ...actor, role: "SUPER_ADMIN" }, "2026-10-19"),
     /requires an administrator/,
   );
+  title = 'Manager';
+  assert.equal((await service.access(actor)).canFieldClock, true);
+  title = 'Supervisor';
+  assert.equal((await service.access(actor)).canView, true);
+  assert.equal((await service.access(actor)).canFieldClock, false);
+  title = 'Security Officer';
+  role = 'MANAGER';
+  assert.equal((await service.access(actor)).canView, true);
+  assert.equal((await service.access(actor)).canFieldClock, true);
   role = "BUSINESS_ADMIN";
   const access = await service.access(actor);
   assert.equal(access.canManage, true);
@@ -117,7 +126,7 @@ async function main() {
     ),
     false,
   );
-  // Native + inbox alerts reach only administrators; repeated late checks cannot spam recipients.
+  // Native + inbox alerts reach authorized leaders; repeated late checks cannot spam recipients.
   const delivered: string[] = [],
     persisted = new Set<string>();
   const notifications: any = {
@@ -136,8 +145,7 @@ async function main() {
       }),
       findMany: async (q: any) => {
         assert.equal(q.where.businessId, "b");
-        assert.equal(q.where.OR[0].role, "BUSINESS_ADMIN");
-        return [{ userId: "admin" }, { userId: "owner" }];
+        return [{ userId: "admin",role:"BUSINESS_ADMIN" }, { userId: "owner",role:"BUSINESS_ADMIN" },{userId:"supervisor",customRole:{name:"Supervisor"}},{userId:"ordinary",role:"EMPLOYEE"}];
       },
     },
     user: {
@@ -161,7 +169,7 @@ async function main() {
     id: "t",
     locationId: "a",
   });
-  assert.deepEqual(new Set(delivered), new Set(["admin", "owner", "super"]));
+  assert.deepEqual(new Set(delivered), new Set(["admin", "owner", "super", "supervisor"]));
   delivered.length = 0;
   await alertService.notify(
     "officer",
@@ -175,7 +183,7 @@ async function main() {
     rosterShift,
     "late:s",
   );
-  assert.equal(delivered.length, 3);
+  assert.equal(delivered.length, 4);
   // Administrator clock-out closes a running break and attendance, never the planned shift.
   let closed = false,
     breakClosed = false;
@@ -198,6 +206,8 @@ async function main() {
       },
     },
   };
+  timeDb.$transaction=async(fn:any)=>fn(timeDb);
+  timeDb.shift={updateMany:async()=>({count:0})};
   const ops: any = {
     requireAdmin: async () => {},
     notify: async (_: any, event: string) => events.push(event),
@@ -209,6 +219,7 @@ async function main() {
     {} as any,
     ops,
   );
+  (timeService as any).applyShortShiftBreakRule=async()=>{};
   await timeService.adminClockOut("officer", {
     role: "SUPER_ADMIN",
     businessId: "b",
@@ -253,6 +264,7 @@ async function main() {
     endTime: null,
     status: "IN_PROGRESS",
     employee: { businessId: "b" },
+    additionalWorkAmount:0,
   };
   const editDb: any = {
     payStub: { findFirst: async () => null },
@@ -274,6 +286,7 @@ async function main() {
     {} as any,
     ops,
   );
+  (editService as any).applyShortShiftBreakRule=async()=>{};
   await editService.updateTimesheet(
     "t",
     { endTime: "2026-01-01T18:00Z", reason: "Correct missing clock-out" },
@@ -324,7 +337,7 @@ async function main() {
   await lateService.lateAlerts();
   assert.equal(late, 1);
   console.log(
-    "Mobile operations passed: database-backed roles, business isolation, scheduled-location scope, overnight dates, admin-only writes, notification recipients and deduplication, schedule-preserving clock-out and paid payroll protection.",
+    "Mobile operations passed: database-backed roles, business isolation, business-wide leader visibility, overnight dates, admin-only writes, notification recipients and deduplication, schedule-preserving clock-out and paid payroll protection.",
   );
 }
 main().catch((e) => {
