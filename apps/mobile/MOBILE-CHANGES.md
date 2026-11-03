@@ -1,5 +1,13 @@
 # Mobile updates awaiting release
 
+## Release 1.0.3 — 11/03/2026
+
+Native publication was authorized. iOS Expo production build 18 completed successfully: `314e3af3-9803-48b9-9cef-665c35d204e8`. This build has not been submitted to Apple. Android and iOS production JavaScript bundles and the mobile regression checks passed. The inspected release archive excludes local environment files, credentials, database files and uploads.
+
+The release includes payslip sharing fixes, report categories, license reminders, team attendance, manager GPS site attendance, officer assessments and the semi-monthly paycheck deadline display. Field leaders see attendance across their business; ordinary officers see only their own assessments. Existing query access is retained.
+
+Android background notifications still require Firebase app configuration and an FCM v1 sending credential in Expo. The existing Firebase project is `unitedlinkgroup-a2cb5`, owned by the Google profile `iykeandrews.web@gmail.com`. Expo currently has no Android FCM or Play submission service-account credentials. The existing Play Console app was located in that Chrome profile; publication can use its signed-in web session without creating a Play submission credential. Browser work stopped because the Mac was locked. Do not claim an Android release or Google Play submission has completed, and do not advertise version 1.0.3 as a live store update yet.
+
 The implementation phase preserved the no-build instruction. Builds were subsequently authorized on 10/19/2026.
 
 These changes require the matching API release and the additive MobileSession database table before a future mobile release. The normal server startup applies the canonical Prisma schema; do not release the new mobile login against the previous API. Existing web authentication remains unchanged. SecureStore and the Face ID permission plugin require a future native build.
