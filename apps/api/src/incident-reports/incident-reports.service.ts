@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import {ReportQuery, reportWhere, reportOrder} from './report-query';
 import {reportPdf, reportDate} from './report-document';
 import {Workbook} from 'exceljs';
+import { reportEmailHtml } from './report-email';
 import {SmtpMailerService} from '../common/email/smtp-mailer.service';
 import { reportCategoryLabel } from './report-category';
 
@@ -308,13 +309,12 @@ export class IncidentReportsService {
       if(initial) return {status:'NOT_CONFIGURED'};
       throw new BadRequestException('Add incident report emails to this location first');
     }
-    const cc=[...new Set<string>([...recipients.slice(1),...JSON.parse(report.location?.incidentReportCcEmails||'[]')].map((email:string)=>email.trim().toLowerCase()))].filter(email=>email!==recipients[0].trim().toLowerCase());
+    const cc=[...new Set<string>(['reports@unitedlinksecurity.com','unitedlink2019@gmail.com',...recipients.slice(1),...JSON.parse(report.location?.incidentReportCcEmails||'[]')].map((email:string)=>email.trim().toLowerCase()))].filter(email=>email!==recipients[0].trim().toLowerCase());
     const business=await this.prisma.business.findUnique({where:{id:report.businessId}});
     let status='EMAIL_SENT';
     try {
       const text=[business?.name,reportCategoryLabel(report.type)+' '+(report.reportNumber||report.id),report.title,'Location: '+report.location?.name,'Occurred: '+reportDate(report.incidentAt||report.date),'Severity: '+report.severity,report.description,'Response: '+(report.responseAction||''),'The full report is attached as a PDF.'].filter(Boolean).join('\n\n');
-      const escaped=text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-      await this.mailer.send({to:recipients[0],cc,subject:`${reportCategoryLabel(report.type)} ${report.reportNumber||report.id} · ${report.location?.name||business?.name}`,text,html:`<div style="font-family:Arial;color:#142d47;white-space:pre-wrap">${escaped}</div>`,attachments:[{filename:`report-${report.reportNumber||report.id}.pdf`,content:reportPdf([report],business),contentType:'application/pdf'}]});
+      await this.mailer.send({smtpProfile:'REPORT',replyTo:'reports@unitedlinksecurity.com',to:recipients[0],cc,subject:`${reportCategoryLabel(report.type)} ${report.reportNumber||report.id} · ${report.location?.name||business?.name}`,text,html:reportEmailHtml(report,business),attachments:[{filename:`report-${report.reportNumber||report.id}.pdf`,content:reportPdf([report],business),contentType:'application/pdf'}]});
     } catch {
       status='EMAIL_FAILED';
     }

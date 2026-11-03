@@ -104,6 +104,12 @@ async function main() {
     );
     assert.equal(mail.length, 1);
     assert.equal(mail[0].to, "client@example.com");
+    assert.equal(mail[0].smtpProfile, "REPORT");
+    assert.equal(mail[0].replyTo, "reports@unitedlinksecurity.com");
+    assert.ok(mail[0].cc.includes("reports@unitedlinksecurity.com"));
+    assert.ok(mail[0].cc.includes("unitedlink2019@gmail.com"));
+    assert.ok(mail[0].html.includes("Dear Client,"));
+    assert.ok(mail[0].html.includes("Report summary"));
     assert(
       mail[0].attachments[0].content
         .subarray(0, 5)
