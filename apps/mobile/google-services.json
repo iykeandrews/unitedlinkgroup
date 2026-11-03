@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "613627406684",
+    "project_id": "unitedlinkgroup-a2cb5",
+    "storage_bucket": "unitedlinkgroup-a2cb5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:613627406684:android:8a7dcd513888a989dbb999",
+        "android_client_info": {
+          "package_name": "com.unitedlinkgroup.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBWya2K6CcGuROJIJGVU5zNSc0MnBKMLyw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
