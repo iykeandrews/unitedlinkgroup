@@ -36,7 +36,7 @@ export class ReportsController {
   }
 
   @Get("employee-dashboard")
-  @Roles(UserRole.EMPLOYEE)
+  @Roles(UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   getEmployeeDashboard(@Request() req: any, @Query("days") days?: string) {
     const parsedDays = days
       ? Math.max(7, Math.min(90, parseInt(days, 10) || 30))

@@ -52,6 +52,7 @@ model User {
 
 // The Tenant
 model Business {
+  flexPayments FlexPay[]
   officerAssessments OfficerAssessment[]
   complaintPortalKey String? @unique
   conductCases ConductCase[]
@@ -164,6 +165,7 @@ model Role {
 }
 
 model Employee {
+  flexPayments FlexPay[]
   officerAssessments OfficerAssessment[]
   conductCases ConductCase[]
   officerCategory String? // ARMED_SPO, UNARMED_SPO, SO, SG, PD, ASG; separate from access roles
@@ -888,6 +890,7 @@ model LeaveAttachment {
 }
 
 model Shift {
+  flexPayments FlexPay[]
   timeZone String? // Work-location time zone snapshot for historical records.
   id          String   @id @default(uuid())
   groupId     String?
@@ -1082,6 +1085,7 @@ model ShiftSwapRequest {
 }
 
 model Timesheet {
+  flexPayment FlexPay?
   shiftHourlyRate Float?
   additionalWorkAmount Float @default(0)
   additionalWorkDescription String?
@@ -1127,6 +1131,7 @@ model Break {
 }
 
 model Payroll {
+  flexReconciliations FlexPayReconciliation[]
   id          String   @id @default(uuid())
   businessId  String
   business    Business @relation(fields: [businessId], references: [id])
@@ -1737,4 +1742,52 @@ model OfficerAssessment {
   createdAt DateTime @default(now())
   @@index([businessId, createdAt])
   @@index([businessId, employeeId, createdAt])
+}
+
+// Emergency-shift cash advances; earnings remain in normal taxable gross.
+model FlexPay {
+  id String @id @default(uuid())
+  submissionId String @unique
+  businessId String
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  employeeId String
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  shiftId String
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  shiftStart DateTime
+  shiftEnd DateTime
+  locationId String?
+  amountCents Int
+  balanceCents Int @default(0)
+  status String @default("OFFERED")
+  reason String
+  responseNote String?
+  acceptedAt DateTime?
+  respondedAt DateTime?
+  timesheetId String? @unique
+  timesheet Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: Restrict)
+  paidAt DateTime?
+  paymentMethod String?
+  paymentReference String?
+  recordedByUserId String?
+  createdByUserId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  reconciliations FlexPayReconciliation[]
+  @@unique([businessId, paymentReference])
+  @@index([businessId, status, createdAt])
+  @@index([employeeId, status, paidAt])
+  @@index([shiftId, status])
+}
+
+model FlexPayReconciliation {
+  id String @id @default(uuid())
+  flexPayId String
+  flexPay FlexPay @relation(fields: [flexPayId], references: [id], onDelete: Restrict)
+  payrollId String
+  payroll Payroll @relation(fields: [payrollId], references: [id], onDelete: Restrict)
+  amountCents Int
+  createdAt DateTime @default(now())
+  @@unique([flexPayId, payrollId])
+  @@index([payrollId])
 }

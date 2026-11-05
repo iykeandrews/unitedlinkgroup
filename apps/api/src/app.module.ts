@@ -12,6 +12,7 @@ import { PayrollModule } from './payroll/payroll.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
 import { TimeTrackingModule } from './time-tracking/time-tracking.module';
 import { LeaveModule } from './leave/leave.module';
+import { FlexPayModule } from './flex-pay/flex-pay.module';
 import { LoansModule } from './loans/loans.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -61,7 +62,8 @@ import { VendorsModule } from './vendors/vendors.module';
     SchedulingModule, 
     TimeTrackingModule, 
     LeaveModule, 
-    LoansModule, 
+    LoansModule,
+    FlexPayModule,
     InvoicesModule, 
     NotificationsModule, 
     ReportsModule, 

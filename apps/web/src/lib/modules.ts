@@ -285,6 +285,7 @@ export const MODULES: Module[] = [
     category: 'Core',
     route: '/dashboard/requests/loans'
   },
+  {id:'Finance_FlexPay',name:'Flex Pay',description:'Emergency-shift agreements, external payments and payroll reconciliation',icon:CreditCard,category:'Core',route:'/dashboard/finance/flex-pay'},
   {
     id: 'Finance_Summary',
     name: 'Revenue & Payroll Summary',

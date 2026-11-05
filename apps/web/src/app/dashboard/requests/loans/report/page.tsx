@@ -166,7 +166,7 @@ export default function LoansReportPage() {
                   `"${r.reason.replace(/"/g,'""')}"`,
                   r.amount,
                   r.balance,
-                  r.termMonths,
+                  r.termMonths===0?"Next pay (100%)":r.termMonths,
                   r.perPayPeriodDeduction,
                   r.status,
                   r.createdAt
@@ -270,7 +270,7 @@ export default function LoansReportPage() {
                   <td className="px-6 py-3 text-sm text-gray-700 dark:text-gray-300">{loan.reason || '—'}</td>
                   <td className="px-6 py-3 text-sm font-semibold text-gray-900 dark:text-white">{formatCurrency(loan.amount, selectedBusiness?.currencyCode)}</td>
                   <td className="px-6 py-3 text-sm text-gray-700 dark:text-gray-300">{formatCurrency(loan.balance, selectedBusiness?.currencyCode)}</td>
-                  <td className="px-6 py-3 text-sm text-gray-700 dark:text-gray-300">{loan.termMonths} mo</td>
+                  <td className="px-6 py-3 text-sm text-gray-700 dark:text-gray-300">{loan.termMonths===0?"Next pay (100%)":loan.termMonths+" mo"}</td>
                   <td className="px-6 py-3 text-sm text-gray-700 dark:text-gray-300">{formatCurrency(loan.perPayPeriodDeduction, selectedBusiness?.currencyCode)}</td>
                   <td className="px-6 py-3">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${

@@ -649,7 +649,7 @@ export class EmployeesService {
           await this.notificationsService.createNotification(userId, 'WARNING', title, message, metadata);
         }
         await this.notificationsService.sendPush(userId, { type: 'WARNING', title, message, metadata });
-        await this.push.send(userId, { type: 'WARNING', title, message, metadata, actionUrl: userId === employee?.userId ? '/dashboard/profile?tab=qualifications' : '/dashboard' });
+        await this.push.send(userId, { type: 'WARNING', title, message, metadata, actionUrl: userId === employee?.userId ? '/dashboard/profile?tab=qualifications' : '/dashboard?tab=qualifications' });
       }
     }
   }

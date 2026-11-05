@@ -306,7 +306,7 @@ export default function ApprovalsPage() {
         status: l.status,
         createdAt: l.createdAt,
         title: `Loan • ${money(l.amount)}`,
-        subtitle: `Term: ${l.termMonths} mo • Deduction: ${money(l.perPayPeriodDeduction)}`,
+        subtitle: (l.termMonths===0?"100% deduction on next pay":"Term: "+l.termMonths+" mo")+" • Deduction: "+money(l.perPayPeriodDeduction),
         personLabel: employee,
         email: l.employee?.email,
         raw: l,
@@ -1182,7 +1182,7 @@ function LoanDetails({ loan }: { loan: Loan }) {
       <div className="flex items-center justify-between gap-3">
         <div className="text-slate-600 dark:text-slate-300">Term</div>
         <div className="font-semibold text-slate-900 dark:text-white">
-          {loan.termMonths} months
+          {loan.termMonths===0?"100% on next pay":loan.termMonths+" months"}
         </div>
       </div>
       <div className="flex items-center justify-between gap-3">

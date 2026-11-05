@@ -72,13 +72,23 @@ async function main() {
     () => service.roster({ ...actor, role: "SUPER_ADMIN" }, "2026-10-19"),
     /requires an administrator/,
   );
-  title = 'Manager';
+  title = "Manager";
+  assert.equal((await service.access(actor)).canClockOfficers, true);
+  await assert.rejects(
+    () => service.requireOfficerClockIn(actor, "foreign"),
+    /not active/,
+  );
   assert.equal((await service.access(actor)).canFieldClock, true);
-  title = 'Supervisor';
+  title = "Supervisor";
+  assert.equal((await service.access(actor)).canClockOfficers, false);
+  await assert.rejects(
+    () => service.requireOfficerClockIn(actor, "officer"),
+    /Only managers/,
+  );
   assert.equal((await service.access(actor)).canView, true);
   assert.equal((await service.access(actor)).canFieldClock, false);
-  title = 'Security Officer';
-  role = 'MANAGER';
+  title = "Security Officer";
+  role = "MANAGER";
   assert.equal((await service.access(actor)).canView, true);
   assert.equal((await service.access(actor)).canFieldClock, true);
   role = "BUSINESS_ADMIN";
@@ -145,7 +155,12 @@ async function main() {
       }),
       findMany: async (q: any) => {
         assert.equal(q.where.businessId, "b");
-        return [{ userId: "admin",role:"BUSINESS_ADMIN" }, { userId: "owner",role:"BUSINESS_ADMIN" },{userId:"supervisor",customRole:{name:"Supervisor"}},{userId:"ordinary",role:"EMPLOYEE"}];
+        return [
+          { userId: "admin", role: "BUSINESS_ADMIN" },
+          { userId: "owner", role: "BUSINESS_ADMIN" },
+          { userId: "supervisor", customRole: { name: "Supervisor" } },
+          { userId: "ordinary", role: "EMPLOYEE" },
+        ];
       },
     },
     user: {
@@ -169,7 +184,10 @@ async function main() {
     id: "t",
     locationId: "a",
   });
-  assert.deepEqual(new Set(delivered), new Set(["admin", "owner", "super", "supervisor"]));
+  assert.deepEqual(
+    new Set(delivered),
+    new Set(["admin", "owner", "super", "supervisor"]),
+  );
   delivered.length = 0;
   await alertService.notify(
     "officer",
@@ -206,8 +224,8 @@ async function main() {
       },
     },
   };
-  timeDb.$transaction=async(fn:any)=>fn(timeDb);
-  timeDb.shift={updateMany:async()=>({count:0})};
+  timeDb.$transaction = async (fn: any) => fn(timeDb);
+  timeDb.shift = { updateMany: async () => ({ count: 0 }) };
   const ops: any = {
     requireAdmin: async () => {},
     notify: async (_: any, event: string) => events.push(event),
@@ -219,7 +237,7 @@ async function main() {
     {} as any,
     ops,
   );
-  (timeService as any).applyShortShiftBreakRule=async()=>{};
+  (timeService as any).applyShortShiftBreakRule = async () => {};
   await timeService.adminClockOut("officer", {
     role: "SUPER_ADMIN",
     businessId: "b",
@@ -264,7 +282,7 @@ async function main() {
     endTime: null,
     status: "IN_PROGRESS",
     employee: { businessId: "b" },
-    additionalWorkAmount:0,
+    additionalWorkAmount: 0,
   };
   const editDb: any = {
     payStub: { findFirst: async () => null },
@@ -286,7 +304,7 @@ async function main() {
     {} as any,
     ops,
   );
-  (editService as any).applyShortShiftBreakRule=async()=>{};
+  (editService as any).applyShortShiftBreakRule = async () => {};
   await editService.updateTimesheet(
     "t",
     { endTime: "2026-01-01T18:00Z", reason: "Correct missing clock-out" },

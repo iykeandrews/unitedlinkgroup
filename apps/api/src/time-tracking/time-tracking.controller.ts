@@ -169,7 +169,7 @@ export class TimeTrackingController {
   }
 
   @Post("admin/clock-in")
-  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.EMPLOYEE)
   async adminClockIn(
     @Body() body: { employeeId: string; locationId?: string },
     @User() user: any,

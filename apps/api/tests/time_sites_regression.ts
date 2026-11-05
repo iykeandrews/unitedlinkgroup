@@ -14,9 +14,10 @@ async function main(){
   check(workedHours('2026-01-01T09:00Z',null,[{startTime:'2026-01-01T10:00Z',endTime:null}],new Date('2026-01-01T11:00Z')),1);
   check(csvText([['=2+2','Smith, "Ada"']]).includes('"\'=2+2","Smith, ""Ada"""'),true);
   const person = {id:'e',businessId:'b'};
-  let record:any = {id:'t',employeeId:'e',employee:person,startTime:new Date('2026-01-01T09:00Z'),endTime:new Date('2026-01-01T17:00Z'),status:'PENDING'};
+  let record:any = {additionalWorkAmount:0,additionalWorkDescription:null,id:'t',employeeId:'e',employee:person,startTime:new Date('2026-01-01T09:00Z'),endTime:new Date('2026-01-01T17:00Z'),status:'PENDING'};
   let deleted=0, updated:any, query:any;
   const prisma:any = { payStub:{findFirst:async()=>null}, timesheet:{findUnique:async()=>record,findMany:async(q:any)=>{query=q;return[];},update:async(q:any)=>{updated=q.data;return record;}},break:{findMany:async()=>[{startTime:new Date('2026-01-01T12:00Z'),endTime:new Date('2026-01-01T12:30Z')}],deleteMany:async()=>{deleted++;},createMany:async()=>{}},location:{findFirst:async()=>null}, employee:{findUnique:async()=>person},$transaction:async(fn:any)=>fn(prisma)};
+  prisma.$queryRawUnsafe=async()=>[];
   const service=new TimeTrackingService(prisma,{} as any,{} as any);
   await service.updateTimesheet('t',{status:'APPROVED'},{role:'SUPER_ADMIN'}); check(deleted,0);check(updated.status,'APPROVED');
   await rejects(()=>service.updateTimesheet('t',{endTime:'2026-01-01T08:00Z'}),/valid start/);

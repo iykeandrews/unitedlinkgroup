@@ -92,6 +92,7 @@ export const NAV_GROUPS: NavGroup[] = [
       'Payroll_Report',
       'Finance_Payslips',
       'Finance_Loans',
+      'Finance_FlexPay',
       'Finance_Invoices',
       'Finance_Summary',
       'Finance_Payments',

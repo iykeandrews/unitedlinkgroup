@@ -219,6 +219,7 @@ export const generatePayslipPdfBuffer = async (payroll: any, business: any): Pro
     const taxDetails = stub.taxDetails ? JSON.parse(stub.taxDetails) : {};
     const deductionDetails = stub.deductionDetails ? JSON.parse(stub.deductionDetails) : {};
     const loans = deductionDetails.loans || [];
+    const flexPay = deductionDetails.flexPay || [];
 
     const deductionsBody = [
       ['Federal income withholding', fmt(taxDetails.federalTax || 0), '-'],
@@ -226,8 +227,9 @@ export const generatePayslipPdfBuffer = async (payroll: any, business: any): Pro
       ['Medicare', fmt(taxDetails.medicare || 0), '-'],
       ['Additional Medicare', fmt(taxDetails.additionalMedicare || 0), '-'],
       ...(Array.isArray(taxDetails.lines) ? taxDetails.lines.map((l:any)=>[l.label,fmt(l.amount),'-']) : [['State income withholding',fmt(taxDetails.stateTax || 0),'-']]),
+      ...flexPay.map((f: any) => ['Flex Pay already received (post-tax)', fmt(f.amount || 0), '-']),
       ...loans.map((l: any) => ['Loan repayment (post-tax)', fmt(l.amount || 0), '-']),
-      ['Other post-tax deductions',fmt(deductionDetails.otherPostTax ?? Math.max(0,stub.deductions-loans.reduce((n:number,l:any)=>n+(l.amount||0),0))),'-'],
+      ['Other post-tax deductions',fmt(deductionDetails.otherPostTax ?? Math.max(0,stub.deductions-loans.reduce((n:number,l:any)=>n+(l.amount||0),0)-flexPay.reduce((n:number,f:any)=>n+(f.amount||0),0))),'-'],
     ].filter((row:any)=>row[1] !== fmt(0));
 
     const totalDeductions = fmt(stub.taxes + stub.deductions);

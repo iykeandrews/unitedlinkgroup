@@ -91,12 +91,24 @@ export class MobileOperationsService {
           ...employee,
           role: employee.role + " " + account.role,
         }));
+    const canClockOfficers =
+      canManage ||
+      (!!employee &&
+        /\bMANAGER\b/i.test(
+          `${employee.role} ${account.role} ${employee.customRole?.name || ""} ${employee.department?.name || ""}`,
+        ));
     return {
       businessId,
       employeeId: employee?.id,
       canManage,
+      canClockOfficers,
       canView,
-      canFieldClock: !!employee && (canManage || /\bMANAGER\b/i.test(`${employee.role} ${account.role} ${employee.customRole?.name || ""} ${employee.department?.name || ""}`)),
+      canFieldClock:
+        !!employee &&
+        (canManage ||
+          /\bMANAGER\b/i.test(
+            `${employee.role} ${account.role} ${employee.customRole?.name || ""} ${employee.department?.name || ""}`,
+          )),
       scope: "BUSINESS",
     };
   }
@@ -247,6 +259,24 @@ export class MobileOperationsService {
       throw new ForbiddenException("Officer is not active in this business");
     return access;
   }
+  async requireOfficerClockIn(user: any, employeeId: string) {
+    const access = await this.access(user);
+    if (!access.canClockOfficers)
+      throw new ForbiddenException(
+        "Only managers and administrators may clock in officers",
+      );
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        businessId: access.businessId,
+        status: "ACTIVE",
+      },
+      select: { id: true },
+    });
+    if (!employee)
+      throw new ForbiddenException("Officer is not active in this business");
+    return access;
+  }
   async audit(user: any, employeeId: string, action: string, details: any) {
     await this.prisma.auditLog.create({
       data: {
@@ -290,7 +320,11 @@ export class MobileOperationsService {
             status: "ACTIVE",
             userId: { not: null },
           },
-          include: { user: {select: {role: true}}, customRole: true, department: true },
+          include: {
+            user: { select: { role: true } },
+            customRole: true,
+            department: true,
+          },
         }),
         this.prisma.user.findMany({
           where: { role: "SUPER_ADMIN" },
@@ -300,7 +334,14 @@ export class MobileOperationsService {
       const recipients = new Set(
         [
           employee.business.ownerId,
-          ...admins.filter(a => a.role === "BUSINESS_ADMIN" || a.user?.role === "BUSINESS_ADMIN" || isFieldLeader({...a,role:a.role+" "+a.user?.role})).map((a) => a.userId),
+          ...admins
+            .filter(
+              (a) =>
+                a.role === "BUSINESS_ADMIN" ||
+                a.user?.role === "BUSINESS_ADMIN" ||
+                isFieldLeader({ ...a, role: a.role + " " + a.user?.role }),
+            )
+            .map((a) => a.userId),
           ...supers.map((a) => a.id),
         ].filter(Boolean) as string[],
       );

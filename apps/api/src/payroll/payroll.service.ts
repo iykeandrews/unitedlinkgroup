@@ -1,4 +1,9 @@
 import {
+  allocateFlexPay,
+  flexPayCutoff,
+  reconcileFlexPay,
+} from "../flex-pay/reconciliation";
+import {
   Injectable,
   BadRequestException,
   NotFoundException,
@@ -23,8 +28,8 @@ import {
 } from "./us-tax";
 import { manualTaxes, validateRules } from "./manual-tax";
 import { createHash } from "crypto";
-import { PDFDocument } from 'pdf-lib';
-import { brandIssuedPayslip, PayslipLogoCache } from './payslip-branding';
+import { PDFDocument } from "pdf-lib";
+import { brandIssuedPayslip, PayslipLogoCache } from "./payslip-branding";
 import { calculateHours } from "./hours";
 import { calendarBoundary, fullSalaryPeriod } from "./dates";
 
@@ -157,7 +162,10 @@ export class PayrollService {
         throw new BadRequestException(
           "Original paystub verification failed. Contact payroll support.",
         );
-      return { filename: source.fileName, data: await brandIssuedPayslip(data, stub.payroll?.business, logos) };
+      return {
+        filename: source.fileName,
+        data: await brandIssuedPayslip(data, stub.payroll?.business, logos),
+      };
     }
 
     const payDate = stub.payroll?.payDate
@@ -182,8 +190,13 @@ export class PayrollService {
   }
 
   async downloadPayslipBatch(ids: string[], user: any): Promise<Buffer> {
-    if (!Array.isArray(ids) || !ids.length || ids.length > 250 || ids.some(id => typeof id !== 'string' || !id))
-      throw new BadRequestException('Select between 1 and 250 payslips');
+    if (
+      !Array.isArray(ids) ||
+      !ids.length ||
+      ids.length > 250 ||
+      ids.some((id) => typeof id !== "string" || !id)
+    )
+      throw new BadRequestException("Select between 1 and 250 payslips");
     const doc = await PDFDocument.create();
     const logos: PayslipLogoCache = new Map();
     for (const id of [...new Set(ids)]) {
@@ -191,7 +204,7 @@ export class PayrollService {
       const file = await this.downloadPayStubPdf(id, user, logos);
       const source = await PDFDocument.load(file.data);
       const pages = await doc.copyPages(source, source.getPageIndices());
-      pages.forEach(page => doc.addPage(page));
+      pages.forEach((page) => doc.addPage(page));
     }
     return Buffer.from(await doc.save());
   }
@@ -816,14 +829,30 @@ export class PayrollService {
           payroll,
           prior,
         );
-        const deduction =
-          workerType === "W2"
-            ? await this.calculateDeductions(
-                employee.id,
-                payrollId,
-                Math.max(0, earnings.grossPay - tax.employeeTaxes),
-              )
-            : { totalDeductions: 0, deductionDetails: {} };
+        const deduction = await this.calculateDeductions(
+          employee.id,
+          payrollId,
+          Math.max(0, earnings.grossPay - tax.employeeTaxes),
+          new Map(
+            data
+              .filter((s) => s.employeeId === employee.id)
+              .flatMap((s) => [
+                ...(parseJson(s.deductionDetails).loans || []),
+                ...(parseJson(s.deductionDetails).flexPay || []).map(
+                  (f: any) => ({
+                    loanId: "flex:" + f.flexPayId,
+                    amount: f.amount,
+                  }),
+                ),
+              ])
+              .reduce((pairs: any[], l: any) => {
+                const existing = pairs.find((p) => p[0] === l.loanId);
+                if (existing) existing[1] += l.amount;
+                else pairs.push([l.loanId, l.amount]);
+                return pairs;
+              }, []),
+          ),
+        );
         const netPay = money(
           earnings.grossPay -
             tax.employeeTaxes -
@@ -967,13 +996,32 @@ export class PayrollService {
       stub.payroll,
       prior,
     );
-    const auto = w2
-      ? await this.calculateDeductions(
-          stub.employeeId,
-          stub.payrollId,
-          Math.max(0, grossPay - tax.employeeTaxes),
-        )
-      : { totalDeductions: 0, deductionDetails: { loans: [] } };
+    const siblingStubs =
+      stub.employee.workerType === "BOTH"
+        ? await this.prisma.payStub.findMany({
+            where: {
+              payrollId: stub.payrollId,
+              employeeId: stub.employeeId,
+              id: { not: stub.id },
+            },
+          })
+        : [];
+    const reserved = new Map<string, number>();
+    for (const other of siblingStubs)
+      for (const l of parseJson(other.deductionDetails).loans || [])
+        reserved.set(l.loanId, (reserved.get(l.loanId) || 0) + l.amount);
+    for (const other of siblingStubs)
+      for (const f of parseJson(other.deductionDetails).flexPay || [])
+        reserved.set(
+          "flex:" + f.flexPayId,
+          (reserved.get("flex:" + f.flexPayId) || 0) + f.amount,
+        );
+    const auto = await this.calculateDeductions(
+      stub.employeeId,
+      stub.payrollId,
+      Math.max(0, grossPay - tax.employeeTaxes),
+      reserved,
+    );
     const existing = parseJson(stub.deductionDetails);
     const manual =
       updates.deductions ??
@@ -981,7 +1029,7 @@ export class PayrollService {
     const deductions = money(manual ?? auto.totalDeductions);
     if (manual !== undefined && deductions < auto.totalDeductions)
       throw new BadRequestException(
-        "Post-tax deductions cannot be less than the scheduled loan repayments.",
+        "Post-tax deductions cannot be less than the scheduled Flex Pay offsets and loan repayments.",
       );
     if (deductions > Math.max(0, grossPay - tax.employeeTaxes))
       throw new BadRequestException(
@@ -1119,14 +1167,27 @@ export class PayrollService {
     const totals = await this.prisma.payStub.groupBy({
       by: ["payrollId"],
       where: { payrollId: { in: payrolls.map((payroll) => payroll.id) } },
-      _sum: { grossPay: true, netPay: true, taxes: true, employerTaxes: true, deductions: true },
+      _sum: {
+        grossPay: true,
+        netPay: true,
+        taxes: true,
+        employerTaxes: true,
+        deductions: true,
+      },
     });
     const byPayroll = new Map(totals.map((row) => [row.payrollId, row._sum]));
     return payrolls.map((payroll) => {
       const sum = byPayroll.get(payroll.id);
-      return sum ? { ...payroll, totalGross: sum.grossPay ?? 0, totalNet: sum.netPay ?? 0,
-        totalEmployeeTaxes: sum.taxes ?? 0, totalEmployerTaxes: sum.employerTaxes ?? 0,
-        totalDeductions: sum.deductions ?? 0 } : payroll;
+      return sum
+        ? {
+            ...payroll,
+            totalGross: sum.grossPay ?? 0,
+            totalNet: sum.netPay ?? 0,
+            totalEmployeeTaxes: sum.taxes ?? 0,
+            totalEmployerTaxes: sum.employerTaxes ?? 0,
+            totalDeductions: sum.deductions ?? 0,
+          }
+        : payroll;
     });
   }
 
@@ -1523,6 +1584,22 @@ export class PayrollService {
               );
           }
           const details = parseJson(stub.deductionDetails);
+          await reconcileFlexPay(tx, payroll, stub, user);
+          const nextPayLoans = await tx.loan.findMany({
+            where: {
+              employeeId: stub.employeeId,
+              status: "APPROVED",
+              termMonths: 0,
+              balance: { gt: 0 },
+            },
+          });
+          const scheduled = new Set(
+            (details.loans || []).map((l: any) => l.loanId),
+          );
+          if (stub.netPay > 0 && nextPayLoans.some((l) => !scheduled.has(l.id)))
+            throw new BadRequestException(
+              "A next-pay loan was approved after this payroll calculation. Recalculate payroll to include the deduction.",
+            );
           for (const l of details.loans || []) {
             amount(l.amount, "Loan repayment");
             const changed = await tx.loan.updateMany({
@@ -1623,6 +1700,7 @@ export class PayrollService {
     employeeId: string,
     payrollId: string,
     availableNet: number,
+    reserved: Map<string, number> = new Map(),
   ): Promise<{ totalDeductions: number; deductionDetails: any }> {
     availableNet = Math.max(0, money(availableNet));
     // Fetch active loans
@@ -1632,20 +1710,48 @@ export class PayrollService {
         status: "APPROVED",
         balance: { gt: 0 },
       },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
 
-    let totalDeductions = 0;
+    const run = await this.prisma.payroll.findUnique({
+      where: { id: payrollId },
+      select: { payDate: true, calendarTimeZone: true },
+    });
+    if (!run) throw new BadRequestException("Payroll not found");
+    const ledger = (this.prisma as any).flexPay;
+    if (!ledger)
+      throw new BadRequestException(
+        "Flex Pay database client setup is required before calculating payroll",
+      );
+    const payments = await ledger.findMany({
+      where: {
+        employeeId,
+        status: "PAID",
+        balanceCents: { gt: 0 },
+        paidAt: { lte: flexPayCutoff(run) },
+      },
+      orderBy: [{ paidAt: "asc" }, { id: "asc" }],
+    });
+    const flex = allocateFlexPay(payments, availableNet, reserved);
+    let totalDeductions = flex.totalDeductions;
     const loanDeductions = [];
 
     for (const loan of loans) {
       // Determine deduction amount
-      let amount = money(loan.perPayPeriodDeduction);
+      const already = reserved.get(loan.id) || 0;
+      let amount = money(
+        Math.max(
+          0,
+          (loan.termMonths === 0 ? loan.balance : loan.perPayPeriodDeduction) -
+            already,
+        ),
+      );
       if (!Number.isFinite(amount) || amount < 0)
         throw new BadRequestException("Invalid scheduled loan deduction.");
 
       // Cap at remaining balance
-      if (amount > loan.balance) {
-        amount = money(loan.balance);
+      if (amount > loan.balance - already) {
+        amount = money(Math.max(0, loan.balance - already));
       }
 
       // Cap at available net pay (prevent negative paycheck)
@@ -1664,6 +1770,7 @@ export class PayrollService {
       totalDeductions,
       deductionDetails: {
         loans: loanDeductions,
+        flexPay: flex.entries,
       },
     };
   }

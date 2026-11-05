@@ -111,6 +111,11 @@ export class TimeTrackingService {
     );
   }
 
+  private async assertNoPaidFlexAttendance(db: any, timesheetId: string) {
+    const payment = await db.flexPay?.findFirst({where:{timesheetId,status:{in:["PAID","RECONCILED"]}},select:{id:true}});
+    if (payment) throw new BadRequestException("This attendance supports a recorded Flex Pay payment and is read-only. Review its payment and payroll reconciliation before making a correction.");
+  }
+
   async myHistory(user: any, yearText?: string) {
     const year = Number(yearText || new Date().getUTCFullYear());
     if (!Number.isInteger(year) || year < 2000 || year > 9999)
@@ -1177,11 +1182,8 @@ export class TimeTrackingService {
     _locationId?: string,
     user?: any,
   ): Promise<any> {
-    await this.operations?.requireAdmin(user, employeeId);
-    if (!["SUPER_ADMIN", "BUSINESS_ADMIN"].includes(user?.role))
-      throw new ForbiddenException(
-        "Only administrators can clock in an employee",
-      );
+    if (!this.operations) throw new ForbiddenException("Attendance authorization unavailable");
+    await this.operations.requireOfficerClockIn(user, employeeId);
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
     });
@@ -1773,6 +1775,8 @@ export class TimeTrackingService {
     let result: Timesheet | null = null;
     try {
       result = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRawUnsafe('SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE', timesheet.employeeId);
+        await this.assertNoPaidFlexAttendance(tx, id);
         if (data.startTime !== undefined || data.endTime !== undefined) {
           if (start > new Date() || (end && end > new Date()))
             throw new BadRequestException(
@@ -1934,6 +1938,7 @@ export class TimeTrackingService {
         'SELECT id FROM "Employee" WHERE id = $1 FOR UPDATE',
         timesheet.employeeId,
       );
+      await this.assertNoPaidFlexAttendance(tx, id);
       const current = await tx.timesheet.findUnique({ where: { id } });
       if (
         !current ||

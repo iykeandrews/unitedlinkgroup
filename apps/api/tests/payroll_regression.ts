@@ -353,7 +353,9 @@ async function main() {
     manualTaxes(
       {
         ...config,
-        rules: config.rules.map((r: any) => (r.id === creditBrackets.id ? creditBrackets : r)),
+        rules: config.rules.map((r: any) =>
+          r.id === creditBrackets.id ? creditBrackets : r,
+        ),
       },
       allowanceProfile,
       2000,
@@ -705,6 +707,7 @@ async function main() {
       }),
     },
     loan: { findMany: async () => [] },
+    flexPay: { findMany: async () => [] },
     auditLog: { create: async () => {} },
     leaveType: { findMany: async () => [] },
     $transaction: async (fn: any) => fn(db),
