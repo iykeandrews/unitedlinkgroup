@@ -59,6 +59,7 @@ export default function FlexPayPage() {
     [payment, setPayment] = useState<any>(null),
     [attendance, setAttendance] = useState<any[]>([]),
     [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(1);
   const [summary, setSummary] = useState<any>(null);
   const version = useRef(0),
     lock = useRef(false);
@@ -187,6 +188,12 @@ export default function FlexPayPage() {
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  useEffect(() => {
+    setPage(1);
+  }, [query, status, selectedBusiness?.id]);
+  const pageCount = Math.max(1, Math.ceil(visible.length / 10));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = visible.slice((currentPage - 1) * 10, currentPage * 10);
   const paid =
       summary?.paidAmount ??
       rows
@@ -197,8 +204,22 @@ export default function FlexPayPage() {
     "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 dark:bg-slate-900 dark:border-slate-600 dark:text-white";
   return (
     <div className="mx-auto max-w-7xl space-y-6 text-slate-900 dark:text-slate-100">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-        <Link href="/dashboard" className="hover:text-indigo-600">Dashboard</Link><span>/</span><span>Finance</span><span>/</span><span aria-current="page" className="font-medium text-slate-900 dark:text-white">Flex Pay</span>
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"
+      >
+        <Link href="/dashboard" className="hover:text-indigo-600">
+          Dashboard
+        </Link>
+        <span>/</span>
+        <span>Finance</span>
+        <span>/</span>
+        <span
+          aria-current="page"
+          className="font-medium text-slate-900 dark:text-white"
+        >
+          Flex Pay
+        </span>
       </nav>
       <header className="border-b border-slate-200 pb-6 dark:border-slate-700">
         <div className="flex flex-wrap items-start justify-between gap-5">
@@ -211,7 +232,8 @@ export default function FlexPayPage() {
             </div>
             <h1 className="text-3xl font-bold tracking-tight">Flex Pay</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-              Manage emergency-shift agreements, record payments and track payroll offsets.
+              Manage emergency-shift agreements, record payments and track
+              payroll offsets.
             </p>
           </div>
           {manage && (
@@ -247,17 +269,55 @@ export default function FlexPayPage() {
             key={title}
             className="rounded-2xl border border-slate-200 bg-white p-5 dark:bg-slate-900 dark:border-slate-700"
           >
-            <div className="mb-4 inline-flex rounded-lg bg-slate-50 p-2.5 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400"><Icon size={20} /></div>
+            <div className="mb-4 inline-flex rounded-lg bg-slate-50 p-2.5 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400">
+              <Icon size={20} />
+            </div>
             <p className="text-sm text-slate-500">{title}</p>
             <p className="mt-2 text-2xl font-bold">{value}</p>
           </div>
         ))}
       </section>
-      <section aria-label="Flex Pay workflow" className="grid overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 md:grid-cols-3">
-        {[["01", "Offer & agreement", "Link the assignment and receive the officer’s acceptance."], ["02", "Complete & record", "Approve completed attendance, then record the external payment."], ["03", "Payroll reconciliation", "Keep earnings in gross pay; offset the advance from net pay."]].map(([step, title, description]) => <div key={step} className="flex gap-3 p-5 md:border-r last:border-0 border-slate-100 dark:border-slate-800"><span className="pt-1 text-xs font-bold text-indigo-500">{step}</span><div><h2 className="text-sm font-semibold">{title}</h2><p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p></div></div>)}
+      <section
+        aria-label="Flex Pay workflow"
+        className="grid overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 md:grid-cols-3"
+      >
+        {[
+          [
+            "01",
+            "Offer & agreement",
+            "Link the assignment and receive the officer’s acceptance.",
+          ],
+          [
+            "02",
+            "Complete & record",
+            "Approve completed attendance, then record the external payment.",
+          ],
+          [
+            "03",
+            "Payroll reconciliation",
+            "Keep earnings in gross pay; offset the advance from net pay.",
+          ],
+        ].map(([step, title, description]) => (
+          <div
+            key={step}
+            className="flex gap-3 p-5 md:border-r last:border-0 border-slate-100 dark:border-slate-800"
+          >
+            <span className="pt-1 text-xs font-bold text-indigo-500">
+              {step}
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold">{title}</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                {description}
+              </p>
+            </div>
+          </div>
+        ))}
       </section>
       <details className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm dark:border-slate-700 dark:bg-slate-900">
-        <summary className="cursor-pointer font-medium text-slate-600 dark:text-slate-300">How Flex Pay affects regular payroll</summary>
+        <summary className="cursor-pointer font-medium text-slate-600 dark:text-slate-300">
+          How Flex Pay affects regular payroll
+        </summary>
         <p className="mt-3 max-w-4xl leading-6 text-slate-500 dark:text-slate-400">
           Flex Pay records money paid outside the app. It does not send money or
           create extra hours. Emergency-shift wages remain in taxable gross pay;
@@ -495,7 +555,9 @@ export default function FlexPayPage() {
           <div>
             <h2 className="text-lg font-bold">Payment & agreement ledger</h2>
             <p className="text-xs text-slate-500">
-              Most recent 500 records · {visible.length} shown
+              {visible.length ? (currentPage - 1) * 10 + 1 : 0}–
+              {Math.min(currentPage * 10, visible.length)} of {visible.length}{" "}
+              agreements
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -545,8 +607,16 @@ export default function FlexPayPage() {
               </tr>
             </thead>
             <tbody>
-              {visible.map((r) => (
-                <tr key={r.id} className={"border-t transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/50 " + (selected?.id === r.id ? "bg-indigo-50/50 dark:bg-indigo-950/30" : "")}>
+              {pageRows.map((r) => (
+                <tr
+                  key={r.id}
+                  className={
+                    "border-t transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/50 " +
+                    (selected?.id === r.id
+                      ? "bg-indigo-50/50 dark:bg-indigo-950/30"
+                      : "")
+                  }
+                >
                   <td className="px-5 py-4">
                     <p className="font-semibold">{person(r.employee)}</p>
                     <p className="mt-1 text-xs text-slate-500">
@@ -586,6 +656,36 @@ export default function FlexPayPage() {
             </tbody>
           </table>
         </div>
+        <nav
+          aria-label="Agreement pagination"
+          className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-4 text-sm dark:border-slate-700"
+        >
+          <span className="text-slate-500">
+            Page {currentPage} of {pageCount} · 10 per page
+          </span>
+          <div className="flex gap-2">
+            <button
+              disabled={currentPage === 1 || loading}
+              onClick={() => {
+                setPage(currentPage - 1);
+                setSelected(null);
+              }}
+              className="rounded-lg border border-slate-200 px-4 py-2 font-medium hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Previous
+            </button>
+            <button
+              disabled={currentPage === pageCount || loading}
+              onClick={() => {
+                setPage(currentPage + 1);
+                setSelected(null);
+              }}
+              className="rounded-lg border border-slate-200 px-4 py-2 font-medium hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:hover:bg-slate-800"
+            >
+              Next
+            </button>
+          </div>
+        </nav>
         {loading && <p className="p-6 text-slate-500">Loading agreements…</p>}
         {!loading && !visible.length && (
           <div className="p-12 text-center text-slate-500">
