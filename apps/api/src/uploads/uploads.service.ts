@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, NotFoundException, Injectable } from '@nestjs/common';
 import { PutObjectCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import * as crypto from 'crypto';
@@ -143,6 +143,22 @@ export class UploadsService {
       );
     } catch (error: any) {
       throw new BadRequestException(`File not found: ${this.formatAwsError(error)}`);
+    }
+  }
+
+  async getStoredFileStream(key: string) {
+    const safeKey = path.basename(key);
+    try {
+      const object = await this.ensureS3().send(new GetObjectCommand({
+        Bucket: this.resolveAwsBucket(), Key: safeKey,
+      }));
+      if (!object.Body) throw new NotFoundException('Uploaded file was not found');
+      return { body: object.Body, contentType: object.ContentType || 'application/octet-stream' };
+    } catch (error: any) {
+      if (error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404) {
+        throw new NotFoundException('The uploaded file is no longer available. Please upload it again.');
+      }
+      throw error;
     }
   }
 

@@ -86,26 +86,32 @@ export class EmployeesController {
     return this.employeesService.getAllQualifications(req.user, businessId);
   }
 
+  @Get('qualifications/options')
+  @Roles(UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  qualificationOptions(@Request() req: any, @Headers('x-business-id') businessId?: string) {
+    return this.employeesService.qualificationOptions(req.user, businessId);
+  }
+
   @Get('me/qualifications')
-  @Roles(UserRole.EMPLOYEE)
+  @Roles(UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   getMyQualifications(@Request() req: any, @Headers('x-business-id') businessId?: string) {
     return this.employeesService.getMyQualifications(req.user, businessId);
   }
 
   @Post('me/qualifications')
-  @Roles(UserRole.EMPLOYEE)
+  @Roles(UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   addMyQualification(@Request() req: any, @Body() body: any, @Headers('x-business-id') businessId?: string) {
     return this.employeesService.addMyQualification(req.user, body, businessId);
   }
 
   @Patch('me/qualifications/:qualificationId')
-  @Roles(UserRole.EMPLOYEE)
+  @Roles(UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   updateMyQualification(@Request() req: any, @Param('qualificationId') qualificationId: string, @Body() body: any, @Headers('x-business-id') businessId?: string) {
     return this.employeesService.updateMyQualification(req.user, qualificationId, body, businessId);
   }
 
   @Delete('me/qualifications/:qualificationId')
-  @Roles(UserRole.EMPLOYEE)
+  @Roles(UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   deleteMyQualification(@Request() req: any, @Param('qualificationId') qualificationId: string, @Headers('x-business-id') businessId?: string) {
     return this.employeesService.deleteMyQualification(req.user, qualificationId, businessId);
   }

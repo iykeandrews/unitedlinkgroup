@@ -1,7 +1,8 @@
-import { Controller, Post, UseInterceptors, UploadedFile, Get, Param, Res, BadRequestException, UseGuards, Injectable, ExecutionContext } from '@nestjs/common';
+import { Controller, Query, Post, UseInterceptors, UploadedFile, Get, Param, Res, BadRequestException, UseGuards, Injectable, ExecutionContext } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
+import { pipeline } from 'stream/promises';
 import * as fs from 'fs';
 import * as path from 'path';
 import { memoryStorage } from 'multer';
@@ -99,10 +100,19 @@ export class UploadsController {
 
   @Get(':filename')
   @UseGuards(UploadsReadGuard)
-  async serveFile(@Param('filename') filename: string, @Res() res: Response) {
+  async serveFile(@Param('filename') filename: string, @Res() res: Response, @Query('stream') stream?: string) {
     // Prevent directory traversal
     const safeFilename = path.basename(filename);
     if (this.uploadsService.isS3Enabled()) {
+      if (stream === '1') {
+        const file = await this.uploadsService.getStoredFileStream(safeFilename);
+        res.setHeader('Content-Type', file.contentType);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Disposition', 'attachment; filename="' + safeFilename.replace(/["\r\n]/g, '') + '"');
+        await pipeline(file.body as any, res);
+        return;
+      }
       const url = await this.uploadsService.getSignedDownloadUrl(safeFilename, 60);
       return res.redirect(url);
     }

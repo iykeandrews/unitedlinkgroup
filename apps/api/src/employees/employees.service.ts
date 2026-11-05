@@ -1,3 +1,4 @@
+import { qualificationFields } from "./qualification-fields";
 import { rateChanges } from "./rate-history.util";
 import { normalizeEmployment, effectivePay } from "./employment.util";
 import { Injectable, BadRequestException, NotFoundException, Logger, ForbiddenException } from '@nestjs/common';
@@ -333,6 +334,16 @@ export class EmployeesService {
     return qualifications;
   }
 
+  async qualificationOptions(user: any, businessIdHeader?: string) {
+    const businessId = await this.getBusinessId(user, businessIdHeader);
+    const departments = await this.prisma.department.findMany({
+      where: { businessId, status: 'ACTIVE' },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    return { departments, issuingOrganizations: ['DLCP', 'Maryland State Police Licensing Division'] };
+  }
+
   async getMyQualifications(user: any, businessIdHeader?: string) {
     const employee = await this.getMe(user, businessIdHeader);
     return this.prisma.qualification.findMany({
@@ -343,6 +354,7 @@ export class EmployeesService {
 
   async addMyQualification(user: any, data: any, businessIdHeader?: string) {
     const employee = await this.getMe(user, businessIdHeader);
+    data = qualificationFields(data);
     let status = data.status || 'ACTIVE';
     if (data.expiryDate && new Date(data.expiryDate) < new Date()) {
       status = 'EXPIRED';
@@ -360,11 +372,11 @@ export class EmployeesService {
     const employee = await this.getMe(user, businessIdHeader);
     const qual = await this.prisma.qualification.findFirst({ where: { id: qualificationId, employeeId: employee.id } });
     if (!qual) throw new NotFoundException('Qualification not found');
+    data = qualificationFields(data, qual);
 
     if (data.expiryDate) {
-      if (new Date(data.expiryDate) < new Date()) {
-        data.status = 'EXPIRED';
-      }
+      if (new Date(data.expiryDate) < new Date()) data.status = 'EXPIRED';
+      else if (qual.status === 'EXPIRED' && !data.status) data.status = 'ACTIVE';
     }
     return this.prisma.qualification.update({
       where: { id: qualificationId },
@@ -538,6 +550,7 @@ export class EmployeesService {
     if (!qual) throw new NotFoundException('Qualification not found');
     
     await this.findOne(user, qual.employeeId, businessIdHeader);
+    data = qualificationFields(data, qual);
 
     // Auto status update based on expiry
     if (data.expiryDate) {
