@@ -242,7 +242,12 @@ export class ConductService {
         fullName(person) || (this.isAdmin(user) ? "Administrator" : "Employee"),
     };
   }
-  async create(data: CreateConductDto, user: any, header?: string) {
+  async create(
+    data: CreateConductDto,
+    user: any,
+    header?: string,
+    internalReference?: string,
+  ) {
     if (!this.isAdmin(user))
       throw new ForbiddenException("Administrator access required");
     const businessId = await this.scope(user, header);
@@ -275,7 +280,9 @@ export class ConductService {
     return this.db.conductCase.create({
       data: {
         businessId,
-        reference: `${data.kind === "QUERY" ? "QRY" : "CMP"}-${new Date().getUTCFullYear()}-${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
+        reference:
+          internalReference ||
+          `${data.kind === "QUERY" ? "QRY" : "CMP"}-${new Date().getUTCFullYear()}-${randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
         kind: data.kind,
         subject: data.kind === "QUERY" ? "EMPLOYEE" : data.subject,
         title: data.title.trim(),

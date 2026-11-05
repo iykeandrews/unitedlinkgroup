@@ -50,12 +50,16 @@ export class PushService {
       .then(() => undefined);
   }
 
-  registerExpo(userId: string, token: string): Promise<void> {
-    return this.prisma.expoPushToken
+  registerExpo(
+    userId: string,
+    token: string,
+    device?: { platform?: string; appVersion?: string },
+  ): Promise<void> {
+    return (this.prisma.expoPushToken as any)
       .upsert({
         where: { token },
-        update: { userId, lastUsedAt: new Date() },
-        create: { userId, token, lastUsedAt: new Date() },
+        update: { userId, lastUsedAt: new Date(), ...device },
+        create: { userId, token, lastUsedAt: new Date(), ...device },
       })
       .then(() => undefined);
   }
@@ -124,6 +128,30 @@ export class PushService {
         this.logger.warn(
           `Expo push failed for user ${userId}: ${(err as any)?.message || String(err)}`,
         );
+      }
+    }
+  }
+
+  async sendExpoUpdate(tokens: { token: string }[], payload: PushPayload) {
+    for (const token of tokens) {
+      try {
+        await axios.post(
+          "https://exp.host/--/api/v2/push/send",
+          {
+            to: token.token,
+            title: payload.title,
+            body: payload.message,
+            sound: "default",
+            data: {
+              ...payload.metadata,
+              actionUrl: payload.actionUrl,
+              type: payload.type,
+            },
+          },
+          { timeout: 10000 },
+        );
+      } catch {
+        this.logger.warn("App update notification could not be delivered");
       }
     }
   }

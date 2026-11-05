@@ -26,7 +26,8 @@ import autoTable from 'jspdf-autotable';
 import { toast } from 'sonner';
 import { UserRole } from '@unitedlinkgroup/types';
 import { Modal } from '@/components/Modal';
-import { resolveFileUrl } from '@/lib/file-url';
+import { credentialDisplay, openQualificationDocument } from '@/lib/qualification-documents';
+import ServiceDatePicker from '@/components/invoices/ServiceDatePicker';
 
 interface Employee {
   id: string;
@@ -62,6 +63,8 @@ interface CompanyCertification {
 }
 
 export default function CertificationsPage() {
+  const [openingDocument, setOpeningDocument] = useState<string | null>(null);
+  const [departmentNames, setDepartmentNames] = useState<string[]>([]);
   const [qualifications, setQualifications] = useState<Qualification[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [companyCertifications, setCompanyCertifications] = useState<CompanyCertification[]>([]);
@@ -105,6 +108,13 @@ export default function CertificationsPage() {
       const endpoint = role === UserRole.EMPLOYEE ? '/employees/me/qualifications' : '/employees/qualifications/all';
       const response = await api.get(endpoint);
       setQualifications(response.data || []);
+      try {
+        const options = await api.get('/employees/qualifications/options');
+        setDepartmentNames((options.data.departments || []).map((department: any) => department.name));
+      } catch {
+        setDepartmentNames([]);
+        toast.error('Unable to load license departments. Please refresh.');
+      }
 
       if (role === UserRole.SUPER_ADMIN) {
         try {
@@ -129,6 +139,14 @@ export default function CertificationsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const viewDocument = async (qualification: Qualification | CompanyCertification) => {
+    if (!qualification.fileUrl || openingDocument) return;
+    setOpeningDocument(qualification.id);
+    try { await openQualificationDocument(qualification.fileUrl); }
+    catch (error: any) { toast.error(error.message || 'Unable to open this document.'); }
+    finally { setOpeningDocument(null); }
   };
 
   const getStatusColor = (status: string, expiryDate?: string) => {
@@ -318,7 +336,7 @@ export default function CertificationsPage() {
         `${qual.employee!.firstName} ${qual.employee!.lastName}`,
         qual.name,
         qual.type,
-        qual.expiryDate ? new Date(qual.expiryDate).toLocaleDateString() : 'No Expiry',
+        qual.expiryDate ? credentialDisplay(qual.expiryDate) : 'No Expiry',
         getStatusText(qual.status, qual.expiryDate),
       ]);
 
@@ -410,6 +428,10 @@ export default function CertificationsPage() {
   };
 
   const saveQualification = async () => {
+    if (saving) return;
+    const invalidDate = document.querySelector<HTMLInputElement>('input[aria-label="Issue date (MM/DD/YYYY)"]:invalid, input[aria-label="Expiry date (MM/DD/YYYY)"]:invalid');
+    if (invalidDate) { invalidDate.reportValidity(); return; }
+    if (formData.issueDate && formData.expiryDate && formData.expiryDate < formData.issueDate) { toast.error('Expiry date cannot be before issue date.'); return; }
     if (canManageAll && scope === 'EMPLOYEES' && !formData.employeeId) {
       toast.error('Select an employee');
       return;
@@ -727,7 +749,7 @@ export default function CertificationsPage() {
                       {qual.expiryDate ? (
                         <div className="flex items-center gap-1.5">
                           <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                          <span>{new Date(qual.expiryDate).toLocaleDateString()}</span>
+                          <span>{credentialDisplay(qual.expiryDate)}</span>
                         </div>
                       ) : (
                         <span className="text-gray-400">No Expiry</span>
@@ -741,15 +763,10 @@ export default function CertificationsPage() {
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-3">
                         {qual.fileUrl && (
-                          <a 
-                            href={resolveFileUrl(qual.fileUrl)}
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-gray-500 hover:text-gray-700 transition-colors"
-                            title="View Document"
-                          >
+                          <button type="button" onClick={() => void viewDocument(qual)} disabled={!!openingDocument} aria-label={"View document for " + qual.name} className="inline-flex items-center gap-2 rounded-md bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50" title="View Document">
                             <FileText className="w-4 h-4" />
-                          </a>
+                            {openingDocument === qual.id ? "Opening…" : "View document"}
+                          </button>
                         )}
                         {isEmployee ? (
                           <>
@@ -839,12 +856,13 @@ export default function CertificationsPage() {
             )}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-              <input
-                value={formData.name}
-                onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., First Aid / Security License"
-              />
+              {formData.type === 'LICENSE' && scope === 'EMPLOYEES' ? (
+                <select aria-label="License name / department" value={formData.name} onChange={event => setFormData(current => ({...current, name:event.target.value}))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="">Select a department</option>
+                  {formData.name && !departmentNames.includes(formData.name) && <option value={formData.name}>{formData.name} (existing)</option>}
+                  {departmentNames.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
+              ) : <input value={formData.name} onChange={event => setFormData(current => ({...current, name:event.target.value}))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Certification name" />}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
@@ -871,30 +889,19 @@ export default function CertificationsPage() {
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Issuing Organization</label>
-              <input
-                value={formData.issuingOrganization}
-                onChange={(e) => setFormData((p) => ({ ...p, issuingOrganization: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Optional"
-              />
+              <select aria-label="Issuing organization" value={formData.issuingOrganization} onChange={event => setFormData(current => ({...current, issuingOrganization:event.target.value}))} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <option value="">Select issuing organization</option>
+                {formData.issuingOrganization && !["DLCP","Maryland State Police Licensing Division"].includes(formData.issuingOrganization) && <option value={formData.issuingOrganization}>{formData.issuingOrganization} (existing)</option>}
+                <option>DLCP</option><option>Maryland State Police Licensing Division</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Issue Date</label>
-              <input
-                type="date"
-                value={formData.issueDate}
-                onChange={(e) => setFormData((p) => ({ ...p, issueDate: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <ServiceDatePicker label="Issue date (MM/DD/YYYY)" value={formData.issueDate} onChange={value => setFormData(current => ({...current, issueDate:value}))} max={formData.expiryDate || undefined} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date</label>
-              <input
-                type="date"
-                value={formData.expiryDate}
-                onChange={(e) => setFormData((p) => ({ ...p, expiryDate: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <ServiceDatePicker label="Expiry date (MM/DD/YYYY)" value={formData.expiryDate} onChange={value => setFormData(current => ({...current, expiryDate:value}))} min={formData.issueDate || undefined} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Document</label>

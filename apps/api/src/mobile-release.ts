@@ -13,6 +13,8 @@ export async function mobileRelease(platform: string): Promise<Release | null> {
       const target = new URL(url);
       return validVersion(version) &&
         target.protocol === "https:" &&
+        target.hostname ===
+          (platform === "ios" ? "apps.apple.com" : "play.google.com") &&
         !target.username &&
         !target.password
         ? { version, url: target.href }
@@ -40,7 +42,7 @@ export async function mobileRelease(platform: string): Promise<Release | null> {
               url: "https://apps.apple.com/app/id6811577530",
             }
           : null;
-      appleCache = { until: Date.now() + 3600000, release };
+      appleCache = { until: Date.now() + 300000, release };
       return release;
     } catch {
       return null;

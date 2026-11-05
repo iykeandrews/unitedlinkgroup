@@ -74,7 +74,15 @@ export class PushController {
       return { ok: true };
     }
     if (platform === "expo" && body.token) {
-      await this.pushService.registerExpo(userId, body.token);
+      const device: { platform?: string; appVersion?: string } = {};
+      if (
+        ["ios", "android"].includes(body.devicePlatform) &&
+        /^\d+\.\d+\.\d+$/.test(body.appVersion || "")
+      ) {
+        device.platform = body.devicePlatform;
+        device.appVersion = body.appVersion;
+      }
+      await this.pushService.registerExpo(userId, body.token, device);
       return { ok: true };
     }
     return { ok: false, error: "Invalid registration payload" };

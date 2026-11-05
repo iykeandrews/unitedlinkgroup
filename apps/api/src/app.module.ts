@@ -1,3 +1,4 @@
+import { AppUpdateNotificationsService } from "./app-update-notifications.service";
 import { PrismaModule } from './prisma.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -101,7 +102,8 @@ import { VendorsModule } from './vendors/vendors.module';
   ],
   controllers: [AppController],
   providers: [
-    AppService, 
+    AppService,
+    AppUpdateNotificationsService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

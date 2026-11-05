@@ -1,5 +1,5 @@
 import { MobileOperationsService } from "./mobile-operations.service";
-import { OfficerAssessmentsService } from './officer-assessments.service';
+import { OfficerAssessmentsService } from "./officer-assessments.service";
 import { Module } from "@nestjs/common";
 import { TimeTrackingService } from "./time-tracking.service";
 import { TimeTrackingController } from "./time-tracking.controller";
@@ -8,7 +8,12 @@ import { PushModule } from "../push/push.module";
 
 @Module({
   imports: [NotificationsModule, PushModule],
-  providers: [TimeTrackingService, MobileOperationsService, OfficerAssessmentsService],
+  providers: [
+    TimeTrackingService,
+    MobileOperationsService,
+    OfficerAssessmentsService,
+  ],
   controllers: [TimeTrackingController],
+  exports: [MobileOperationsService],
 })
 export class TimeTrackingModule {}
