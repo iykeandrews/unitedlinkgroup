@@ -227,7 +227,7 @@ const LoanCalculator = ({
     }
     if (!eligible)
       return toast.error(
-        "Enter an amount within available approved unpaid earnings",
+        "Enter an amount within the available 10% earnings limit",
       );
     const finalReason = `[${loanType.toUpperCase()}] ${reason}`;
     setSubmitting(true);
@@ -265,7 +265,7 @@ const LoanCalculator = ({
               {employees ? "New Loan Request" : "Quick Advance"}
             </h2>
             <p className="text-slate-400 text-sm">
-              Based on approved unpaid hours
+              10% of approved unpaid earnings
             </p>
           </div>
           {!onClose && (
@@ -412,7 +412,7 @@ const LoanCalculator = ({
                   </p>
                   {!eligible && (
                     <p className="text-xs text-slate-500">
-                      Limit uses approved unpaid work, less outstanding loans
+                      Limit is 10% of approved unpaid earnings, less outstanding advances
                     </p>
                   )}
                 </div>

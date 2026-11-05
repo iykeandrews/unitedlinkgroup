@@ -74,15 +74,18 @@ async function main() {
     actor: any = { userId: "u", businessId: "b", role: "EMPLOYEE" };
   let limit = await svc.eligibility(actor);
   assert.equal(limit.approvedUnpaidHours, 7.5);
-  assert.equal(limit.maximumAmount, 165);
+  assert.equal(limit.maximumAmount, 16.5);
+  await assert.rejects(() => svc.requestLoan("u", 16.51, 0, undefined, "b", "NEXT_PAY"), /exceeds/);
   loans = [{ id: "prior", balance: 50 }];
-  assert.equal((await svc.eligibility(actor)).maximumAmount, 115);
+  assert.equal((await svc.eligibility(actor)).maximumAmount, 0);
+  loans = [{ id: "prior", balance: 5 }];
+  assert.equal((await svc.eligibility(actor)).maximumAmount, 11.5);
   await assert.rejects(
-    () => svc.requestLoan("u", 116, 0, undefined, "b", "NEXT_PAY"),
+    () => svc.requestLoan("u", 11.51, 0, undefined, "b", "NEXT_PAY"),
     /exceeds/,
   );
-  const loan = await svc.requestLoan("u", 115, 0, undefined, "b", "NEXT_PAY");
-  assert.equal(loan.perPayPeriodDeduction, 115);
+  const loan = await svc.requestLoan("u", 11.5, 0, undefined, "b", "NEXT_PAY");
+  assert.equal(loan.perPayPeriodDeduction, 11.5);
   assert.equal(loan.termMonths, 0);
   await assert.rejects(() => svc.requestLoan("u", NaN), /positive/);
   await assert.rejects(() => svc.requestLoan("u", -10), /positive/);

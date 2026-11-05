@@ -226,7 +226,7 @@ export class LoansService {
           reserved: Math.round(reserved * 100) / 100,
           maximumAmount: Math.max(
             0,
-            Math.floor((gross - reserved) * 100) / 100,
+            (Math.floor(Math.round(gross * 100) / 10) - Math.round(reserved * 100)) / 100,
           ),
         };
       }
@@ -295,7 +295,7 @@ export class LoansService {
         const limit = await this.earnedLimit(employeeId, tx);
         if (amount > limit.maximumAmount)
           throw new BadRequestException(
-            "Amount exceeds available approved unpaid earnings: $" +
+            "Amount exceeds the available 10% approved unpaid earnings limit: $" +
               limit.maximumAmount.toFixed(2),
           );
         return tx.loan.create({
