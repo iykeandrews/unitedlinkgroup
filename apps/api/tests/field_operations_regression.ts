@@ -28,7 +28,17 @@ async function main() {
         where = q.where;
         return [];
       },
-      count: async () => 0,
+      count: async (q: any) => {
+        assert.equal(q.where.businessId, "b");
+        return q.where.followUpAt ? 2 : 4;
+      },
+      aggregate: async (q: any) => {
+        assert.deepEqual(q.where, { businessId: "b", employeeId: "officer" });
+        return {
+          _avg: { score: 87.125 },
+          _max: { observedAt: new Date("2026-11-04T12:00Z") },
+        };
+      },
     },
     employee: {
       findFirst: async ({ where }: any) =>
@@ -111,7 +121,10 @@ async function main() {
     canFieldClock: false,
     employeeId: "officer",
   };
-  await service.list(actor);
+  const listing = await service.list(actor);
+  assert.equal(listing.summary.averageScore, 87.1);
+  assert.equal(listing.summary.followUps, 2);
+  assert.equal(listing.total, 4);
   assert.deepEqual(where, { businessId: "b", employeeId: "officer" });
   await assert.rejects(() => service.create(actor, body), /Only managers/);
   const fieldDb: any = {

@@ -73,7 +73,7 @@ export class OfficerAssessmentsService {
       businessId: access.businessId,
       ...(!access.canView ? { employeeId: access.employeeId! } : {}),
     };
-    const [rows, total] = await Promise.all([
+    const [rows, total, aggregate, followUps] = await Promise.all([
       this.prisma.officerAssessment.findMany({
         where,
         include: {
@@ -86,10 +86,26 @@ export class OfficerAssessmentsService {
         skip: (page - 1) * 30,
       }),
       this.prisma.officerAssessment.count({ where }),
+      this.prisma.officerAssessment.aggregate({
+        where,
+        _avg: { score: true },
+        _max: { observedAt: true },
+      }),
+      this.prisma.officerAssessment.count({
+        where: { ...where, followUpAt: { not: null } },
+      }),
     ]);
     return {
       page,
       total,
+      summary: {
+        averageScore:
+          aggregate._avg.score === null
+            ? null
+            : Math.round(aggregate._avg.score * 10) / 10,
+        latestObservedAt: aggregate._max.observedAt,
+        followUps,
+      },
       rows: rows.map((r) => ({
         ...r,
         ratings: JSON.parse(r.ratings),
