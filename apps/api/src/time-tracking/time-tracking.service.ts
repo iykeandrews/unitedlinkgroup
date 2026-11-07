@@ -1,4 +1,5 @@
 import { loadInvoiceLogo } from "../invoices/invoice-logo";
+import { timesheetDeductions } from "./timesheet-deductions";
 import {
   buildTimesheetReport,
   validateReportPeriod,
@@ -283,7 +284,23 @@ export class TimeTrackingService {
       },
       orderBy: { createdAt: "asc" },
     });
-    const report = buildTimesheetReport(business, sheets, changes, query);
+    const employeeIds = [...new Set(sheets.map((s) => s.employeeId))];
+    const [loans, stubs] = await Promise.all([
+      this.prisma.loan.findMany({ where: { employeeId: { in: employeeIds } } }),
+      this.prisma.payStub.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          payroll: {
+            businessId,
+            periodStart: { gte: new Date(query.from + "T00:00:00Z") },
+            periodEnd: { lt: new Date(Date.parse(query.to) + 86400000) },
+            status: { not: "CANCELLED" },
+          },
+        },
+      }),
+    ]);
+    const report = buildTimesheetReport(business, sheets, changes, query,
+      timesheetDeductions(loans, stubs, query.from, query.to));
     report.logo = await loadInvoiceLogo(business.logoUrl);
     return query.format === "pdf" ? reportPdf(report) : reportExcel(report);
   }

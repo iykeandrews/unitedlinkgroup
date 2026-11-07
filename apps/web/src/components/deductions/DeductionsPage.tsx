@@ -21,6 +21,7 @@ interface Deduction {
   id: string;
   employeeId: string;
   employeeName: string;
+  description?: string;
   type: DeductionType;
   taxClass: DeductionTaxClass;
   amountType: 'FIXED' | 'PERCENT';
@@ -147,6 +148,7 @@ export default function DeductionsPage() {
           employee?: { id?: string; firstName?: string; lastName?: string };
           createdAt?: string;
           updatedAt?: string;
+          reason?: string;
         }>;
         const approved = loans.filter(l => l.status === 'APPROVED');
         const mapped: Deduction[] = approved.map(l => {
@@ -157,6 +159,7 @@ export default function DeductionsPage() {
             id: `loan-${l.id}`,
             employeeId,
             employeeName: employeeName || 'Employee',
+            description: l.reason || 'Loan repayment',
             type: 'LOAN',
             taxClass: 'POST_TAX',
             amountType: 'FIXED',
@@ -501,7 +504,7 @@ export default function DeductionsPage() {
                 ) : (
                   paged.map(d => (
                     <tr key={d.id} className="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50/60 dark:hover:bg-slate-900/30 transition-all">
-                      <td className="px-4 py-3 text-sm text-slate-900 dark:text-white">{d.employeeName}</td>
+                      <td className="px-4 py-3 text-sm text-slate-900 dark:text-white">{d.employeeName}{d.description && <div className="text-xs text-slate-500 mt-1">{d.description}</div>}</td>
                       <td className="px-4 py-3 text-sm">
                         <span className="px-2 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300">
                           {d.type === 'LOAN' ? 'Loan Repayment' : d.type.replace('_', ' ')}

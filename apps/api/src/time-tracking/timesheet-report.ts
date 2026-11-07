@@ -49,6 +49,7 @@ export function buildTimesheetReport(
   sheets: any[],
   changes: any[],
   query: any,
+  deductions: Record<string, number> = {},
 ) {
   validateReportPeriod(query.from, query.to);
   if (!["ALL", "APPROVED", "PENDING"].includes(query.status || "ALL"))
@@ -273,6 +274,10 @@ export function buildTimesheetReport(
   for (const g of groups) {
     g.hours = round(g.hours);
     g.gross = round(g.gross);
+    g.deductions = round(deductions[g.employeeId] || 0);
+    g.rows.forEach((row: any, index: number) => {
+      row.deductions = index === 0 ? g.deductions : 0;
+    });
   }
   return {
     business: business.name,
@@ -291,8 +296,9 @@ export function buildTimesheetReport(
     rows,
     hours: round(groups.reduce((n, g) => n + g.hours, 0)),
     gross: round(groups.reduce((n, g) => n + g.gross, 0)),
+    deductions: round(groups.reduce((n, g) => n + g.deductions, 0)),
     notes:
-      "Gross pay is an estimate before taxes and deductions, using recorded hourly rates and weekly overtime where applicable. Pending attendance is included in overtime estimates. Paid external history is shown for reference, not as an amount due. Salary, missing rates, open shifts and overlapping attendance require payroll review. Times are shown as recorded at the work location. Period selection uses the clock-in date.",
+      "Deductions are period totals shown once per employee, not per shift; they do not reduce gross pay. Gross pay is an estimate before taxes and deductions, using recorded hourly rates and weekly overtime where applicable. Pending attendance is included in overtime estimates. Paid external history is shown for reference, not as an amount due. Salary, missing rates, open shifts and overlapping attendance require payroll review. Times are shown as recorded at the work location. Period selection uses the clock-in date.",
   };
 }
 export type TimesheetReport = ReturnType<typeof buildTimesheetReport>;
@@ -314,7 +320,7 @@ export function reportPdf(report: TimesheetReport) {
           missing: 0,
         },
       ];
-  const widths = [27, 55, 27, 27, 26, 24, 26, 28, 33];
+  const widths = [25, 43, 26, 26, 22, 23, 25, 27, 27, 29];
   const measure = new jsPDF({
     orientation: "landscape",
     unit: "mm",
@@ -333,6 +339,7 @@ export function reportPdf(report: TimesheetReport) {
       r.hours === null ? "Review" : r.hours.toFixed(2),
       r.rate === null ? "Review" : money(r.rate),
       r.gross === null ? "Review" : money(r.gross),
+      money(r.deductions || 0),
       r.status +
         (r.paidExternally ? " / Paid externally" : "") +
         (r.warning ? " / " + r.warning : ""),
@@ -435,6 +442,7 @@ export function reportPdf(report: TimesheetReport) {
       "Net hours",
       "Rate / hr",
       "Gross pay",
+      "Deductions",
       "Status",
     ];
     let y = 60;
@@ -489,6 +497,7 @@ export function reportPdf(report: TimesheetReport) {
         [g.hours.toFixed(2)],
         [],
         [money(g.gross)],
+        [money(g.deductions || 0)],
         [],
       ],
       11,
@@ -499,7 +508,7 @@ export function reportPdf(report: TimesheetReport) {
     doc.setFont("helvetica", "normal");
     doc.text(
       doc.splitTextToSize(
-        "Gross pay is estimated before taxes and deductions and includes applicable weekly overtime. Pending entries require approval. Paid external history is for reference only. Review flagged entries in payroll.",
+        "Deductions are period totals, shown once per employee; gross pay remains before taxes and deductions. Pending entries require approval. Paid external history is for reference only. Review flagged entries in payroll.",
         273,
       ),
       12,
@@ -595,7 +604,7 @@ export async function reportExcel(report: TimesheetReport) {
     });
   };
   const summary = book.addWorksheet("Employee summary");
-  brand(summary, 6);
+  brand(summary, 7);
   summary.addRow([]);
   header(
     summary.addRow([
@@ -604,6 +613,7 @@ export async function reportExcel(report: TimesheetReport) {
       "Hourly rate",
       "Net hours",
       "Estimated gross",
+      "Deductions",
       "Needs review",
     ]),
   );
@@ -615,6 +625,7 @@ export async function reportExcel(report: TimesheetReport) {
       rates.length === 1 ? rates[0] : rates.length ? rates.map(rate => report.currency + " " + rate.toFixed(2)).join(" / ") : "Rate not set",
       g.hours,
       g.gross,
+      g.deductions,
       g.missing ? g.missing + " entries" : "",
     ]);
   }
@@ -624,15 +635,17 @@ export async function reportExcel(report: TimesheetReport) {
     "",
     report.hours,
     report.gross,
+    report.deductions,
     "",
   ]).font = { bold: true };
   summary.getColumn(3).numFmt = currency;
   summary.getColumn(4).numFmt = "0.00";
   summary.getColumn(5).numFmt = currency;
-  [32, 22, 24, 15, 22, 22].forEach(
+  summary.getColumn(6).numFmt = currency;
+  [32, 22, 24, 15, 22, 20, 22].forEach(
     (w, i) => (summary.getColumn(i + 1).width = w),
   );
-  summary.autoFilter = { from: "A5", to: "F" + (5 + report.groups.length) };
+  summary.autoFilter = { from: "A5", to: "G" + (5 + report.groups.length) };
   for (const [index, g] of report.groups.entries()) {
     const sheet = book.addWorksheet(
       (
@@ -641,8 +654,8 @@ export async function reportExcel(report: TimesheetReport) {
         (index + 1)
       ).slice(0, 31),
     );
-    brand(sheet, 10);
-    sheet.mergeCells(4, 1, 4, 10);
+    brand(sheet, 11);
+    sheet.mergeCells(4, 1, 4, 11);
     sheet.getCell(4, 1).value = g.name + (g.badge ? " | " + g.badge : "");
     sheet.getRow(4).font = { bold: true, size: 12 };
     header(
@@ -656,6 +669,7 @@ export async function reportExcel(report: TimesheetReport) {
         "OT hours",
         "Hourly rate",
         "Estimated gross",
+        "Deductions",
         "Status / notes",
       ]),
     );
@@ -670,6 +684,7 @@ export async function reportExcel(report: TimesheetReport) {
         r.overtimeHours,
         r.rate,
         r.gross,
+        r.deductions,
         r.status +
           (r.paidExternally ? " / Paid externally" : "") +
           (r.warning ? " / " + r.warning : ""),
@@ -687,20 +702,21 @@ export async function reportExcel(report: TimesheetReport) {
       "",
       "",
       g.gross,
+      g.deductions,
     ]);
     total.font = { bold: true };
     for (const col of [6, 7]) sheet.getColumn(col).numFmt = "0.00";
-    for (const col of [8, 9]) sheet.getColumn(col).numFmt = currency;
-    [15, 38, 18, 23, 22, 14, 14, 18, 20, 42].forEach(
+    for (const col of [8, 9, 10]) sheet.getColumn(col).numFmt = currency;
+    [15, 38, 18, 23, 22, 14, 14, 18, 20, 20, 42].forEach(
       (w, i) => (sheet.getColumn(i + 1).width = w),
     );
     const noteRow = sheet.rowCount + 2;
-    sheet.mergeCells(noteRow, 1, noteRow, 10);
+    sheet.mergeCells(noteRow, 1, noteRow, 11);
     sheet.getCell(noteRow, 1).value = report.notes;
     sheet.getRow(noteRow).height = 45;
     sheet.getCell(noteRow, 1).alignment = { wrapText: true, vertical: "top" };
     sheet.getCell(noteRow, 1).font = { size: 9, color: { argb: "FF666666" } };
-    sheet.pageSetup.printArea = "A1:J" + noteRow;
+    sheet.pageSetup.printArea = "A1:K" + noteRow;
   }
   return Buffer.from(await book.xlsx.writeBuffer());
 }
