@@ -105,7 +105,7 @@ export function financeSummaryPdf(
   doc.roundedRect(12, 59, width - 24, 22, 2, 2, "F");
   doc.setFontSize(9);
   doc.text(
-    "Total employer cost - approved gross pay + estimated employer taxes",
+    "Total employer cost - approved wages + estimated employer taxes",
     15,
     66,
   );
@@ -118,10 +118,10 @@ export function financeSummaryPdf(
   );
   const cards = [
     ["Invoiced revenue, before tax", cash(t.revenue)],
-    ["Approved gross pay", cash(t.grossPay)],
+    ["Officer's wages", cash(t.grossPay)],
     ["Estimated employer taxes", cash(t.employerTaxes)],
     [
-      "Contribution before overhead",
+      "Estimated Net Income",
       t.incomplete ? "Incomplete - review" : cash(t.margin),
     ],
   ];
@@ -144,8 +144,8 @@ export function financeSummaryPdf(
       "Scheduled h",
       "Approved h",
       "Revenue",
-      "Gross pay",
-      "Contribution",
+      "Officer's wages",
+      "Net",
     ],
     report.locations.map((l) => [
       l.name,
@@ -189,7 +189,7 @@ export function financeSummaryPdf(
         "Profile rate",
         "Approved hours",
         "Actual hours",
-        "Gross pay",
+        "Officer's wages",
         "Deductions",
       ],
       workers.map((w) => [
@@ -226,7 +226,7 @@ export function financeSummaryPdf(
     combinedY += 6;
   }
   table(
-    ["Actual hours", "Scheduled hours", "Gross pay"],
+    ["Actual hours", "Scheduled hours", "Officer's wages"],
     [
       [
         t.actualHours === null ? "Review" : t.actualHours.toFixed(2),

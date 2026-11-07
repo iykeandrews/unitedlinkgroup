@@ -12,6 +12,7 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { RolesGuard } from "../auth/roles.guard";
 import { Roles } from "../auth/roles.decorator";
 import { UserRole } from "@unitedlinkgroup/types";
+import { financeSummaryExcel } from "./finance-summary-excel";
 import { financeSummaryPdf } from './finance-summary-pdf';
 import { loadInvoiceLogo } from '../invoices/invoice-logo';
 
@@ -26,6 +27,11 @@ export class ReportsController {
     const businessId=await this.reportsService.resolveBusiness(req.user,header);
     const {report,logoUrl}=await this.reportsService.getFinanceSummary(businessId,query);
     response?.setHeader('Cache-Control','no-store');
+    if(query.format==='xlsx') {
+      response.setHeader('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      response.setHeader('Content-Disposition','attachment; filename="revenue-payroll-summary-'+report.from+'-'+report.to+'.xlsx"');
+      response.send(await financeSummaryExcel(report));return;
+    }
     if(query.format==='pdf') {
       const pdf=financeSummaryPdf(report,await loadInvoiceLogo(logoUrl));
       response.setHeader('Content-Type','application/pdf');

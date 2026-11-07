@@ -1,4 +1,6 @@
 import "reflect-metadata";
+import ExcelJS from "exceljs";
+import { financeSummaryExcel } from "../src/reports/finance-summary-excel";
 import assert from "node:assert/strict";
 import {
   buildFinanceSummary,
@@ -112,6 +114,7 @@ async function main() {
     loans: [
       {
         id: "loan",
+        status: "APPROVED",
         employeeId: "W2",
         employee: w2,
         createdAt: new Date("2026-09-01"),
@@ -142,7 +145,8 @@ async function main() {
     report.workers.find((w) => w.workerType === "CONTRACTOR_1099").employerTax,
     0,
   );
-  assert.equal(report.totals.margin, 727.34);
+  assert.equal(report.totals.margin, 740);
+  assert.equal(report.totals.employerCost, report.totals.grossPay + report.totals.employerTaxes);
   assert.deepEqual(report.workerTotals, [
     {
       workerType: "W2",
@@ -215,7 +219,7 @@ async function main() {
   });
   assert.equal(manual.totals.revenue, 1250);
   assert.equal(manual.totals.invoicedTotal, 1050);
-  assert.equal(manual.totals.margin, 977.34);
+  assert.equal(manual.totals.margin, 990);
   assert.equal(manual.locations[0].originalRevenue, 1000);
   assert(manual.warnings.some((w) => w.includes("Verified client amount")));
   assert.equal(JSON.stringify(data), beforeManual);
@@ -250,6 +254,18 @@ async function main() {
   assert(buildFinanceSummary(missing, query).totals.incomplete);
   assert.throws(() => summaryOptions({ ...query, extraRate: -1 }));
   assert.throws(() => summaryOptions({ ...query, to: "2027-01-01" }));
+  const assigned = structuredClone(data) as any;
+  assigned.loans.push({id:"advance", employeeId:"W2", employee:w2, status:"APPROVED", amount:35, balance:35,
+    perPayPeriodDeduction:35, createdAt:new Date("2026-11-05"), reason:"Salary advance [2026-09-16 to 2026-09-30]"});
+  const assignedReport = buildFinanceSummary(assigned, query);
+  assert.equal(assignedReport.workers.find(w=>w.employeeId==="W2").deductions,55);
+  assert.equal(assignedReport.totals.deductions,55);
+  assigned.loans[1].id="loan";
+  assert.equal(buildFinanceSummary(assigned,query).totals.deductions,20);
+  const workbook=new ExcelJS.Workbook();
+  await workbook.xlsx.load(await financeSummaryExcel(assignedReport) as any);
+  assert.equal(workbook.getWorksheet("W-2 employees")!.getCell("F5").value,55);
+  assert.equal(workbook.getWorksheet("Summary")!.getCell("B8").value,report.totals.employerCost);
   const source = JSON.stringify(data);
   const pdf = financeSummaryPdf(report, null);
   assert(pdf.length > 1000);

@@ -78,19 +78,19 @@ export default function FinanceSummaryPage() {
       if (request === version.current) setLoading(false);
     }
   };
-  const download = async () => {
+  const download = async (format: "pdf" | "xlsx" = "pdf") => {
     if (!current || downloading) return;
     setDownloading(true);
     try {
       const response = await api.get("/reports/finance-summary", {
-        params: { ...params, format: "pdf" },
+        params: { ...params, format },
         headers: { "x-business-id": selectedBusiness?.id || "" },
         responseType: "blob",
       });
       const url = URL.createObjectURL(response.data),
         a = document.createElement("a");
       a.href = url;
-      a.download = "revenue-payroll-summary-" + from + "-" + to + ".pdf";
+      a.download = "revenue-payroll-summary-" + from + "-" + to + "." + format;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e: any) {
@@ -265,13 +265,14 @@ export default function FinanceSummaryPage() {
             {loading ? "Preparing…" : "Prepare summary"}
           </button>
           <button
-            onClick={download}
+            onClick={() => download("pdf")}
             disabled={!current || downloading || loading}
             className="inline-flex gap-2 items-center border rounded-lg px-5 py-2.5 disabled:opacity-50"
           >
             <Download size={17} />
-            {downloading ? "Creating PDF…" : "Download PDF"}
+            {downloading ? "Creating file…" : "Download PDF"}
           </button>
+          <button onClick={() => download("xlsx")} disabled={!current || downloading || loading} className="inline-flex gap-2 items-center border rounded-lg px-5 py-2.5 disabled:opacity-50"><Download size={17} />Download Excel</button>
         </div>
         {report && !current && (
           <p className="text-sm text-amber-700">
@@ -395,17 +396,17 @@ export default function FinanceSummaryPage() {
                 : cash(report.totals.employerCost)}
             </p>
             <p className="text-sm mt-2">
-              Approved gross pay {cash(report.totals.grossPay)} + estimated
+              Officer’s wages {cash(report.totals.grossPay)} + estimated
               employer taxes {cash(report.totals.employerTaxes)}
             </p>
           </section>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               ["Revenue before sales tax", cash(report.totals.revenue)],
-              ["Approved gross pay", cash(report.totals.grossPay)],
+              ["Officer’s wages", cash(report.totals.grossPay)],
               ["Employer taxes — estimate", cash(report.totals.employerTaxes)],
               [
-                "Contribution before overhead",
+                "Estimated Net Income",
                 report.totals.incomplete
                   ? "Incomplete — review data"
                   : cash(report.totals.margin),
@@ -439,9 +440,8 @@ export default function FinanceSummaryPage() {
                 "Scheduled hours",
                 "Approved hours",
                 "Revenue",
-                "Gross pay",
-                "Employer tax est.",
-                "Contribution",
+                "Officer’s wages",
+                "Net",
               ],
               report.locations.map((l: any) => [
                 l.name,
@@ -461,7 +461,6 @@ export default function FinanceSummaryPage() {
                   cash(l.revenue)
                 ),
                 cash(l.gross),
-                cash(l.employerTax),
                 report.totals.incomplete ? "Review" : cash(l.margin),
               ]),
             )}
@@ -480,8 +479,8 @@ export default function FinanceSummaryPage() {
                   "Profile rate",
                   "Approved hours",
                   "Actual hours",
-                  "Gross pay",
-                  "Recorded deductions",
+                  "Officer’s wages",
+                  "Deductions",
                 ],
                 report.workers
                   .filter((w: any) => w.workerType === type)
@@ -514,7 +513,7 @@ export default function FinanceSummaryPage() {
           <section className="rounded-xl border dark:border-slate-700 overflow-hidden">
             <h2 className="font-bold p-5">All workers — combined totals</h2>
             {table(
-              ["Actual hours", "Scheduled hours", "Gross pay"],
+              ["Actual hours", "Scheduled hours", "Officer’s wages"],
               [
                 [
                   report.totals.actualHours === null
@@ -553,7 +552,7 @@ export default function FinanceSummaryPage() {
               ]),
             )}
             <p className="p-5 text-sm text-slate-500">
-              Recorded deductions: {cash(report.totals.deductions)}. Scheduled
+              Deductions: {cash(report.totals.deductions)}. Scheduled
               amounts are per pay period, not additional wage expenses or
               deductions posted by this report.
             </p>

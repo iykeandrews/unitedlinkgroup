@@ -23,7 +23,7 @@ export class ReportsService {
       this.prisma.shift.findMany({where:{businessId,status:{notIn:['CANCELLED','ARCHIVED']},startTime:{gte:new Date(options.from+'T00:00:00Z'),lt:upper}}}),
       this.prisma.payStub.findMany({where:{employee:{businessId},payroll:{businessId,status:{in:['PROCESSED','PAID']},periodStart:{lt:upper},periodEnd:{gte:new Date(options.from+'T00:00:00Z')}}},include:{payroll:true,employee:{select:{firstName:true,lastName:true}}}}),
       this.prisma.loanRepayment.findMany({where:{loan:{employee:{businessId}},date:{gte:new Date(options.from+'T00:00:00Z'),lt:upper}},include:{loan:{include:{employee:{select:{firstName:true,lastName:true}}}}}}),
-      this.prisma.loan.findMany({where:{employee:{businessId},status:'APPROVED',balance:{gt:0}},include:{employee:{select:{firstName:true,lastName:true}}}}),
+      this.prisma.loan.findMany({where:{employee:{businessId},status:{in:['APPROVED','PAID']}},include:{employee:{select:{firstName:true,lastName:true}}}}),
     ]);
     return {report:buildFinanceSummary({business,sheets,rateChanges,invoices,locations,shifts,stubs,repayments,loans},query),logoUrl:business.logoUrl};
   }

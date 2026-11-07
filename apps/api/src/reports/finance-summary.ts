@@ -181,7 +181,18 @@ export function buildFinanceSummary(data: any, query: any) {
     });
   }
   for (const loan of data.loans) {
-    if (reportDay(loan.createdAt) > to || !(loan.balance > 0)) continue;
+    const period = /\[(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})\]/.exec(loan.reason || "");
+    if (period) {
+      if (period[1] < from || period[2] > to ||
+          [...stubLoanIds].some((id) => id.endsWith("|" + loan.id)) ||
+          data.repayments.some((r: any) => r.loanId === loan.id && reportDay(r.date) >= from && reportDay(r.date) <= to)) continue;
+      const w = workers.find((w) => w.employeeId === loan.employeeId);
+      if (w) w.deductions += loan.amount;
+      deductionRows.push({employeeId: loan.employeeId, name: loan.employee.firstName + " " + loan.employee.lastName,
+        type: "Salary advance", amount: loan.amount, status: "ASSIGNED", reference: loan.id});
+      continue;
+    }
+    if (loan.status !== "APPROVED" || reportDay(loan.createdAt) > to || !(loan.balance > 0)) continue;
     const amount = money(Math.min(loan.balance, loan.perPayPeriodDeduction));
     const w = workers.find((w) => w.employeeId === loan.employeeId);
     if (w) w.scheduledDeductions += amount;
@@ -379,7 +390,7 @@ export function buildFinanceSummary(data: any, query: any) {
       "employerTax",
     ])
       l[key] = money(l[key]);
-    l.margin = money(l.revenue - l.gross - l.employerTax);
+    l.margin = money(l.revenue - l.gross);
   }
   const workerNames = new Map(
     data.sheets.map((s: any) => [
@@ -431,7 +442,7 @@ export function buildFinanceSummary(data: any, query: any) {
   if (missingLabor)
     warnings.push(
       missingLabor +
-        " invoiced locations have no approved worker hours in this period. Review attendance before relying on the contribution calculation.",
+        " invoiced locations have no approved worker hours in this period. Review attendance before relying on the net income calculation.",
     );
   if (missing)
     warnings.push(
@@ -456,7 +467,7 @@ export function buildFinanceSummary(data: any, query: any) {
       : money(workerTotals.reduce((n, g) => n + g.actualHours!, 0)),
     deductions: money(
       deductionRows
-        .filter((r) => r.status === "RECORDED")
+        .filter((r) => ["RECORDED", "ASSIGNED"].includes(r.status))
         .reduce((n, r) => n + r.amount, 0),
     ),
     margin: sum("margin"),
@@ -502,10 +513,10 @@ export function buildFinanceSummary(data: any, query: any) {
         ? "Service-period revenue includes only sent/paid invoices fully contained in the selected service dates. Unsent drafts and void invoices are excluded. Revenue excludes invoice sales tax. Outstanding balance is current, not a historical balance."
         : "Email-date revenue includes invoices first emailed in the selected period. Legacy records without a recovered first-send date are excluded. Revenue excludes sales tax; outstanding balance is current.",
       "Approved hours are grouped by the work-location clock-in date, after unpaid breaks. Gross pay uses saved historical/shift rates and weekly overtime. Historical paid attendance is included as a cost, not paid again.",
-      "Recorded deductions come from processed/paid payroll and recorded loan repayments. Scheduled loan amounts mirror the Deductions page and are per pay period, not applied or prorated here. Employee deductions do not reduce gross wage expense.",
+      "Recorded deductions come from processed/paid payroll and recorded loan repayments. Period-assigned salary advances are included once for their assigned period. Scheduled loan amounts mirror the Deductions page and are per pay period, not applied or prorated here. Employee deductions do not reduce gross wage expense.",
       "Employer taxes are planning estimates for W-2 wages only: Social Security 6.2% up to the annual wage base; Medicare 1.45% without a cap; FUTA 0.6% on the first $7,000, assuming full credit. Optional additional employer tax is a user-entered assumption.",
       "Annual caps use prior approved attendance wages available in this app, not certified payroll taxable wages. Missing/off-platform wage history, benefits and tax exemptions can change the result. State/local taxes, paid-leave levies and workers compensation are excluded unless supplied in the optional estimate.",
-      "Contribution margin = invoiced revenue before sales tax minus approved gross pay minus estimated employer taxes. This is not net profit: overhead, insurance, rent and other expenses are not included. This report does not change payroll, deductions, invoices or payments.",
+      "Estimated Net Income = invoiced revenue before sales tax minus officer wages. Estimated employer taxes are shown separately and are not subtracted from this measure. This is not net profit: overhead, insurance, rent and other expenses are not included. This report does not change payroll, deductions, invoices or payments.",
       "Federal tax source: https://www.irs.gov/publications/p15",
     ],
   };
