@@ -21,9 +21,9 @@ export default function FinanceSummaryPage() {
   const [extraRate, setExtraRate] = useState("0"),
     [extraCap, setExtraCap] = useState("9000");
   const [manualDraft, setManualDraft] = useState<
-    Record<string, { amount: string; reason: string }>
+    Record<string, { amount: string; scheduledHours: string; approvedHours: string; reason: string }>
   >({});
-  const [manualAmounts, setManualAmounts] = useState("{}");
+  const [saving, setSaving] = useState(false);
   const [report, setReport] = useState<any>(null),
     [loading, setLoading] = useState(false),
     [downloading, setDownloading] = useState(false),
@@ -32,7 +32,7 @@ export default function FinanceSummaryPage() {
   const admin = ["BUSINESS_ADMIN", "SUPER_ADMIN"].includes(user?.role || "");
   const field =
     "mt-1 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-white";
-  const params = { from, to, basis, extraRate, extraCap, manualAmounts };
+  const params = { from, to, basis, extraRate, extraCap };
   const valid =
     !!from && !!to && from <= to && from.slice(0, 4) === to.slice(0, 4);
   const key = JSON.stringify({ business: selectedBusiness?.id, ...params }),
@@ -42,14 +42,12 @@ export default function FinanceSummaryPage() {
     version.current++;
     setReport(null);
     setManualDraft({});
-    setManualAmounts("{}");
     setLoadedKey("");
     setError("");
     setLoading(false);
   }, [selectedBusiness?.id]);
   useEffect(() => {
     setManualDraft({});
-    setManualAmounts("{}");
   }, [from, to, basis]);
   const message = (e: any) => {
     const m =
@@ -71,6 +69,7 @@ export default function FinanceSummaryPage() {
       });
       if (request !== version.current) return;
       setReport(response.data);
+      setManualDraft(Object.fromEntries(Object.entries(response.data.savedOverrides || {}).map(([id,v]:[string,any])=>[id,{amount:v.amount?.toString() ?? "",scheduledHours:v.scheduledHours?.toString() ?? "",approvedHours:v.approvedHours?.toString() ?? "",reason:v.reason || ""}])));
       setLoadedKey(key);
     } catch (e) {
       if (request === version.current) setError(message(e));
@@ -287,102 +286,40 @@ export default function FinanceSummaryPage() {
       </section>
       {report && (
         <section className="rounded-xl border p-5 dark:border-slate-700">
-          <h2 className="font-bold">Manual invoice amounts</h2>
-          <p className="text-sm text-slate-500 mt-2">
-            Optional: replace a location’s revenue before sales tax for this
-            report. Leave blank to use invoices. Add a reason for each
-            adjustment. These amounts are included in the PDF and do not edit
-            invoices. Recheck them when changing the reporting period.
-          </p>
+          <h2 className="font-bold">Saved location adjustments</h2>
+          <p className="text-sm text-slate-500 mt-2">Invoice revenue, scheduled hours and approved hours are saved for this exact reporting period and date basis. Leave a field blank to use calculated values. These adjustments affect the summary and downloads only; employee attendance, wages and invoices remain unchanged.</p>
+          {report.savedAt && <p className="text-xs text-slate-500 mt-2">Last saved: {new Date(report.savedAt).toLocaleString("en-US")}</p>}
           <details className="mt-3">
-            <summary className="cursor-pointer font-medium">
-              Enter amounts by location
-            </summary>
-            <div className="space-y-3 mt-4">
-              {report.availableLocations.map((l: any) => (
-                <div
-                  key={l.id}
-                  className="grid md:grid-cols-3 gap-3 items-center"
-                >
-                  <label htmlFor={"manual-" + l.id}>
-                    {l.name}
-                    {l.manualInvoiceRequired && (
-                      <small className="block text-amber-700">
-                        Protos · manual amount required
-                      </small>
-                    )}
-                  </label>
-                  <input
-                    id={"manual-" + l.id}
-                    aria-label={l.name + " manual revenue"}
-                    className={field}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder={
-                      l.manualInvoiceRequired
-                        ? "Enter Protos amount"
-                        : "Use invoice amount"
-                    }
-                    value={manualDraft[l.id]?.amount || ""}
-                    onChange={(e) =>
-                      setManualDraft({
-                        ...manualDraft,
-                        [l.id]: {
-                          amount: e.target.value,
-                          reason: manualDraft[l.id]?.reason || "",
-                        },
-                      })
-                    }
-                  />
-                  <input
-                    aria-label={l.name + " adjustment reason"}
-                    className={field}
-                    maxLength={300}
-                    placeholder="Reason for adjustment"
-                    value={manualDraft[l.id]?.reason || ""}
-                    onChange={(e) =>
-                      setManualDraft({
-                        ...manualDraft,
-                        [l.id]: {
-                          amount: manualDraft[l.id]?.amount || "",
-                          reason: e.target.value,
-                        },
-                      })
-                    }
-                  />
+            <summary className="cursor-pointer font-medium">Edit amounts and hours by location</summary>
+            <div className="space-y-4 mt-4">
+              {report.availableLocations.map((l:any)=><div key={l.id} className="rounded-lg border p-4">
+                <h3 className="font-semibold">{l.name}</h3>
+                <div className="grid md:grid-cols-4 gap-3">
+                  {[["amount","Invoice revenue ($)"],["scheduledHours","Scheduled hours"],["approvedHours","Approved hours"],["reason","Adjustment reason"]].map(([key,label])=><label key={key} className="text-sm">{label}<input className={field} aria-label={l.name+" "+label} type={key==="reason"?"text":"number"} min="0" step="0.01" maxLength={300} placeholder={key==="reason"?"Reason for adjustment":"Use calculated value"} value={(manualDraft[l.id] as any)?.[key] ?? ""} onChange={e=>setManualDraft({...manualDraft,[l.id]:{...(manualDraft[l.id] || {amount:"",scheduledHours:"",approvedHours:"",reason:""}),[key]:e.target.value}})} /></label>)}
                 </div>
-              ))}
+              </div>)}
             </div>
-            <button
-              className="mt-4 rounded-lg bg-slate-800 text-white px-4 py-2"
-              onClick={() => {
-                const values: any = {};
-                for (const [id, v] of Object.entries(manualDraft)) {
-                  if (v.amount === "") continue;
-                  if (
-                    !Number.isFinite(Number(v.amount)) ||
-                    Number(v.amount) < 0 ||
-                    !v.reason.trim()
-                  ) {
-                    toast.error(
-                      "Enter a valid amount and reason for each adjustment.",
-                    );
-                    return;
-                  }
-                  values[id] = {
-                    amount: Number(v.amount),
-                    reason: v.reason.trim(),
-                  };
+            <button className="mt-4 rounded-lg bg-slate-800 text-white px-4 py-2 disabled:opacity-50" disabled={saving || !current} onClick={async()=>{
+              const values:any={};
+              for(const [id,v] of Object.entries(manualDraft)) {
+                const entry:any={};
+                for(const key of ["amount","scheduledHours","approvedHours"] as const) {
+                  if(v[key]==="")continue;
+                  if(!Number.isFinite(Number(v[key])) || Number(v[key])<0){toast.error("Enter non-negative amounts and hours.");return;}
+                  entry[key]=Number(v[key]);
                 }
-                setManualAmounts(JSON.stringify(values));
-                toast.success(
-                  "Amounts applied. Select Prepare summary to refresh the report.",
-                );
-              }}
-            >
-              Apply amounts
-            </button>
+                if(!Object.keys(entry).length)continue;
+                if(!v.reason.trim()){toast.error("Add a reason for each adjustment.");return;}
+                values[id]={...entry,reason:v.reason.trim()};
+              }
+              const request = version.current;
+              setSaving(true);
+              try {
+                const response=await api.put("/reports/finance-summary/overrides",{...params,manualAmounts:JSON.stringify(values)},{headers:{"x-business-id":selectedBusiness?.id || ""}});
+                if(request !== version.current) return;
+                setReport(response.data); toast.success("Amounts and hours saved for this period.");
+              } catch(e){toast.error(message(e));}finally{setSaving(false);}
+            }}>{saving?"Saving…":"Save amounts and hours"}</button>
           </details>
         </section>
       )}

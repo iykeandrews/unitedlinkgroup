@@ -12,6 +12,11 @@ export class ReportsService {
 
   async getFinanceSummary(businessId:string,query:any) {
     const options=summaryOptions(query);
+    const saved=await this.prisma.auditLog.findFirst({where:{businessId,resource:'FINANCE_SUMMARY_OVERRIDE',resourceId:options.from+'|'+options.to+'|'+options.basis,action:'SAVE'},orderBy:[{createdAt:'desc'},{id:'desc'}]});
+    let overrides:any;
+    try { overrides=query.manualAmounts !== undefined ? JSON.parse(query.manualAmounts) : (saved?.details ? JSON.parse(saved.details).values : {}); }
+    catch { throw new BadRequestException("Invalid saved summary adjustments."); }
+    query={...query,manualAmounts:JSON.stringify(overrides)};
     const lower=new Date(options.year+'-01-01T00:00:00Z');lower.setUTCDate(lower.getUTCDate()-9);
     const upper=new Date(options.to+'T00:00:00Z');upper.setUTCDate(upper.getUTCDate()+2);
     const [business,sheets,rateChanges,invoices,locations,shifts,stubs,repayments,loans]=await Promise.all([
@@ -25,7 +30,16 @@ export class ReportsService {
       this.prisma.loanRepayment.findMany({where:{loan:{employee:{businessId}},date:{gte:new Date(options.from+'T00:00:00Z'),lt:upper}},include:{loan:{include:{employee:{select:{firstName:true,lastName:true}}}}}}),
       this.prisma.loan.findMany({where:{employee:{businessId},status:{in:['APPROVED','PAID']}},include:{employee:{select:{firstName:true,lastName:true}}}}),
     ]);
-    return {report:buildFinanceSummary({business,sheets,rateChanges,invoices,locations,shifts,stubs,repayments,loans},query),logoUrl:business.logoUrl};
+    return {report:{...buildFinanceSummary({business,sheets,rateChanges,invoices,locations,shifts,stubs,repayments,loans},query),savedOverrides:overrides,savedAt:saved?.createdAt || null},logoUrl:business.logoUrl};
+  }
+
+  async saveFinanceSummary(businessId:string, query:any, userId:string) {
+    const options=summaryOptions(query);
+    await this.getFinanceSummary(businessId,query);
+    await this.prisma.auditLog.create({data:{businessId,userId,resource:"FINANCE_SUMMARY_OVERRIDE",action:"SAVE",
+      resourceId:options.from+"|"+options.to+"|"+options.basis,
+      details:JSON.stringify({from:options.from,to:options.to,basis:options.basis,values:JSON.parse(query.manualAmounts)})}});
+    return this.getFinanceSummary(businessId,{...query,manualAmounts:undefined});
   }
 
   private async getBusinessId(userId: string): Promise<string> {

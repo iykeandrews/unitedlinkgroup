@@ -340,10 +340,9 @@ export function buildFinanceSummary(data: any, query: any) {
     if (
       !data.locations.some((l: any) => l.id === id) ||
       !input ||
-      typeof input.amount !== "number" ||
-      !Number.isFinite(input.amount) ||
-      input.amount < 0 ||
-      input.amount > 100000000 ||
+      !["amount", "scheduledHours", "approvedHours"].some((key) => input[key] !== undefined) ||
+      ["amount", "scheduledHours", "approvedHours"].some((key) => input[key] !== undefined &&
+        (typeof input[key] !== "number" || !Number.isFinite(input[key]) || input[key] < 0 || input[key] > (key === "amount" ? 100000000 : 1000000))) ||
       typeof input.reason !== "string" ||
       !input.reason.trim() ||
       input.reason.length > 300
@@ -353,6 +352,13 @@ export function buildFinanceSummary(data: any, query: any) {
       );
     const l = location(id);
     l.originalRevenue = l.originalRevenue ?? l.revenue;
+    l.originalScheduledHours = l.scheduledHours;
+    l.originalApprovedHours = l.approvedHours;
+    if (input.scheduledHours !== undefined) l.scheduledHours = money(input.scheduledHours);
+    if (input.approvedHours !== undefined) l.approvedHours = money(input.approvedHours);
+    l.manualHoursReason = input.reason.trim();
+    if (input.scheduledHours !== undefined || input.approvedHours !== undefined) warnings.push("Manual location hours: " + l.name + "; scheduled " + l.scheduledHours.toFixed(2) + "; approved " + l.approvedHours.toFixed(2) + ". Reason: " + l.manualHoursReason + ". Employee wages and attendance remain unchanged.");
+    if (input.amount === undefined) continue;
     l.revenue = money(input.amount);
     l.manualReason = input.reason.trim();
     warnings.push(
@@ -512,6 +518,7 @@ export function buildFinanceSummary(data: any, query: any) {
       basis === "SERVICE"
         ? "Service-period revenue includes only sent/paid invoices fully contained in the selected service dates. Unsent drafts and void invoices are excluded. Revenue excludes invoice sales tax. Outstanding balance is current, not a historical balance."
         : "Email-date revenue includes invoices first emailed in the selected period. Legacy records without a recovered first-send date are excluded. Revenue excludes sales tax; outstanding balance is current.",
+      "Manual location hours replace summary totals only; employee attendance, wages and payroll are unchanged.",
       "Approved hours are grouped by the work-location clock-in date, after unpaid breaks. Gross pay uses saved historical/shift rates and weekly overtime. Historical paid attendance is included as a cost, not paid again.",
       "Recorded deductions come from processed/paid payroll and recorded loan repayments. Period-assigned salary advances are included once for their assigned period. Scheduled loan amounts mirror the Deductions page and are per pay period, not applied or prorated here. Employee deductions do not reduce gross wage expense.",
       "Employer taxes are planning estimates for W-2 wages only: Social Security 6.2% up to the annual wage base; Medicare 1.45% without a cap; FUTA 0.6% on the first $7,000, assuming full credit. Optional additional employer tax is a user-entered assumption.",

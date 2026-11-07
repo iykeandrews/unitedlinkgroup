@@ -32,7 +32,7 @@ export async function financeSummaryExcel(report: FinanceSummary) {
     ["Total employer cost",t.employerCost], ["Estimated Net Income",t.margin],
     ["Worker deductions",t.deductions],
   ],[2]);
-  add("Locations",["Location","Revenue","Officer's wages","Net"],report.locations.map(l=>[l.name,l.revenue,l.gross,l.margin]).concat([["TOTAL",t.revenue,t.grossPay,t.margin]]),[2,3,4]);
+  add("Locations",["Location","Scheduled hours","Approved hours","Revenue","Officer's wages","Net"],report.locations.map(l=>[l.name,l.scheduledHours,l.approvedHours,l.revenue,l.gross,l.margin]).concat([["TOTAL",t.scheduledHours,t.approvedHours,t.revenue,t.grossPay,t.margin]]),[4,5,6]);
   for(const [type,name] of [["W2","W-2 employees"],["CONTRACTOR_1099","1099 contractors"]]) {
     const total=report.workerTotals.find(g=>g.workerType===type)!;
     add(name,["Worker","Profile rate","Approved hours","Actual hours","Officer's wages","Deductions"],

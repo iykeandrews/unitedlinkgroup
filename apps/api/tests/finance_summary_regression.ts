@@ -266,6 +266,25 @@ async function main() {
   await workbook.xlsx.load(await financeSummaryExcel(assignedReport) as any);
   assert.equal(workbook.getWorksheet("W-2 employees")!.getCell("F5").value,55);
   assert.equal(workbook.getWorksheet("Summary")!.getCell("B8").value,report.totals.employerCost);
+  const hoursOverride=buildFinanceSummary(data,{...query,manualAmounts:JSON.stringify({site:{scheduledHours:100,approvedHours:90,reason:"Verified hours"}})});
+  assert.equal(hoursOverride.locations[0].scheduledHours,100);
+  assert.equal(hoursOverride.locations[0].approvedHours,90);
+  assert.equal(hoursOverride.totals.grossPay,report.totals.grossPay);
+  assert.throws(()=>buildFinanceSummary(data,{...query,manualAmounts:JSON.stringify({site:{approvedHours:-1,reason:"Invalid"}})}));
+  let saved:any=null;
+  const database:any={
+    auditLog:{findFirst:async({where}:any)=>saved?.resourceId===where.resourceId?saved:null,findMany:async()=>data.rateChanges,create:async({data}:any)=>{saved={...data,createdAt:new Date()};return saved;}},
+    business:{findUniqueOrThrow:async()=>data.business},timesheet:{findMany:async()=>data.sheets},invoice:{findMany:async()=>data.invoices},location:{findMany:async()=>data.locations},shift:{findMany:async()=>data.shifts},payStub:{findMany:async()=>data.stubs},loanRepayment:{findMany:async()=>data.repayments},loan:{findMany:async()=>data.loans}
+  };
+  const persisted=new ReportsService(database);
+  await persisted.saveFinanceSummary("b",{...query,manualAmounts:JSON.stringify({site:{amount:1200,scheduledHours:100,approvedHours:90,reason:"Verified"}})},"admin");
+  const restored=(await persisted.getFinanceSummary("b",query)).report;
+  assert.equal(restored.locations[0].revenue,1200);
+  assert.equal(restored.locations[0].scheduledHours,100);
+  assert.equal(restored.locations[0].approvedHours,90);
+  assert.equal((await persisted.getFinanceSummary("b",{...query,from:"2026-09-17"})).report.savedAt,null);
+  await persisted.saveFinanceSummary("b",{...query,manualAmounts:"{}"},"admin");
+  assert.equal((await persisted.getFinanceSummary("b",query)).report.locations[0].revenue,1000);
   const source = JSON.stringify(data);
   const pdf = financeSummaryPdf(report, null);
   assert(pdf.length > 1000);

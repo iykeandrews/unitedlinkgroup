@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Put,
+  Body,
   Query,
   UseGuards,
   Request,
@@ -20,6 +22,14 @@ import { loadInvoiceLogo } from '../invoices/invoice-logo';
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
+
+  @Put("finance-summary/overrides")
+  @Roles(UserRole.BUSINESS_ADMIN,UserRole.SUPER_ADMIN)
+  async saveFinanceSummary(@Request() req:any,@Body() body:any,@RequestHeaders("x-business-id") header?:string) {
+    const businessId=await this.reportsService.resolveBusiness(req.user,header);
+    const result=await this.reportsService.saveFinanceSummary(businessId,body,req.user.userId || req.user.sub || req.user.id);
+    return result.report;
+  }
 
   @Get('finance-summary')
   @Roles(UserRole.BUSINESS_ADMIN,UserRole.SUPER_ADMIN)
