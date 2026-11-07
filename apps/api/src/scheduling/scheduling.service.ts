@@ -1383,31 +1383,24 @@ export class SchedulingService {
         }
       }
 
+      // Publish the week with a bounded number of queries, not one round trip per shift.
       await this.prisma.$transaction(async tx => {
-      for (const s of draftsByGroup.values()) {
-        const gid = (s as any).groupId || s.id;
-        const st = String((s as any).status || '').toUpperCase();
-        const active = await tx.shift.findFirst({
-          where: { businessId, groupId: gid, status: { in: ['PUBLISHED', 'OPEN'] } as any } as any,
-          orderBy: { createdAt: 'desc' }
-        });
-
-        if (st === 'CANCELLED') {
-          if (active) {
-            await tx.shift.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } as any });
-          }
-          await tx.shift.delete({ where: { id: s.id } });
-          continue;
-        }
-
-        const nextStatus = s.employeeId ? 'PUBLISHED' : 'OPEN';
-        await tx.shift.update({ where: { id: s.id }, data: { status: nextStatus } as any });
-        if (active) {
-          await tx.shift.update({ where: { id: active.id }, data: { status: 'ARCHIVED' } as any });
-        }
-      }
-
-      });
+        const changes = [...draftsByGroup.values()];
+        const ids = changes.map(s => s.id);
+        const current = await tx.shift.findMany({where:{businessId,id:{in:ids}},select:{id:true,status:true,updatedAt:true}});
+        if (current.length !== changes.length || changes.some(s => {
+          const row = current.find(r => r.id === s.id);
+          return !row || row.status !== s.status || +row.updatedAt !== +s.updatedAt;
+        })) throw new BadRequestException("The draft changed while publishing. Refresh the calendar and try again.");
+        const groupIds = changes.map(s => s.groupId || s.id);
+        await tx.shift.updateMany({where:{businessId,groupId:{in:groupIds},status:{in:["PUBLISHED","OPEN"]} as any},data:{status:"ARCHIVED"} as any});
+        const assigned = changes.filter(s => s.status === "DRAFT" && s.employeeId).map(s=>s.id);
+        const open = changes.filter(s => s.status === "DRAFT" && !s.employeeId).map(s=>s.id);
+        const cancelled = changes.filter(s => s.status === "CANCELLED").map(s=>s.id);
+        if (assigned.length) await tx.shift.updateMany({where:{businessId,id:{in:assigned},status:"DRAFT"},data:{status:"PUBLISHED"}});
+        if (open.length) await tx.shift.updateMany({where:{businessId,id:{in:open},status:"DRAFT"},data:{status:"OPEN"}});
+        if (cancelled.length) await tx.shift.deleteMany({where:{businessId,id:{in:cancelled},status:"CANCELLED"}});
+      }, {maxWait:10000,timeout:30000});
 
       await this.notifyScheduleRecipients(businessId, [...draftsByGroup.values()], 'Schedule published',
         `Schedule for ${start.toDateString()} - ${end.toDateString()} is now published.`,

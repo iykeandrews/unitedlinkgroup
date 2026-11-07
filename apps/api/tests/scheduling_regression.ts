@@ -76,16 +76,26 @@ async function main() {
   check(recipientIds(await service.getScheduleRecipients('business', [{ employeeId: null, locationId: 'site-a' }])), ['user-supervisor-a']);
   check(await service.getScheduleRecipients('business', []), []);
 
-  const draft = { id: 'draft', businessId: 'business', employeeId: 'worker-a', locationId: 'site-a', startTime: monday, endTime: date('2030-01-07T17:00:00'), breakMinutes: 30, status: 'DRAFT', groupId: 'group', employee: { firstName: 'Worker', lastName: 'A' } };
+  const draft = { updatedAt:monday, id: 'draft', businessId: 'business', employeeId: 'worker-a', locationId: 'site-a', startTime: monday, endTime: date('2030-01-07T17:00:00'), breakMinutes: 30, status: 'DRAFT', groupId: 'group', employee: { firstName: 'Worker', lastName: 'A' } };
   prisma.shift.findMany = async () => [draft];
+  prisma.auditLog = {findMany:async()=>[]};
   prisma.location.findUnique = async () => ({ businessId: 'business', status: 'ACTIVE' });
   prisma.leaveRequest.findMany = async () => [];
-  prisma.$transaction = async (callback: any) => callback({ shift: { findFirst: async () => null, update: async () => draft } });
+  prisma.$transaction = async (callback: any) => callback({ shift: { findMany: async () => [draft], updateMany: async () => ({count:1}), deleteMany:async()=>({count:0}) } });
   const notified: string[] = [];
   service.notifications = { createNotification: async (id: string) => notified.push(id), sendPush: async () => {}, sendEmail: async () => {} };
   service.push = { send: async () => {} };
   await service.publishShifts('business', monday, date('2030-01-08T00:00:00'), { role: 'SUPER_ADMIN' });
   check(notified.sort(), ['user-a', 'user-supervisor-a']);
+  const batch=Array.from({length:156},(_,i)=>({...draft,id:"draft-"+i,groupId:"group-"+i}));
+  prisma.shift.findMany=async()=>batch;
+  let mutations=0;
+  prisma.$transaction=async(callback:any,options:any)=>{
+    check(options.timeout,30000);
+    return callback({shift:{findMany:async()=>batch,updateMany:async()=>{mutations++;return {count:156};}}});
+  };
+  await service.publishShifts("business",monday,date("2030-01-08T00:00:00"),{role:"SUPER_ADMIN"});
+  check(mutations,2);
   notified.length = 0;
   prisma.shift.findMany = async () => [];
   await service.publishShifts('business', monday, date('2030-01-08T00:00:00'), { role: 'SUPER_ADMIN' });
