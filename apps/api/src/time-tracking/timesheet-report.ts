@@ -320,7 +320,7 @@ export function reportPdf(report: TimesheetReport) {
           missing: 0,
         },
       ];
-  const widths = [25, 43, 26, 26, 22, 23, 25, 27, 27, 29];
+  const widths = [25, 48, 28, 28, 22, 25, 27, 30, 40];
   const measure = new jsPDF({
     orientation: "landscape",
     unit: "mm",
@@ -339,7 +339,6 @@ export function reportPdf(report: TimesheetReport) {
       r.hours === null ? "Review" : r.hours.toFixed(2),
       r.rate === null ? "Review" : money(r.rate),
       r.gross === null ? "Review" : money(r.gross),
-      money(r.deductions || 0),
       r.status +
         (r.paidExternally ? " / Paid externally" : "") +
         (r.warning ? " / " + r.warning : ""),
@@ -425,14 +424,15 @@ export function reportPdf(report: TimesheetReport) {
       "Total hours: " +
         g.hours.toFixed(2) +
         (overtime > 0 ? " (" + overtime.toFixed(2) + " OT)" : ""),
-      85,
+      55,
       49.5,
     );
     doc.text(
       "Estimated gross: " + money(g.gross) + (g.missing ? " (incomplete)" : ""),
-      174,
+      131,
       49.5,
     );
+    doc.text("Deductions: " + money(g.deductions || 0), 238, 49.5);
     const headings = [
       "Work date",
       "Location",
@@ -442,7 +442,6 @@ export function reportPdf(report: TimesheetReport) {
       "Net hours",
       "Rate / hr",
       "Gross pay",
-      "Deductions",
       "Status",
     ];
     let y = 60;
@@ -497,7 +496,6 @@ export function reportPdf(report: TimesheetReport) {
         [g.hours.toFixed(2)],
         [],
         [money(g.gross)],
-        [money(g.deductions || 0)],
         [],
       ],
       11,
@@ -530,6 +528,7 @@ export function reportPdf(report: TimesheetReport) {
   return Buffer.from(doc.output("arraybuffer"));
 }
 export async function reportExcel(report: TimesheetReport) {
+  const money = (n: number) => "$" + n.toFixed(2);
   const book = new ExcelJS.Workbook();
   book.creator = report.business;
   book.created = new Date();
@@ -604,7 +603,7 @@ export async function reportExcel(report: TimesheetReport) {
     });
   };
   const summary = book.addWorksheet("Employee summary");
-  brand(summary, 7);
+  brand(summary, 6);
   summary.addRow([]);
   header(
     summary.addRow([
@@ -613,7 +612,6 @@ export async function reportExcel(report: TimesheetReport) {
       "Hourly rate",
       "Net hours",
       "Estimated gross",
-      "Deductions",
       "Needs review",
     ]),
   );
@@ -624,8 +622,7 @@ export async function reportExcel(report: TimesheetReport) {
       g.badge || g.employeeId,
       rates.length === 1 ? rates[0] : rates.length ? rates.map(rate => report.currency + " " + rate.toFixed(2)).join(" / ") : "Rate not set",
       g.hours,
-      g.gross,
-      g.deductions,
+      "Gross: " + money(g.gross) + " | Deductions: " + money(g.deductions || 0),
       g.missing ? g.missing + " entries" : "",
     ]);
   }
@@ -634,18 +631,16 @@ export async function reportExcel(report: TimesheetReport) {
     "",
     "",
     report.hours,
-    report.gross,
-    report.deductions,
+    "Gross: " + money(report.gross) + " | Deductions: " + money(report.deductions || 0),
     "",
   ]).font = { bold: true };
   summary.getColumn(3).numFmt = currency;
   summary.getColumn(4).numFmt = "0.00";
   summary.getColumn(5).numFmt = currency;
-  summary.getColumn(6).numFmt = currency;
-  [32, 22, 24, 15, 22, 20, 22].forEach(
+  [32, 22, 24, 15, 60, 22].forEach(
     (w, i) => (summary.getColumn(i + 1).width = w),
   );
-  summary.autoFilter = { from: "A5", to: "G" + (5 + report.groups.length) };
+  summary.autoFilter = { from: "A5", to: "F" + (5 + report.groups.length) };
   for (const [index, g] of report.groups.entries()) {
     const sheet = book.addWorksheet(
       (
@@ -654,10 +649,14 @@ export async function reportExcel(report: TimesheetReport) {
         (index + 1)
       ).slice(0, 31),
     );
-    brand(sheet, 11);
-    sheet.mergeCells(4, 1, 4, 11);
+    brand(sheet, 10);
+    sheet.mergeCells(4, 1, 4, 10);
     sheet.getCell(4, 1).value = g.name + (g.badge ? " | " + g.badge : "");
     sheet.getRow(4).font = { bold: true, size: 12 };
+    sheet.mergeCells(5, 1, 5, 10);
+    sheet.getCell(5, 1).value = "Estimated gross: " + money(g.gross) + "     |     Deductions: " + money(g.deductions || 0);
+    sheet.getRow(5).font = { bold: true, size: 12 };
+    sheet.getRow(5).height = 26;
     header(
       sheet.addRow([
         "Work date",
@@ -669,7 +668,6 @@ export async function reportExcel(report: TimesheetReport) {
         "OT hours",
         "Hourly rate",
         "Estimated gross",
-        "Deductions",
         "Status / notes",
       ]),
     );
@@ -684,7 +682,6 @@ export async function reportExcel(report: TimesheetReport) {
         r.overtimeHours,
         r.rate,
         r.gross,
-        r.deductions,
         r.status +
           (r.paidExternally ? " / Paid externally" : "") +
           (r.warning ? " / " + r.warning : ""),
@@ -702,21 +699,20 @@ export async function reportExcel(report: TimesheetReport) {
       "",
       "",
       g.gross,
-      g.deductions,
     ]);
     total.font = { bold: true };
     for (const col of [6, 7]) sheet.getColumn(col).numFmt = "0.00";
-    for (const col of [8, 9, 10]) sheet.getColumn(col).numFmt = currency;
-    [15, 38, 18, 23, 22, 14, 14, 18, 20, 20, 42].forEach(
+    for (const col of [8, 9]) sheet.getColumn(col).numFmt = currency;
+    [15, 38, 18, 23, 22, 14, 14, 18, 20, 42].forEach(
       (w, i) => (sheet.getColumn(i + 1).width = w),
     );
     const noteRow = sheet.rowCount + 2;
-    sheet.mergeCells(noteRow, 1, noteRow, 11);
+    sheet.mergeCells(noteRow, 1, noteRow, 10);
     sheet.getCell(noteRow, 1).value = report.notes;
     sheet.getRow(noteRow).height = 45;
     sheet.getCell(noteRow, 1).alignment = { wrapText: true, vertical: "top" };
     sheet.getCell(noteRow, 1).font = { size: 9, color: { argb: "FF666666" } };
-    sheet.pageSetup.printArea = "A1:K" + noteRow;
+    sheet.pageSetup.printArea = "A1:J" + noteRow;
   }
   return Buffer.from(await book.xlsx.writeBuffer());
 }
