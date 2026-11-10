@@ -34,6 +34,7 @@ import { calculateHours } from "./hours";
 import { calendarBoundary, fullSalaryPeriod } from "./dates";
 
 const externalStatementRun = "EXTERNAL_STATEMENT";
+const releasedExternalStatementRun = "EXTERNAL_STATEMENT_RELEASED";
 
 function releasedPayStubs(now = new Date()) {
   return {
@@ -41,9 +42,11 @@ function releasedPayStubs(now = new Date()) {
       { payroll: { status: "PAID" } },
       {
         payroll: {
-          type: externalStatementRun,
           status: "PROCESSED",
-          payDate: { lte: now },
+          OR: [
+            { type: releasedExternalStatementRun },
+            { type: externalStatementRun, payDate: { lte: now } },
+          ],
         },
         sourceDocument: { isNot: null },
       },
@@ -165,9 +168,10 @@ export class PayrollService {
 
     if (!stub) throw new NotFoundException("Pay stub not found");
     const releasedExternalStatement =
-      stub.payroll?.type === externalStatementRun &&
-      stub.payroll.status === "PROCESSED" &&
-      stub.payroll.payDate <= new Date();
+      stub.payroll?.status === "PROCESSED" &&
+      (stub.payroll.type === releasedExternalStatementRun ||
+        (stub.payroll.type === externalStatementRun &&
+          stub.payroll.payDate <= new Date()));
     if (stub.payroll?.status !== "PAID" && !releasedExternalStatement)
       throw new BadRequestException("Pay stub is not available");
 
