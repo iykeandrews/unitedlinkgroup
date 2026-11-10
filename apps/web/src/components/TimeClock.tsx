@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Play, Square, Coffee, Utensils, Clock, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '../lib/api';
+import { getFreshLocation } from '../lib/clock-location';
 
 interface TimeClockProps {
   onClockAction?: () => void;
@@ -31,26 +32,6 @@ export function TimeClock({ onClockAction }: TimeClockProps) {
     fetchStatus();
     return () => clearInterval(timer);
   }, []);
-
-  const getFreshLocation = () =>
-    new Promise<{ lat: number; lng: number }>((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error('Geolocation is not supported on this device'));
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-        },
-        (err) => {
-          reject(err);
-        },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
-      );
-    });
 
   const fetchStatus = async () => {
     try {
@@ -91,20 +72,14 @@ export function TimeClock({ onClockAction }: TimeClockProps) {
     try {
       setLoading(true);
       setError('');
-      let coords: { lat: number; lng: number } | null = null;
-      try {
-        coords = await getFreshLocation();
-        setLocation(coords);
-      } catch {}
-      await api.post('/time-tracking/clock-out', {
-        lat: coords?.lat,
-        lng: coords?.lng,
-      });
+      const coords = await getFreshLocation();
+      setLocation(coords);
+      await api.post('/time-tracking/clock-out', coords);
       await fetchStatus();
       onClockAction?.();
       toast.success('Clocked out successfully');
     } catch (err: any) {
-      const msg = err.response?.data?.message || 'Failed to clock out';
+      const msg = err.response?.data?.message || err.message || 'Failed to clock out';
       setError(msg);
       toast.error(msg);
     } finally {

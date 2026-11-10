@@ -239,7 +239,7 @@ async function main() {
     fieldSchedule: { businessId: "b", userId: "leader" },
   });
   assert.equal(shift, null);
-  let finalized: any;
+  const finalizations: any[] = [];
   clockDb.timesheet.findFirst = async () => ({
     id: "sheet",
     employeeId: "officer",
@@ -253,10 +253,24 @@ async function main() {
   });
   clockDb.break = { findFirst: async () => null };
   clockDb.shift.updateMany = async (q: any) => {
-    finalized = q;
+    finalizations.push(q);
   };
   (clock as any).applyShortShiftBreakRule = async () => {};
-  await clock.clockOut("officer");
+  await assert.rejects(() => clock.clockOut("officer"), /Location permission is required/);
+  await assert.rejects(
+    () => clock.clockOut("officer", undefined, undefined, 398, -77),
+    /Location permission is required/,
+  );
+  await assert.rejects(
+    () => clock.clockOut("officer", undefined, undefined, 38.01, -77),
+    /must be within 100m/,
+  );
+  assert.equal(finalizations.length, 0);
+  const closed = await clock.clockOut("officer", undefined, undefined, 38, -77);
+  assert.equal(closed.clockOutLat, 38);
+  assert.equal(closed.clockOutLng, -77);
+  assert.equal(finalizations.length, 1);
+  const [finalized] = finalizations;
   assert.equal(finalized.where.groupId, "FIELD_CLOCK:sheet");
   assert.equal(finalized.data.status, "COMPLETED");
   assert.ok(finalized.data.endTime instanceof Date);

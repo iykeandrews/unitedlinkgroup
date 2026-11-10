@@ -851,7 +851,7 @@ export class TimeTrackingService {
 
   private async validateWithinClockLocation(
     employeeId: string,
-    locationId: string | undefined,
+    locationId: string | null | undefined,
     lat?: number,
     lng?: number,
   ) {
@@ -862,8 +862,10 @@ export class TimeTrackingService {
     const hasCoords =
       typeof lat === "number" &&
       Number.isFinite(lat) &&
+      Math.abs(lat) <= 90 &&
       typeof lng === "number" &&
-      Number.isFinite(lng);
+      Number.isFinite(lng) &&
+      Math.abs(lng) <= 180;
     if (!hasCoords) {
       throw new BadRequestException("Location permission is required");
     }
@@ -892,10 +894,14 @@ export class TimeTrackingService {
       throw new BadRequestException("Invalid clock location");
     if (
       typeof location.geoLat !== "number" ||
-      typeof location.geoLng !== "number"
+      !Number.isFinite(location.geoLat) ||
+      Math.abs(location.geoLat) > 90 ||
+      typeof location.geoLng !== "number" ||
+      !Number.isFinite(location.geoLng) ||
+      Math.abs(location.geoLng) > 180
     ) {
       throw new BadRequestException(
-        "Clock-in geofence is not configured for this site",
+        "The location boundary is not configured for this site",
       );
     }
 
@@ -911,7 +917,7 @@ export class TimeTrackingService {
       location.geoLat,
       location.geoLng,
     );
-    if (distance > radiusMeters) {
+    if (!Number.isFinite(distance) || distance > radiusMeters) {
       throw new BadRequestException(
         `You are about ${Math.round(distance)}m from ${location.name}. You must be within ${radiusMeters}m to continue`,
       );
@@ -1276,7 +1282,14 @@ export class TimeTrackingService {
     }
 
     // 2. Clock Out (update timesheet)
-    const timesheet = await this.clockOut(employeeId);
+    const timesheet = await this.clockOut(
+      employeeId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { bypassGeofence: true },
+    );
 
     await this.operations?.audit(user, employeeId, "ADMIN_CLOCK_OUT", {
       id: timesheet.id,
@@ -1291,6 +1304,7 @@ export class TimeTrackingService {
     note?: string,
     lat?: number,
     lng?: number,
+    opts?: { bypassGeofence?: boolean },
   ): Promise<Timesheet> {
     const activeTimesheet = await this.prisma.timesheet.findFirst({
       where: {
@@ -1316,6 +1330,15 @@ export class TimeTrackingService {
     if (activeBreak) {
       throw new BadRequestException(
         "You must end your break before clocking out",
+      );
+    }
+
+    if (!opts?.bypassGeofence) {
+      await this.validateWithinClockLocation(
+        employeeId,
+        activeTimesheet.locationId,
+        lat,
+        lng,
       );
     }
 

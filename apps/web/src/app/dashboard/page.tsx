@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { LicenseExpiryReminders } from '../../components/dashboard/LicenseExpiryReminders';
 import { useRouter } from 'next/navigation';
 import api from '../../lib/api';
+import { getFreshLocation } from '../../lib/clock-location';
 import { useBusiness } from '../../context/business-context';
 import { ExpiringQualificationsModal } from '../../components/ExpiringQualificationsModal';
 import { DailyRoster } from '../../components/dashboard/DailyRoster';
@@ -380,12 +381,12 @@ export default function DashboardPage() {
           if (clocking) return;
           try {
             setClocking(true);
-            await api.post('/time-tracking/clock-out', {});
+            await api.post('/time-tracking/clock-out', await getFreshLocation());
             const res = await api.get('/reports/employee-dashboard', { params: { days: 30 } });
             setEmployeeDash(res.data || null);
             toast.success('Clocked out');
           } catch (e: any) {
-            toast.error(e?.response?.data?.message || 'Failed to clock out');
+            toast.error(e?.response?.data?.message || e?.message || 'Failed to clock out');
           } finally {
             setClocking(false);
           }
