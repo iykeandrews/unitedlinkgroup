@@ -33,6 +33,24 @@ import { brandIssuedPayslip, PayslipLogoCache } from "./payslip-branding";
 import { calculateHours } from "./hours";
 import { calendarBoundary, fullSalaryPeriod } from "./dates";
 
+const externalStatementRun = "EXTERNAL_STATEMENT";
+
+function releasedPayStubs(now = new Date()) {
+  return {
+    OR: [
+      { payroll: { status: "PAID" } },
+      {
+        payroll: {
+          type: externalStatementRun,
+          status: "PROCESSED",
+          payDate: { lte: now },
+        },
+        sourceDocument: { isNot: null },
+      },
+    ],
+  };
+}
+
 @Injectable()
 export class PayrollService {
   constructor(
@@ -63,7 +81,7 @@ export class PayrollService {
     return this.prisma.payStub.findMany({
       where: {
         employeeId: employee.id,
-        payroll: { status: "PAID" },
+        ...releasedPayStubs(),
       },
       include: {
         payroll: {
@@ -102,10 +120,8 @@ export class PayrollService {
     }
     return this.prisma.payStub.findMany({
       where: {
-        payroll: {
-          businessId,
-          status: "PAID",
-        },
+        payroll: { businessId },
+        ...releasedPayStubs(),
       },
       include: {
         payroll: true,
@@ -148,7 +164,11 @@ export class PayrollService {
     });
 
     if (!stub) throw new NotFoundException("Pay stub not found");
-    if (stub.payroll?.status !== "PAID")
+    const releasedExternalStatement =
+      stub.payroll?.type === externalStatementRun &&
+      stub.payroll.status === "PROCESSED" &&
+      stub.payroll.payDate <= new Date();
+    if (stub.payroll?.status !== "PAID" && !releasedExternalStatement)
       throw new BadRequestException("Pay stub is not available");
 
     await this.assertPayStubAccess(stub as any, user);
@@ -156,6 +176,8 @@ export class PayrollService {
     const source = await this.prisma.payStubDocument.findUnique({
       where: { payStubId },
     });
+    if (releasedExternalStatement && !source)
+      throw new BadRequestException("Original pay stub is not available");
     if (source) {
       const data = Buffer.from(source.content);
       if (createHash("sha256").update(data).digest("hex") !== source.sha256)
