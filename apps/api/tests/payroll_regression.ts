@@ -9,6 +9,7 @@ import { manualTaxes, validateRules } from "../src/payroll/manual-tax";
 import { calculateHours, paidIntervals } from "../src/payroll/hours";
 import { calendarBoundary, fullSalaryPeriod } from "../src/payroll/dates";
 import { PayrollService } from "../src/payroll/payroll.service";
+import { PayrollController } from "../src/payroll/payroll.controller";
 let checks = 0;
 function equal(a: any, b: any) {
   assert.deepEqual(a, b);
@@ -631,6 +632,30 @@ async function main() {
     calendarBoundary("2026-11-01", "America/New_York", true).toISOString(),
     "2026-11-02T04:59:59.999Z",
   );
+  const eastern = "America/New_York";
+  const octoberPeriods = [
+    ["2026-10-01", "2026-10-15"],
+    ["2026-10-16", "2026-10-31"],
+  ];
+  const payDate = new Date("2026-11-13T05:00:00Z");
+  const payslipController = new PayrollController({
+    async getPayStubsForUser() {
+      return octoberPeriods.map(([start, end]) => ({
+        payroll: {
+          calendarTimeZone: eastern,
+          periodStart: calendarBoundary(start, eastern),
+          periodEnd: calendarBoundary(end, eastern, true),
+          payDate,
+        },
+      }));
+    },
+  } as unknown as PayrollService);
+  const payslips = await payslipController.getMyPayStubs({ user: { userId: "u" } });
+  equal(
+    payslips.map(({ payroll }) => [payroll.periodStart, payroll.periodEnd]),
+    octoberPeriods,
+  );
+  equal(payslips[1].payroll.payDate, payDate);
   // Service-level behavior: preserve drafts on failures, scoped access, immutable payroll and guards.
   let deleted = 0,
     created = 0;

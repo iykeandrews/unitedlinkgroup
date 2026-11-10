@@ -154,8 +154,33 @@ export class PayrollController {
     UserRole.BUSINESS_ADMIN,
     UserRole.SUPER_ADMIN,
   )
-  getMyPayStubs(@Request() req: any) {
-    return this.payrollService.getPayStubsForUser(req.user.userId);
+  async getMyPayStubs(@Request() req: any) {
+    const stubs = await this.payrollService.getPayStubsForUser(req.user.userId);
+    return stubs.map((stub) => {
+      const { payroll } = stub;
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: payroll.calendarTimeZone || "UTC",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      });
+      // Installed clients display these fields in UTC. Send calendar dates so
+      // a local end-of-day timestamp cannot display as the following day.
+      const periodDate = (instant: Date) => {
+        const parts = Object.fromEntries(
+          formatter.formatToParts(instant).map(({ type, value }) => [type, value]),
+        );
+        return `${parts.year}-${parts.month}-${parts.day}`;
+      };
+      return {
+        ...stub,
+        payroll: {
+          ...payroll,
+          periodStart: periodDate(payroll.periodStart),
+          periodEnd: periodDate(payroll.periodEnd),
+        },
+      };
+    });
   }
 
   @Post('paystubs/download')
