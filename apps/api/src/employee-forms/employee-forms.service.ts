@@ -10,6 +10,18 @@ import { CreateEmployeeFormTemplateDto } from "./dto/create-employee-form-templa
 import { UpdateEmployeeFormTemplateDto } from "./dto/update-employee-form-template.dto";
 import { AssignEmployeeFormTemplateDto } from "./dto/assign-employee-form-template.dto";
 import { SubmitEmployeeFormAssignmentDto } from "./dto/submit-employee-form-assignment.dto";
+import { SmtpMailerService } from "../common/email/smtp-mailer.service";
+import { isEmail } from "class-validator";
+import { EmailEmploymentLetterDto, EmploymentLetterDto } from "./dto/employment-letter.dto";
+import { employmentLetterTitles, renderEmploymentLetter } from "./employment-letter";
+import { effectivePay } from "../employees/employment.util";
+
+const appointmentTemplateType = "APPOINTMENT_LETTER";
+
+function employeeFullName(employee: { firstName: string; middleName?: string | null; lastName: string }) {
+  return [employee.firstName, employee.middleName, employee.lastName]
+    .map((part) => part?.trim()).filter(Boolean).join(" ");
+}
 
 @Injectable()
 export class EmployeeFormsService {
@@ -17,6 +29,7 @@ export class EmployeeFormsService {
     private prisma: PrismaService,
     private notifications: NotificationsService,
     private push: PushService,
+    private mailer: SmtpMailerService,
   ) {}
 
   private resolveActorUserId(user: any) {
@@ -59,13 +72,120 @@ export class EmployeeFormsService {
     return this.getBusinessIdFromUser(actorUserId);
   }
 
+  private async prepareEmploymentLetter(user: any, dto: EmploymentLetterDto, businessIdHeader?: string) {
+    const businessId = await this.resolveBusinessId(user, businessIdHeader);
+    await this.validateBusinessAccess(businessId, user);
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: dto.employeeId, businessId },
+      select: {
+        firstName: true,
+        middleName: true,
+        lastName: true,
+        email: true,
+        business: { select: { name: true, address: true, city: true, state: true, zip: true, mobile: true } },
+      },
+    });
+    if (!employee) throw new NotFoundException("Employee not found in the selected business");
+    const data = renderEmploymentLetter(employee.business, {
+      ...dto,
+      employeeName: dto.employeeName?.trim() || employeeFullName(employee),
+      position: dto.position.trim(),
+      signatory: dto.signatory?.trim(),
+      notes: dto.notes?.trim(),
+    });
+    const filename = dto.type === "APPOINTMENT" ? "letter-of-appointment.pdf" : "letter-of-acceptance.pdf";
+    return { employee, data, filename };
+  }
+
+  async saveAppointmentDraft(user: any, employeeId: string, dto?: EmploymentLetterDto, businessIdHeader?: string) {
+    const businessId = await this.resolveBusinessId(user, businessIdHeader);
+    await this.validateBusinessAccess(businessId, user);
+    if (dto && dto.type !== "APPOINTMENT") {
+      throw new BadRequestException("Only appointment letters are stored in this folder");
+    }
+    const employee = await this.prisma.employee.findFirst({
+      where: { id: employeeId, businessId },
+      include: { w2Profile: true, contractorProfile: true },
+    });
+    if (!employee) throw new NotFoundException("Employee not found in the selected business");
+
+    const templateId = `appointment-letter:${businessId}`;
+    const employeeName = dto?.employeeName?.trim() || employeeFullName(employee);
+    const profileRate = effectivePay(employee).hourlyRate;
+    const draft = {
+      employeeName,
+      position: dto?.position.trim() || "",
+      hourlyRate: dto?.hourlyRate ?? (profileRate > 0 ? profileRate.toFixed(2) : ""),
+      letterDate: dto?.letterDate || "",
+      startDate: dto?.startDate || "",
+      signatory: dto?.signatory?.trim() || "",
+      notes: dto?.notes?.trim() || "",
+    };
+    return this.prisma.$transaction(async (tx) => {
+      await tx.employeeFormTemplate.createMany({
+        data: {
+          id: templateId,
+          businessId,
+          type: appointmentTemplateType,
+          title: "Offer of Appointment",
+          status: "DRAFT",
+          requiresSignature: false,
+        },
+        skipDuplicates: true,
+      });
+      const key = { templateId, employeeId };
+      const values = JSON.stringify(draft);
+      if (dto) {
+        await tx.employeeFormAssignment.upsert({
+          where: { templateId_employeeId: key },
+          create: { ...key, businessId, status: "DRAFT", values },
+          update: { values },
+        });
+        return draft;
+      }
+      await tx.employeeFormAssignment.createMany({
+        data: { ...key, businessId, status: "DRAFT", values },
+        skipDuplicates: true,
+      });
+      const saved = await tx.employeeFormAssignment.findUniqueOrThrow({
+        where: { templateId_employeeId: key },
+        select: { values: true },
+      });
+      return saved.values ? JSON.parse(saved.values) as typeof draft : draft;
+    });
+  }
+
+  async downloadEmploymentLetter(user: any, dto: EmploymentLetterDto, businessId?: string) {
+    const { data, filename } = await this.prepareEmploymentLetter(user, dto, businessId);
+    return { data, filename };
+  }
+
+  async emailEmploymentLetter(user: any, dto: EmailEmploymentLetterDto, businessId?: string) {
+    const { employee, data, filename } = await this.prepareEmploymentLetter(user, dto, businessId);
+    const to = employee.email?.trim();
+    if (!to || !isEmail(to)) throw new BadRequestException("Add a valid email address to the employee profile first");
+    if (to !== dto.expectedEmail) throw new BadRequestException("The employee’s email changed. Reload the page and confirm the new address before sending.");
+    const title = employmentLetterTitles[dto.type];
+    const instruction = dto.type === "APPOINTMENT"
+      ? "Please review the attached appointment letter."
+      : "Please review, sign, and return the attached acceptance letter.";
+    await this.mailer.send({
+      to,
+      subject: title,
+      text: `Hello,\n\n${instruction}\n\nHuman Resources`,
+      html: `<div style="font:16px/1.6 Arial,sans-serif;color:#14263D"><h2>${title}</h2><p>Hello,</p><p>${instruction}</p><p>Human Resources</p></div>`,
+      attachments: [{ filename, content: data, contentType: "application/pdf" }],
+    });
+    return { to };
+  }
+
   async listTemplates(user: any, businessIdHeader?: string, query?: any) {
     const businessId = await this.resolveBusinessId(
       user,
       businessIdHeader || query?.businessId,
     );
     await this.validateBusinessAccess(businessId, user);
-    const where: any = { businessId };
+    const where: any = { businessId, NOT: { type: appointmentTemplateType } };
     if (query?.type) where.type = String(query.type).toUpperCase();
     if (query?.status) where.status = String(query.status).toUpperCase();
     if (query?.q) {
@@ -120,7 +240,7 @@ export class EmployeeFormsService {
     const existing = await this.prisma.employeeFormTemplate.findUnique({
       where: { id },
     });
-    if (!existing) throw new NotFoundException("Template not found");
+    if (!existing || existing.type === appointmentTemplateType) throw new NotFoundException("Template not found");
     await this.validateBusinessAccess(existing.businessId, user);
 
     return this.prisma.employeeFormTemplate.update({
@@ -158,7 +278,7 @@ export class EmployeeFormsService {
     const existing = await this.prisma.employeeFormTemplate.findUnique({
       where: { id },
     });
-    if (!existing) throw new NotFoundException("Template not found");
+    if (!existing || existing.type === appointmentTemplateType) throw new NotFoundException("Template not found");
     await this.validateBusinessAccess(existing.businessId, user);
     return this.prisma.employeeFormTemplate.update({
       where: { id },
@@ -175,7 +295,7 @@ export class EmployeeFormsService {
     const template = await this.prisma.employeeFormTemplate.findUnique({
       where: { id: templateId },
     });
-    if (!template) throw new NotFoundException("Template not found");
+    if (!template || template.type === appointmentTemplateType) throw new NotFoundException("Template not found");
 
     const businessId = await this.resolveBusinessId(
       user,
@@ -242,7 +362,7 @@ export class EmployeeFormsService {
       businessIdHeader || query?.businessId,
     );
     await this.validateBusinessAccess(businessId, user);
-    const where: any = { businessId };
+    const where: any = { businessId, template: { type: { not: appointmentTemplateType } } };
     if (query?.templateId) where.templateId = String(query.templateId);
     if (query?.status) where.status = String(query.status).toUpperCase();
     if (query?.employeeId) where.employeeId = String(query.employeeId);
@@ -261,7 +381,7 @@ export class EmployeeFormsService {
     });
     if (!employee) throw new BadRequestException("No employee profile found");
 
-    const where: any = { employeeId: employee.id };
+    const where: any = { employeeId: employee.id, template: { type: { not: appointmentTemplateType } } };
     if (query?.status) where.status = String(query.status).toUpperCase();
     return this.prisma.employeeFormAssignment.findMany({
       where,
@@ -303,9 +423,9 @@ export class EmployeeFormsService {
     if (!employee) throw new BadRequestException("No employee profile found");
     const item = await this.prisma.employeeFormAssignment.findUnique({
       where: { id },
-      include: { template: true, business: true, employee: true } as any,
+      include: { template: true, business: true, employee: true },
     });
-    if (!item) throw new NotFoundException("Assignment not found");
+    if (!item || item.template.type === appointmentTemplateType) throw new NotFoundException("Assignment not found");
     if (item.employeeId !== employee.id)
       throw new BadRequestException("Access denied");
     return item;
@@ -325,9 +445,9 @@ export class EmployeeFormsService {
 
     const assignment = await this.prisma.employeeFormAssignment.findUnique({
       where: { id },
-      include: { template: true, business: true } as any,
+      include: { template: true, business: true },
     });
-    if (!assignment) throw new NotFoundException("Assignment not found");
+    if (!assignment || assignment.template.type === appointmentTemplateType) throw new NotFoundException("Assignment not found");
     if (assignment.employeeId !== employee.id)
       throw new BadRequestException("Access denied");
     if (assignment.status === "SUBMITTED")
@@ -427,9 +547,9 @@ export class EmployeeFormsService {
   async adminGetAssignment(user: any, id: string) {
     const item = await this.prisma.employeeFormAssignment.findUnique({
       where: { id },
-      include: { template: true, business: true, employee: true } as any,
+      include: { template: true, business: true, employee: true },
     });
-    if (!item) throw new NotFoundException("Assignment not found");
+    if (!item || item.template.type === appointmentTemplateType) throw new NotFoundException("Assignment not found");
     await this.validateBusinessAccess(item.businessId, user);
     return item;
   }

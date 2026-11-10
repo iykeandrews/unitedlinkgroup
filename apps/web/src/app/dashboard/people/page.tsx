@@ -564,6 +564,7 @@ function AdminPeoplePageContent() {
           ["Availability", "/dashboard/people/availability"],
           ["Qualifications", "/dashboard/people/certifications"],
           ["Employment forms", "/dashboard/people/employment-forms"],
+          ["Employment letters", "/dashboard/people/employment-letters"],
           ["Departments", "/dashboard/people/departments"],
         ].map(([name, path]) => (
           <button

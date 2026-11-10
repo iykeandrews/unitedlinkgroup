@@ -4,10 +4,11 @@ import { NotificationsStreamService } from '../notifications/notifications-strea
 import { PushService } from '../push/push.service';
 import { EmployeeFormsController } from './employee-forms.controller';
 import { EmployeeFormsService } from './employee-forms.service';
+import { SmtpMailerService } from '../common/email/smtp-mailer.service';
 
 @Module({
   controllers: [EmployeeFormsController],
-  providers: [EmployeeFormsService, NotificationsService, NotificationsStreamService, PushService],
+  providers: [EmployeeFormsService, NotificationsService, NotificationsStreamService, PushService, SmtpMailerService],
 })
 export class EmployeeFormsModule {}
 

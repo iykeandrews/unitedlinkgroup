@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Request,
+  Res,
   UseGuards,
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -20,11 +21,45 @@ import { CreateEmployeeFormTemplateDto } from "./dto/create-employee-form-templa
 import { UpdateEmployeeFormTemplateDto } from "./dto/update-employee-form-template.dto";
 import { AssignEmployeeFormTemplateDto } from "./dto/assign-employee-form-template.dto";
 import { SubmitEmployeeFormAssignmentDto } from "./dto/submit-employee-form-assignment.dto";
+import type { Response } from "express";
+import { EmailEmploymentLetterDto, EmploymentLetterDto, OpenEmploymentLetterDto } from "./dto/employment-letter.dto";
 
 @Controller("employee-forms")
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class EmployeeFormsController {
   constructor(private readonly employeeFormsService: EmployeeFormsService) {}
+
+  @Post("letters/draft")
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  openLetterDraft(@Request() req: any, @Body() dto: OpenEmploymentLetterDto,
+    @Headers("x-business-id") businessId?: string) {
+    return this.employeeFormsService.saveAppointmentDraft(req.user, dto.employeeId, undefined, businessId);
+  }
+
+  @Patch("letters/draft")
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  saveLetterDraft(@Request() req: any, @Body() dto: EmploymentLetterDto,
+    @Headers("x-business-id") businessId?: string) {
+    return this.employeeFormsService.saveAppointmentDraft(req.user, dto.employeeId, dto, businessId);
+  }
+
+  @Post("letters/pdf")
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  async downloadLetter(@Request() req: any, @Body() dto: EmploymentLetterDto,
+    @Headers("x-business-id") businessId: string | undefined, @Res() res: Response) {
+    const { data, filename } = await this.employeeFormsService.downloadEmploymentLetter(req.user, dto, businessId);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.status(200).send(data);
+  }
+
+  @Post("letters/email")
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  emailLetter(@Request() req: any, @Body() dto: EmailEmploymentLetterDto,
+    @Headers("x-business-id") businessId?: string) {
+    return this.employeeFormsService.emailEmploymentLetter(req.user, dto, businessId);
+  }
 
   @Get("templates")
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)

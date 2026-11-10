@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ReceiptText,
   ShieldCheck,
+  ChevronDown,
 } from "lucide-react";
 import api from "@/lib/api";
 import Link from "next/link";
@@ -56,6 +57,8 @@ export default function FlexPayPage() {
     [offer, setOffer] = useState<any>(null),
     [shifts, setShifts] = useState<any[]>([]),
     [shiftSearch, setShiftSearch] = useState(""),
+    [assignmentOpen, setAssignmentOpen] = useState(false),
+    [assignmentLoading, setAssignmentLoading] = useState(false),
     [payment, setPayment] = useState<any>(null),
     [attendance, setAttendance] = useState<any[]>([]),
     [busy, setBusy] = useState(false);
@@ -63,6 +66,15 @@ export default function FlexPayPage() {
   const [summary, setSummary] = useState<any>(null);
   const version = useRef(0),
     lock = useRef(false);
+  const offerDialog = useRef<HTMLDialogElement>(null);
+  const assignmentButton = useRef<HTMLButtonElement>(null);
+  const offerOpen = offer !== null;
+  useEffect(() => {
+    const dialog = offerDialog.current;
+    if (!dialog || !offerOpen) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, [offerOpen]);
   const load = useCallback(async () => {
     const v = ++version.current;
     setLoading(true);
@@ -118,29 +130,35 @@ export default function FlexPayPage() {
   const newOffer = async () => {
     if (lock.current) return;
     lock.current = true;
-    setBusy(true);
+    const v = version.current;
+    setShifts([]);
+    setShiftSearch("");
+    setAssignmentOpen(false);
+    setAssignmentLoading(true);
+    setOffer({
+      submissionId: crypto.randomUUID(),
+      shiftId: "",
+      amount: "",
+      reason: "",
+    });
     try {
       const { data } = await api.get("/flex-pay/options");
-      setShifts(data.shifts);
-      setShiftSearch("");
-      setOffer({
-        submissionId: crypto.randomUUID(),
-        shiftId: "",
-        amount: "",
-        reason: "",
-      });
+      if (v === version.current) setShifts(data.shifts);
     } catch (e: any) {
-      toast.error(
-        e.response?.data?.message || "Unable to load emergency assignments",
-      );
+      if (v === version.current) {
+        setOffer(null);
+        toast.error(
+          e.response?.data?.message || "Unable to load emergency assignments",
+        );
+      }
     } finally {
       lock.current = false;
-      setBusy(false);
+      setAssignmentLoading(false);
     }
   };
   const submitOffer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (lock.current) return;
+    if (lock.current || !offer?.shiftId) return;
     lock.current = true;
     setBusy(true);
     try {
@@ -202,6 +220,17 @@ export default function FlexPayPage() {
     balance = summary?.balance ?? rows.reduce((n, r) => n + r.balance, 0);
   const input =
     "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-900 dark:bg-slate-900 dark:border-slate-600 dark:text-white";
+  const selectedAssignment = shifts.find(
+    (shift) => shift.id === offer?.shiftId,
+  );
+  const matchingAssignments = assignmentOpen
+    ? shifts.filter((shift) =>
+        [person(shift.employee), shift.location?.name, stamp(shift.startTime)]
+          .join(" ")
+          .toLowerCase()
+          .includes(shiftSearch.trim().toLowerCase()),
+      )
+    : [];
   return (
     <div className="mx-auto max-w-7xl space-y-6 text-slate-900 dark:text-slate-100">
       <nav
@@ -238,7 +267,7 @@ export default function FlexPayPage() {
           </div>
           {manage && (
             <button
-              disabled={busy}
+              disabled={busy || assignmentLoading}
               onClick={newOffer}
               className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
             >
@@ -333,98 +362,168 @@ export default function FlexPayPage() {
           </button>
         </div>
       )}
-      {offer && (
-        <form
-          onSubmit={submitOffer}
-          className="space-y-5 rounded-2xl border border-indigo-200 bg-white p-6 dark:bg-slate-900"
-        >
-          <h2 className="text-xl font-bold">Offer emergency-shift Flex Pay</h2>
-          <p className="text-sm text-slate-500">
-            Select the published calendar assignment. Create or correct the
-            assignment on Schedule first; this form never duplicates a calendar
-            shift.
-          </p>
-          <label className="block text-sm font-semibold">
-            Find assignment
-            <input
-              className={input + " mt-2"}
-              value={shiftSearch}
-              onChange={(e) => setShiftSearch(e.target.value)}
-              placeholder="Officer or location"
-            />
-          </label>
-          <label className="block text-sm font-semibold">
-            Assigned emergency shift
-            <select
-              required
-              className={input + " mt-2"}
-              value={offer.shiftId}
-              onChange={(e) => setOffer({ ...offer, shiftId: e.target.value })}
-            >
-              <option value="">Select an assignment</option>
-              {shifts
-                .filter((s) =>
-                  [person(s.employee), s.location?.name]
-                    .join(" ")
-                    .toLowerCase()
-                    .includes(shiftSearch.toLowerCase()),
-                )
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {person(s.employee)} · {s.location?.name || "No site"} ·{" "}
-                    {stamp(s.startTime)} – {stamp(s.endTime)}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <div className="grid gap-5 md:grid-cols-2">
-            <label className="text-sm font-semibold">
-              Agreed immediate payout ($)
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                required
-                className={input + " mt-2"}
-                value={offer.amount}
-                onChange={(e) => setOffer({ ...offer, amount: e.target.value })}
-              />
-            </label>
-            <label className="text-sm font-semibold">
-              Emergency coverage reason
-              <textarea
-                minLength={10}
-                maxLength={2000}
-                required
-                className={input + " mt-2"}
-                value={offer.reason}
-                onChange={(e) => setOffer({ ...offer, reason: e.target.value })}
-              />
-            </label>
-          </div>
-          <p className="text-sm text-slate-500">
-            The officer must accept. Payment can be recorded after completed,
-            approved attendance, and cannot exceed its approved gross wages. Set
-            the agreed shift pay rate in Time & Attendance if needed.
-          </p>
-          <div className="flex gap-3">
-            <button
-              disabled={busy}
-              className="rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white disabled:opacity-50"
-            >
-              {busy ? "Saving…" : "Send offer"}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setOffer(null)}
-              className="rounded-xl border px-5 py-3"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+      <dialog
+        ref={offerDialog}
+        aria-labelledby="flex-offer-title"
+        onCancel={(e) => {
+          e.preventDefault();
+          if (assignmentOpen) {
+            setAssignmentOpen(false);
+            assignmentButton.current?.focus();
+          } else if (!busy) {
+            setOffer(null);
+          }
+        }}
+        className="fixed inset-0 m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-xl backdrop:bg-slate-950/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      >
+        {offer && (
+          <form onSubmit={submitOffer} className="space-y-5 p-6">
+            <h2 id="flex-offer-title" className="text-xl font-bold">
+              New Flex Pay offer
+            </h2>
+            <p className="text-sm text-slate-500">
+              Select the published calendar assignment. Create or correct the
+              assignment on Schedule first; this form never duplicates a
+              calendar shift.
+            </p>
+            <div className="text-sm">
+              <span id="flex-assignment-label" className="font-semibold">
+                Find assignment
+              </span>
+              <button
+                ref={assignmentButton}
+                type="button"
+                aria-labelledby="flex-assignment-label flex-assignment-value"
+                aria-expanded={assignmentOpen}
+                aria-controls="flex-assignment-options"
+                disabled={busy || assignmentLoading}
+                className={
+                  input +
+                  " mt-2 flex items-center justify-between gap-3 text-left disabled:opacity-50"
+                }
+                onClick={() => {
+                  setShiftSearch("");
+                  setAssignmentOpen(!assignmentOpen);
+                }}
+              >
+                <span id="flex-assignment-value">
+                  {assignmentLoading
+                    ? "Loading assignments…"
+                    : selectedAssignment
+                      ? `${person(selectedAssignment.employee)} · ${selectedAssignment.location?.name || "No site"} · ${stamp(selectedAssignment.startTime)} – ${stamp(selectedAssignment.endTime)}`
+                      : "Select an assignment"}
+                </span>
+                <ChevronDown
+                  size={18}
+                  className="shrink-0"
+                  aria-hidden="true"
+                />
+              </button>
+              <div id="flex-assignment-options" hidden={!assignmentOpen}>
+                {assignmentOpen && (
+                  <div className="mt-2 rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+                    <input
+                      autoFocus
+                      type="search"
+                      aria-label="Search assignments"
+                      className={input}
+                      value={shiftSearch}
+                      onChange={(e) => setShiftSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.preventDefault();
+                      }}
+                      placeholder="Search by officer, location or date"
+                    />
+                    {matchingAssignments.length ? (
+                      <ul className="mt-2 max-h-48 overflow-y-auto">
+                        {matchingAssignments.map((shift) => (
+                          <li key={shift.id}>
+                            <button
+                              type="button"
+                              aria-pressed={offer.shiftId === shift.id}
+                              className="w-full rounded-lg px-3 py-2 text-left hover:bg-indigo-50 focus-visible:bg-indigo-50 aria-pressed:bg-indigo-50 dark:hover:bg-slate-800 dark:focus-visible:bg-slate-800 dark:aria-pressed:bg-slate-800"
+                              onClick={() => {
+                                setOffer({ ...offer, shiftId: shift.id });
+                                setAssignmentOpen(false);
+                                assignmentButton.current?.focus();
+                              }}
+                            >
+                              <span className="block font-medium">
+                                {person(shift.employee)} ·{" "}
+                                {shift.location?.name || "No site"}
+                              </span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                                {stamp(shift.startTime)} –{" "}
+                                {stamp(shift.endTime)}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p role="status" className="px-3 py-3 text-slate-500">
+                        {shifts.length
+                          ? "No matching assignments."
+                          : "No eligible assignments available."}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="grid gap-5 md:grid-cols-2">
+              <label className="text-sm font-semibold">
+                Agreed immediate payout ($)
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  className={input + " mt-2"}
+                  value={offer.amount}
+                  onChange={(e) =>
+                    setOffer({ ...offer, amount: e.target.value })
+                  }
+                />
+              </label>
+              <label className="text-sm font-semibold">
+                Emergency coverage reason
+                <textarea
+                  minLength={10}
+                  maxLength={2000}
+                  required
+                  className={input + " mt-2"}
+                  value={offer.reason}
+                  onChange={(e) =>
+                    setOffer({ ...offer, reason: e.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <p className="text-sm text-slate-500">
+              The officer must accept. Payment can be recorded after completed,
+              approved attendance, and cannot exceed its approved gross wages.
+              Set the agreed shift pay rate in Time & Attendance if needed.
+            </p>
+            <div className="flex gap-3">
+              <button
+                disabled={busy || !offer.shiftId}
+                className="rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white disabled:opacity-50"
+              >
+                {busy ? "Saving…" : "Send offer"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setOffer(null)}
+                className="rounded-xl border px-5 py-3"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
+      </dialog>
       {payment && (
         <form
           onSubmit={(e) => {

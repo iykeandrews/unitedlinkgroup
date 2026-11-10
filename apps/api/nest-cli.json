@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
-    "tsConfigPath": "tsconfig.build.json"
+    "tsConfigPath": "tsconfig.build.json",
+    "assets": ["employee-forms/united-link-letterhead.jpg"]
   }
 }
