@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards, Request, Headers, UsePipes, ValidationPipe, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, UseGuards, Request, Headers, UsePipes, ValidationPipe } from '@nestjs/common';
 import { BusinessesService } from './businesses.service';
 import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../auth/roles.guard';
@@ -58,11 +58,5 @@ export class BusinessesController {
   @Roles(UserRole.SUPER_ADMIN)
   activate(@Param('id') id: string) {
     return this.businessesService.setStatus(id, 'ACTIVE');
-  }
-
-  @Delete(':id')
-  @Roles(UserRole.SUPER_ADMIN)
-  remove(@Param('id') id: string) {
-    return this.businessesService.setStatus(id, 'DELETED');
   }
 }

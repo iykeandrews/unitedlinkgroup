@@ -32,7 +32,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { Calendar, Clock, ClipboardCheck, Zap, ArrowRight, MapPin, Play, Square, Building2, Users, AlertTriangle, Activity, RefreshCw, Globe, Settings, DollarSign, MessageSquare, FileText, Trash2, Ban, CheckCircle2, Store } from 'lucide-react';
+import { Calendar, Clock, ClipboardCheck, Zap, ArrowRight, MapPin, Play, Square, Building2, Users, AlertTriangle, Activity, RefreshCw, Globe, Settings, DollarSign, MessageSquare, FileText, Ban, CheckCircle2, Store } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface DashboardStats {
@@ -822,11 +822,10 @@ function SuperAdminDashboard({
   const [managedBusinessesLoading, setManagedBusinessesLoading] = useState(false);
   const [businessActionModal, setBusinessActionModal] = useState<{
     isOpen: boolean;
-    kind: 'deactivate' | 'activate' | 'delete';
+    kind: 'deactivate' | 'activate';
     business: any | null;
-    confirmText: string;
     saving: boolean;
-  }>({ isOpen: false, kind: 'deactivate', business: null, confirmText: '', saving: false });
+  }>({ isOpen: false, kind: 'deactivate', business: null, saving: false });
 
   const totals = data?.totals;
   const growth = useMemo(() => (data?.charts?.growth || []).slice(-Math.min(days, 90)).map((d) => ({ ...d, date: d.date.slice(5) })), [data?.charts?.growth, days]);
@@ -896,12 +895,11 @@ function SuperAdminDashboard({
     );
   };
 
-  const openBusinessAction = (business: any, kind: 'deactivate' | 'activate' | 'delete') => {
+  const openBusinessAction = (business: any, kind: 'deactivate' | 'activate') => {
     setBusinessActionModal({
       isOpen: true,
       kind,
       business,
-      confirmText: '',
       saving: false,
     });
   };
@@ -910,27 +908,16 @@ function SuperAdminDashboard({
     const business = businessActionModal.business;
     if (!business?.id) return;
 
-    if (businessActionModal.kind === 'delete') {
-      const expected = (business.name || '').trim().toLowerCase();
-      if (!expected || businessActionModal.confirmText.trim().toLowerCase() !== expected) {
-        toast.error('Type the business name to confirm deletion');
-        return;
-      }
-    }
-
     try {
       setBusinessActionModal((prev) => ({ ...prev, saving: true }));
       if (businessActionModal.kind === 'deactivate') {
         await api.patch(`/businesses/${business.id}/deactivate`);
         toast.success('Business deactivated');
-      } else if (businessActionModal.kind === 'activate') {
+      } else {
         await api.patch(`/businesses/${business.id}/activate`);
         toast.success('Business activated');
-      } else {
-        await api.delete(`/businesses/${business.id}`);
-        toast.success('Business deleted');
       }
-      setBusinessActionModal({ isOpen: false, kind: 'deactivate', business: null, confirmText: '', saving: false });
+      setBusinessActionModal({ isOpen: false, kind: 'deactivate', business: null, saving: false });
       if (selectedBusinessId === business.id) setSelectedBusinessId(null);
       await Promise.all([onRefresh(), loadManagedBusinesses()]);
     } catch (e: any) {
@@ -1104,7 +1091,7 @@ function SuperAdminDashboard({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div>
             <div className="text-lg font-bold text-slate-900 dark:text-white">Business management</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Deactivate or delete businesses from the platform</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Manage business activation</div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <input
@@ -1197,14 +1184,6 @@ function SuperAdminDashboard({
                                 Deactivate
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => openBusinessAction(b, 'delete')}
-                              className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-1"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              Delete
-                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1219,14 +1198,8 @@ function SuperAdminDashboard({
 
       <Modal
         isOpen={businessActionModal.isOpen}
-        onClose={() => setBusinessActionModal({ isOpen: false, kind: 'deactivate', business: null, confirmText: '', saving: false })}
-        title={
-          businessActionModal.kind === 'delete'
-            ? 'Delete business'
-            : businessActionModal.kind === 'deactivate'
-              ? 'Deactivate business'
-              : 'Activate business'
-        }
+        onClose={() => setBusinessActionModal({ isOpen: false, kind: 'deactivate', business: null, saving: false })}
+        title={businessActionModal.kind === 'deactivate' ? 'Deactivate business' : 'Activate business'}
         maxWidth="max-w-lg"
       >
         <div className="space-y-4">
@@ -1235,33 +1208,16 @@ function SuperAdminDashboard({
             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{businessActionModal.business?.owner?.email || ''}</div>
           </div>
 
-          {businessActionModal.kind === 'delete' ? (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 p-3 text-sm text-red-800 dark:text-red-200">
-                This will delete the business from the platform dashboard and remove access.
-              </div>
-              <div className="text-sm text-slate-700 dark:text-slate-200">
-                Type <span className="font-bold">{businessActionModal.business?.name}</span> to confirm.
-              </div>
-              <input
-                value={businessActionModal.confirmText}
-                onChange={(e) => setBusinessActionModal((prev) => ({ ...prev, confirmText: e.target.value }))}
-                placeholder="Business name"
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200"
-              />
-            </div>
-          ) : (
-            <div className="text-sm text-slate-600 dark:text-slate-300">
-              {businessActionModal.kind === 'deactivate'
-                ? 'Users will no longer be able to use this business in the system.'
-                : 'Users will be able to use this business again.'}
-            </div>
-          )}
+          <div className="text-sm text-slate-600 dark:text-slate-300">
+            {businessActionModal.kind === 'deactivate'
+              ? 'Users will no longer be able to use this business in the system.'
+              : 'Users will be able to use this business again.'}
+          </div>
 
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
-              onClick={() => setBusinessActionModal({ isOpen: false, kind: 'deactivate', business: null, confirmText: '', saving: false })}
+              onClick={() => setBusinessActionModal({ isOpen: false, kind: 'deactivate', business: null, saving: false })}
               className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-semibold text-slate-700 dark:text-slate-200"
               disabled={businessActionModal.saving}
             >
@@ -1272,14 +1228,12 @@ function SuperAdminDashboard({
               onClick={runBusinessAction}
               disabled={businessActionModal.saving}
               className={
-                businessActionModal.kind === 'delete'
-                  ? 'px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold'
-                  : businessActionModal.kind === 'deactivate'
-                    ? 'px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold'
-                    : 'px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold'
+                businessActionModal.kind === 'deactivate'
+                  ? 'px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold'
+                  : 'px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold'
               }
             >
-              {businessActionModal.saving ? 'Working…' : businessActionModal.kind === 'delete' ? 'Delete' : businessActionModal.kind === 'deactivate' ? 'Deactivate' : 'Activate'}
+              {businessActionModal.saving ? 'Working…' : businessActionModal.kind === 'deactivate' ? 'Deactivate' : 'Activate'}
             </button>
           </div>
         </div>

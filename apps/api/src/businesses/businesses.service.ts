@@ -8,10 +8,10 @@ import { UserRole } from '@unitedlinkgroup/types';
 export class BusinessesService {
   constructor(private prisma: PrismaService) {}
 
-  async setStatus(id: string, status: 'ACTIVE' | 'INACTIVE' | 'DELETED') {
+  async setStatus(id: string, status: 'ACTIVE' | 'INACTIVE') {
     const business = await this.prisma.business.findUnique({ where: { id } });
     if (!business) throw new BadRequestException('Business not found');
-    if (business.status === 'DELETED' && status !== 'DELETED') {
+    if (business.status === 'DELETED') {
       throw new BadRequestException('Deleted business cannot be reactivated');
     }
     return this.prisma.business.update({
