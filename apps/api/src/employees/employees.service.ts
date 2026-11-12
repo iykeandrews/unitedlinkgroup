@@ -11,6 +11,18 @@ import * as bcrypt from 'bcryptjs';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { createHash } from 'crypto';
 
+const employmentStatuses = {
+  ACTIVE: 'ACTIVE',
+  ON_LEAVE: 'ON_LEAVE',
+  INACTIVE: 'INACTIVE',
+  RESIGNED: 'INACTIVE',
+  TERMINATED: 'TERMINATED',
+} as const;
+type EmploymentStatusChange = { kind: keyof typeof employmentStatuses; effectiveDate: string; notes: string };
+const statusAudit = { resource: 'EMPLOYEE_STATUS', action: 'STATUS_CHANGE' };
+const statusOrder = [{ createdAt: 'desc' as const }, { id: 'desc' as const }];
+const employmentDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
 @Injectable()
 export class EmployeesService {
   private readonly logger = new Logger(EmployeesService.name);
@@ -687,7 +699,65 @@ export class EmployeesService {
     });
   }
 
-  async update(user: any, id: string, data: any, businessIdHeader?: string) {
+  async listEmploymentStatus(user: any, businessIdHeader?: string) {
+    const businessId = await this.getBusinessId(user, businessIdHeader);
+    const [employees, logs] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { businessId },
+        select: { id: true, firstName: true, lastName: true, middleName: true, email: true, status: true, type: true },
+        orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      }),
+      this.prisma.auditLog.findMany({
+        where: { businessId, ...statusAudit }, orderBy: statusOrder, distinct: ['resourceId'],
+        select: { resourceId: true, details: true },
+      }),
+    ]);
+    const latest = new Map(logs.map(log => [log.resourceId, JSON.parse(log.details || '{}')]));
+    return employees.map(employee => {
+      const change = latest.get(employee.id);
+      const current = change?.toStatus === employee.status ? change : null;
+      const status = employee.status === 'ACTIVE' && employee.type === 'ONBOARDING'
+        ? 'ONBOARDING' : current?.kind || employee.status;
+      return { ...employee, status, effectiveDate: current?.effectiveDate ?? null };
+    });
+  }
+
+  async getEmploymentStatus(user: any, id: string, businessIdHeader?: string) {
+    const businessId = await this.getBusinessId(user, businessIdHeader);
+    if (!await this.prisma.employee.findFirst({ where: { id, businessId }, select: { id: true } })) {
+      throw new NotFoundException('Employee not found');
+    }
+    const logs = await this.prisma.auditLog.findMany({
+      where: { businessId, resourceId: id, ...statusAudit }, orderBy: statusOrder,
+      include: { user: { select: { firstName: true, lastName: true } } },
+    });
+    return logs.map(log => ({
+      ...JSON.parse(log.details || '{}'),
+      id: log.id,
+      recordedAt: log.createdAt,
+      recordedBy: log.user ? [log.user.firstName, log.user.lastName].filter(Boolean).join(' ') || 'Administrator' : 'Unknown',
+    }));
+  }
+
+  async recordEmploymentStatus(user: any, id: string, body: Partial<EmploymentStatusChange>, businessIdHeader?: string) {
+    const { kind, effectiveDate, notes = '' } = body || {};
+    if (!kind || !Object.prototype.hasOwnProperty.call(employmentStatuses, kind)) {
+      throw new BadRequestException('Choose a valid employment status');
+    }
+    const date = typeof effectiveDate === 'string' ? new Date(effectiveDate + 'T00:00:00Z') : new Date(NaN);
+    if (!effectiveDate || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== effectiveDate
+      || effectiveDate > employmentDay()) {
+      throw new BadRequestException('Enter a valid effective date on or before today');
+    }
+    if (typeof notes !== 'string' || notes.length > 2000) {
+      throw new BadRequestException('Notes must be 2,000 characters or fewer');
+    }
+    const businessId = await this.getBusinessId(user, businessIdHeader);
+    await this.update(user, id, { status: employmentStatuses[kind] }, businessId, { kind, effectiveDate, notes: notes.trim() });
+    return { saved: true };
+  }
+
+  async update(user: any, id: string, data: any, businessIdHeader?: string, employmentChange?: EmploymentStatusChange) {
     let businessId: string;
     let employee: any;
 
@@ -709,13 +779,6 @@ export class EmployeesService {
       if (!['ACTIVE', 'INACTIVE', 'TERMINATED', 'ON_LEAVE'].includes(status)) throw new BadRequestException('Invalid employee status');
       if (user.role === UserRole.MANAGER && ['SUPER_ADMIN', 'BUSINESS_ADMIN', 'MANAGER'].includes(employee.role)) {
         throw new ForbiddenException('Only administrators can change this team member’s status');
-      }
-      if (status !== 'ACTIVE' && status !== employee.status) {
-        const [scheduled, activeTimesheet] = await Promise.all([
-          this.prisma.shift.findFirst({ where: { employeeId: id, status: { in: ['DRAFT', 'PUBLISHED', 'OPEN'] }, endTime: { gt: new Date() } }, select: { id: true } }),
-          this.prisma.timesheet.findFirst({ where: { employeeId: id, endTime: null }, select: { id: true } }),
-        ]);
-        if (scheduled || activeTimesheet) throw new BadRequestException('Resolve upcoming shifts and open timesheets before archiving or deactivating this team member');
       }
       data.status = status;
     }
@@ -885,7 +948,28 @@ export class EmployeesService {
         await tx.$queryRawUnsafe('SELECT id FROM "Employee" WHERE id = $1 AND "businessId" = $2 FOR UPDATE', id, businessId);
         const before = await tx.employee.findFirst({ where: { id, businessId }, include: { w2Profile: true, contractorProfile: true } });
         if (!before) throw new NotFoundException('Employee not found');
+        if (finalData.status && finalData.status !== 'ACTIVE' && finalData.status !== before.status) {
+          const [scheduled, activeTimesheet] = await Promise.all([
+            tx.shift.findFirst({ where: { employeeId: id, status: { in: ['DRAFT', 'PUBLISHED', 'OPEN'] }, endTime: { gt: new Date() } }, select: { id: true } }),
+            tx.timesheet.findFirst({ where: { employeeId: id, endTime: null }, select: { id: true } }),
+          ]);
+          if (scheduled || activeTimesheet) throw new BadRequestException('Resolve upcoming shifts and open timesheets before archiving or deactivating this team member');
+        }
         const updated = await tx.employee.update({ where: { id }, data: finalData, include: { w2Profile: true, contractorProfile: true } });
+        if (employmentChange || before.status !== updated.status) {
+          const entry = {
+            kind: updated.status, effectiveDate: employmentDay(), notes: '', ...employmentChange,
+            fromStatus: before.status, toStatus: updated.status,
+          };
+          const where = { businessId, resourceId: id, ...statusAudit };
+          const latest = employmentChange && before.status === updated.status
+            ? await tx.auditLog.findFirst({ where, orderBy: statusOrder, select: { details: true } })
+            : null;
+          const previous = latest ? JSON.parse(latest.details || '{}') : null;
+          if (!previous || previous.kind !== entry.kind || previous.effectiveDate !== entry.effectiveDate || previous.notes !== entry.notes) {
+            await tx.auditLog.create({ data: { ...where, userId: user.userId, details: JSON.stringify(entry) } });
+          }
+        }
         const changes = rateChanges(before, updated);
         if (changes.length) {
           const business = await tx.business.findUnique({ where: { id: businessId }, select: { currencyCode: true } });
@@ -897,6 +981,7 @@ export class EmployeesService {
         return updated;
       });
     } catch (error: any) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
       console.error(`Error updating employee ${id}:`, error);
       if (error.code === 'P2002') {
          throw new BadRequestException('Unique constraint violation');

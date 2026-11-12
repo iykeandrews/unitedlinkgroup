@@ -122,6 +122,24 @@ export class EmployeesController {
     return this.employeesService.getAllAvailabilities(req.user, businessId);
   }
 
+  @Get('employment-status')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  listEmploymentStatus(@Request() req: any, @Headers('x-business-id') businessId?: string) {
+    return this.employeesService.listEmploymentStatus(req.user, businessId);
+  }
+
+  @Get(':id/employment-status')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  getEmploymentStatus(@Request() req: any, @Param('id') id: string, @Headers('x-business-id') businessId?: string) {
+    return this.employeesService.getEmploymentStatus(req.user, id, businessId);
+  }
+
+  @Post(':id/employment-status')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  recordEmploymentStatus(@Request() req: any, @Param('id') id: string, @Body() body: any, @Headers('x-business-id') businessId?: string) {
+    return this.employeesService.recordEmploymentStatus(req.user, id, body, businessId);
+  }
+
   @Get(':id')
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
   findOne(@Request() req: any, @Param('id') id: string, @Headers('x-business-id') businessId?: string) {
