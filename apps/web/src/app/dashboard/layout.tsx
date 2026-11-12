@@ -89,6 +89,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       : [];
     const set = new Set(raw);
     if (set.has('People')) {
+      set.add('People_EmploymentStatus');
       set.add('People_EmploymentForms');
       set.add('People_SOPFiles');
       set.add('My_Forms');

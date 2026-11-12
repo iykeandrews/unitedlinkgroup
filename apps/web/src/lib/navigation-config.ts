@@ -25,6 +25,7 @@ export const NAV_GROUPS: NavGroup[] = [
     moduleIds: [
       'My_Profile',
       'People',
+      'People_EmploymentStatus',
       'People_Roles',
       'People_Departments',
       'People_Certifications',

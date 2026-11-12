@@ -77,6 +77,9 @@ export function canAccessModule(userRole: string | null, moduleId: string) {
   }
   if (moduleId === 'Insights_Complaints') return ['SUPER_ADMIN', 'BUSINESS_ADMIN', 'MANAGER'].includes(normalizedRole);
   if (moduleId === 'Insights_Queries') return ['SUPER_ADMIN', 'BUSINESS_ADMIN', 'MANAGER', 'EMPLOYEE'].includes(normalizedRole);
+  if (moduleId === 'People_EmploymentStatus') {
+    return normalizedRole === UserRole.SUPER_ADMIN || normalizedRole === UserRole.BUSINESS_ADMIN;
+  }
   if (moduleId === 'Vendors') return normalizedRole === UserRole.SUPER_ADMIN;
   if (moduleId === 'My_Profile') return normalizedRole === UserRole.EMPLOYEE || normalizedRole === UserRole.MANAGER;
   if (normalizedRole === UserRole.SUPER_ADMIN || normalizedRole === UserRole.BUSINESS_ADMIN) return true;
@@ -129,6 +132,14 @@ export const MODULES: Module[] = [
   },
 
   // Core Modules - People
+  {
+    id: 'People_EmploymentStatus',
+    name: 'Employment Status',
+    description: 'Record resignations, terminations, and other status changes',
+    icon: FileSignature,
+    category: 'Core',
+    route: '/dashboard/people/employment-status'
+  },
   { 
     id: 'People', 
     name: 'Employees', 
