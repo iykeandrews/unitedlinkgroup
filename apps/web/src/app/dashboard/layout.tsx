@@ -208,10 +208,11 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   const isTimePage = pathname?.startsWith('/dashboard/time');
   const isAvailabilityPage = pathname?.startsWith('/dashboard/people/availability');
   const isPeoplePage = pathname === '/dashboard/people';
+  const isEmploymentStatusPage = pathname === '/dashboard/people/employment-status';
   const isDepartmentsPage = pathname?.startsWith('/dashboard/people/departments');
   const isRolesPage = pathname?.startsWith('/dashboard/people/roles');
   const isCommunicationsPage = pathname?.startsWith('/dashboard/communications');
-  const isFullWidthPage = isSchedulingPage || isTimePage || isAvailabilityPage || isPeoplePage || isDepartmentsPage || isRolesPage || isCommunicationsPage;
+  const isFullWidthPage = isSchedulingPage || isTimePage || isAvailabilityPage || isPeoplePage || isEmploymentStatusPage || isDepartmentsPage || isRolesPage || isCommunicationsPage;
   const isGlobalMode = userRole === UserRole.SUPER_ADMIN && !selectedBusiness;
   const isGeneralBusinessProfilePage = pathname === '/dashboard/settings/preferences';
   const shouldShowBusinessSelection = showBusinessSelection && !isGeneralBusinessProfilePage;

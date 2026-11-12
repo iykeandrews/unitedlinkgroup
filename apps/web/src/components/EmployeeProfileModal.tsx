@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import RateHistory from "./people/RateHistory";
 import { employmentForm, employmentField, employmentPayload } from "./people/employment";
 import { savedPay } from "./people/directory";
@@ -1149,7 +1150,16 @@ export function EmployeeProfileModal({ isOpen, onClose, employee, onUpdate, init
               <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
                 {activeTab}
               </h1>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                {['BUSINESS_ADMIN', 'SUPER_ADMIN'].includes(String(authUser?.role)) && (
+                  <Link
+                    href={`/dashboard/people/employment-status?employeeId=${encodeURIComponent(employee.id)}`}
+                    onClick={onClose}
+                    className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-slate-600 dark:bg-slate-800 dark:text-indigo-300 dark:hover:bg-slate-700"
+                  >
+                    Employment Status
+                  </Link>
+                )}
                 {!isEditing && (activeTab === 'Personal' || activeTab === 'Employment') && (
                   <button 
                     onClick={handleStartEdit}

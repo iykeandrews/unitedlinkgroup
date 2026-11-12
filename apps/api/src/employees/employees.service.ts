@@ -722,6 +722,63 @@ export class EmployeesService {
     });
   }
 
+  async getEmploymentTrends(user: any, businessIdHeader?: string) {
+    const businessId = await this.getBusinessId(user, businessIdHeader);
+    const [employees, logs] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { businessId },
+        select: { id: true, hireDate: true, createdAt: true, status: true, type: true },
+      }),
+      this.prisma.auditLog.findMany({
+        where: { businessId, ...statusAudit },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { resourceId: true, details: true },
+      }),
+    ]);
+    const changes = new Map<string, Array<{ kind: string; fromStatus: string; toStatus: string; effectiveDate: string }>>();
+    for (const log of logs) {
+      if (!log.resourceId) continue;
+      const entry = JSON.parse(log.details || '{}');
+      if (!entry.kind || !entry.fromStatus || !entry.toStatus || !/^\d{4}-\d{2}-\d{2}$/.test(entry.effectiveDate)) continue;
+      const history = changes.get(log.resourceId) || [];
+      history.push(entry);
+      changes.set(log.resourceId, history);
+    }
+
+    const today = employmentDay();
+    const [year, month] = today.split('-').map(Number);
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(Date.UTC(year, month - 12 + index, 1));
+      return { month: date.toISOString().slice(0, 7), active: 0, resigned: 0, terminated: 0 };
+    });
+
+    for (const employee of employees) {
+      const history = (changes.get(employee.id) || [])
+        .sort((left, right) => left.effectiveDate.localeCompare(right.effectiveDate));
+      const started = (employee.hireDate || employee.createdAt).toISOString().slice(0, 7);
+      let currentStatus = history[0]?.fromStatus || employee.status;
+      let currentKind = currentStatus;
+      let nextChange = 0;
+
+      for (const period of months) {
+        const separations = new Set<string>();
+        while (nextChange < history.length && history[nextChange].effectiveDate.slice(0, 7) <= period.month) {
+          const change = history[nextChange++];
+          if (change.effectiveDate.startsWith(period.month) && change.kind !== currentKind) {
+            separations.add(change.kind);
+          }
+          currentKind = change.kind;
+          currentStatus = change.toStatus;
+        }
+        const status = period.month === today.slice(0, 7) ? employee.status : currentStatus;
+        if (started <= period.month && status === 'ACTIVE' && employee.type !== 'ONBOARDING') period.active++;
+        if (separations.has('RESIGNED')) period.resigned++;
+        if (separations.has('TERMINATED')) period.terminated++;
+      }
+    }
+    return months;
+  }
+
   async getEmploymentStatus(user: any, id: string, businessIdHeader?: string) {
     const businessId = await this.getBusinessId(user, businessIdHeader);
     if (!await this.prisma.employee.findFirst({ where: { id, businessId }, select: { id: true } })) {

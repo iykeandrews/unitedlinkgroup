@@ -128,6 +128,12 @@ export class EmployeesController {
     return this.employeesService.listEmploymentStatus(req.user, businessId);
   }
 
+  @Get('employment-status/trends')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
+  getEmploymentTrends(@Request() req: any, @Headers('x-business-id') businessId?: string) {
+    return this.employeesService.getEmploymentTrends(req.user, businessId);
+  }
+
   @Get(':id/employment-status')
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN)
   getEmploymentStatus(@Request() req: any, @Param('id') id: string, @Headers('x-business-id') businessId?: string) {

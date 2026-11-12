@@ -338,7 +338,8 @@ export function ShiftModal({
   };
 
   const viewProfile = () => {
-    window.open('/dashboard/people', '_blank');
+    const employeeId = formData.employeeId;
+    if (employeeId) window.open(`/dashboard/people?employeeId=${encodeURIComponent(employeeId)}`, '_blank', 'noopener,noreferrer');
   };
 
   const viewHistory = () => {
@@ -809,7 +810,7 @@ export function ShiftModal({
                       </button>
                     </>
                   )}
-                  <button onClick={() => { viewProfile(); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">View profile</button>
+                  {formData.employeeId && <button onClick={() => { viewProfile(); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">View profile</button>}
                   <button onClick={() => { viewHistory(); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700">View shift history</button>
                   <div className="h-px bg-slate-200 dark:bg-slate-700 my-2" />
                   {!shiftPlacementLocked ? (
