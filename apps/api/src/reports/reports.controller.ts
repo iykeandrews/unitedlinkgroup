@@ -152,6 +152,7 @@ export class ReportsController {
     @Request() req: any,
     @Query("startDate") startDate: string,
     @Query("endDate") endDate: string,
+    @Query("includeAssessments") includeAssessments: string,
     @RequestHeaders("x-business-id") headerBusinessId?: string,
   ) {
     const businessId = await this.reportsService.resolveBusiness(
@@ -162,6 +163,7 @@ export class ReportsController {
       businessId,
       startDate,
       endDate,
+      includeAssessments === "true",
     );
   }
 

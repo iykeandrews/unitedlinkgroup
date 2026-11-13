@@ -502,6 +502,7 @@ export class ReportsService {
     businessId: string,
     startDate?: string,
     endDate?: string,
+    includeAssessments = false,
   ) {
     const { gte: start, lte: end } = this.reportRange(startDate, endDate);
 
@@ -512,7 +513,7 @@ export class ReportsService {
       (start && end && end < start)
     )
       throw new BadRequestException("Choose a business and valid date range");
-    const [timesheets, callouts] = await Promise.all([
+    const [timesheets, callouts, assessments] = await Promise.all([
       this.prisma.timesheet.findMany({
         where: {
           employee: { businessId },
@@ -522,7 +523,7 @@ export class ReportsService {
         },
         include: {
           employee: {
-            select: { id: true, firstName: true, lastName: true, email: true },
+            select: { id: true, firstName: true, lastName: true, email: true, role: true },
           },
           breaks: true,
           location: true,
@@ -552,6 +553,7 @@ export class ReportsService {
               id: true,
               startTime: true,
               endTime: true,
+              timeZone: true,
               location: {
                 select: {
                   id: true,
@@ -563,10 +565,28 @@ export class ReportsService {
         },
         orderBy: { noticeAt: "desc" },
       }),
+      includeAssessments ? this.prisma.officerAssessment.findMany({
+        where: { businessId, observedAt: { gte: start, lte: end } },
+        select: {
+          id: true,
+          observedAt: true,
+          score: true,
+          notes: true,
+          action: true,
+          followUpAt: true,
+          ratings: true,
+          checklist: true,
+          employee: { select: { id: true, firstName: true, lastName: true, role: true } },
+          evaluator: { select: { firstName: true, lastName: true } },
+          location: { select: { id: true, name: true } },
+        },
+        orderBy: [{ observedAt: "desc" }, { id: "asc" }],
+      }) : [],
     ]);
 
     return {
       timesheets,
+      assessments,
       callouts: callouts.map((callout: any) => ({
         id: callout.id,
         type: callout.type,
