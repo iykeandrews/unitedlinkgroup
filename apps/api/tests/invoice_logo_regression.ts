@@ -57,6 +57,21 @@ async function main() {
   });
   const pdf = await PDFDocument.load(bytes);
   assert.equal(pdf.getPageCount(), 1);
+  assert.equal(Math.round(pdf.getPage(0).getHeight()), 792);
+  const longInvoice = await generateInvoicePdf({
+    business: agency,
+    invoice: {
+      ...invoice,
+      items: Array.from({ length: 50 }, (_, index) => ({
+        ...invoice.items[0],
+        description: `Service ${index + 1} with a detailed description. `.repeat(4),
+      })),
+      notes: "Please include the service reference with payment. ".repeat(40),
+    },
+  });
+  const longPdf = await PDFDocument.load(longInvoice);
+  assert.equal(longPdf.getPageCount(), 1);
+  assert.ok(longPdf.getPage(0).getHeight() > 792);
   const brandedPdf = await generateInvoicePdf({ business: agency, invoice });
   assert.match(brandedPdf.toString("latin1"), /\/Subtype \/Image/);
   const mailer: any = new SmtpMailerService();

@@ -16,11 +16,43 @@ export async function generateInvoicePdf({
   businessEmail?: string;
   logo?: InvoiceLogo | null;
 }): Promise<Buffer> {
-  const doc = new jsPDF({ format: "letter" });
   const logo =
     suppliedLogo === undefined
       ? await resolveInvoiceLogo(business)
       : suppliedLogo;
+  const letterHeight = 279.4;
+  const maxPageHeight = 5080;
+  let pageHeight = letterHeight;
+  let layout = renderInvoice({ business, invoice, businessEmail, logo, pageHeight });
+  while (!layout.fits && pageHeight < maxPageHeight) {
+    pageHeight = Math.min(pageHeight * 2, maxPageHeight);
+    layout = renderInvoice({ business, invoice, businessEmail, logo, pageHeight });
+  }
+  if (!layout.fits) throw new Error("Invoice exceeds the maximum single-page PDF size.");
+  if (pageHeight > letterHeight) {
+    const fitted = renderInvoice({
+      business, invoice, businessEmail, logo,
+      pageHeight: Math.max(letterHeight, Math.ceil(layout.requiredHeight) + 1),
+    });
+    if (fitted.fits) layout = fitted;
+  }
+  return Buffer.from(layout.doc.output("arraybuffer"));
+}
+
+function renderInvoice({
+  business,
+  invoice,
+  businessEmail,
+  logo,
+  pageHeight,
+}: {
+  business: any;
+  invoice: any;
+  businessEmail?: string;
+  logo: InvoiceLogo | null;
+  pageHeight: number;
+}) {
+  const doc = new jsPDF({ format: [215.9, pageHeight] });
   const tracked =
     invoice.balanceDue !== undefined ? invoice : invoiceTracking(invoice);
   const width = doc.internal.pageSize.getWidth(),
@@ -123,7 +155,7 @@ export async function generateInvoicePdf({
   ]) {
     write(label, right - 72, metaY, 7, false, muted);
     write(value, right, metaY, 9, true, ink, "right");
-    metaY += 8;
+    metaY += 6;
   }
   y = Math.max(addressY, metaY) + 5;
   rule(y);
@@ -235,7 +267,7 @@ export async function generateInvoicePdf({
     theme: "plain",
     styles: {
       fontSize: 9,
-      cellPadding: 4,
+      cellPadding: 3,
       overflow: "linebreak",
       textColor: ink,
       lineColor: line,
@@ -256,11 +288,8 @@ export async function generateInvoicePdf({
     },
     margin: { left, right: 15, top: 22, bottom: 22 },
   });
-  y = (doc as any).lastAutoTable.finalY + 13;
-  if (y + 65 > height - 24) {
-    doc.addPage();
-    y = 28;
-  }
+  y = (doc as any).lastAutoTable.finalY + 10;
+  if (doc.getNumberOfPages() > 1) return { doc, fits: false, requiredHeight: height };
   const summaryX = right - 73;
   write("SERVICE & PAYMENT NOTES", left, y, 7.5, true, muted);
   doc.setFontSize(9);
@@ -271,9 +300,12 @@ export async function generateInvoicePdf({
   doc.setTextColor(...muted);
   doc.text(note, left, y + 8);
   write("Billing questions? Contact our team.", left, y + 29, 9, false, muted);
+  let contactEnd = y + 30;
   if (businessEmail) {
     doc.setFontSize(9);
-    doc.text(wrapped(businessEmail, 100), left, y + 35);
+    const emailLines = wrapped(businessEmail, 100);
+    doc.text(emailLines, left, y + 35);
+    contactEnd = y + 35 + emailLines.length * 4;
   }
   let totalY = y;
   for (const [label, amount] of [
@@ -309,10 +341,10 @@ export async function generateInvoicePdf({
     navy,
     "right",
   );
-  y = totalY + 29;
+  let contentEnd = Math.max(totalY + 17, contactEnd);
   if (invoice.notes) {
     autoTable(doc, {
-      startY: y,
+      startY: contentEnd + 7,
       body: [["Additional notes", invoice.notes]],
       theme: "plain",
       styles: {
@@ -324,25 +356,14 @@ export async function generateInvoicePdf({
       columnStyles: { 0: { cellWidth: 32, fontStyle: "bold" } },
       margin: { left, right: 15, top: 22, bottom: 22 },
     });
+    contentEnd = (doc as any).lastAutoTable.finalY;
   }
-  const pages = doc.getNumberOfPages();
-  for (let page = 1; page <= pages; page++) {
-    doc.setPage(page);
+  const requiredHeight = contentEnd + 24;
+  const fits = doc.getNumberOfPages() === 1 && requiredHeight <= height;
+  if (fits) {
     rule(height - 19);
-    if (page > 1) {
-      write(business?.name || "Invoice", left, 12, 8, true, muted);
-      write(invoice.invoiceNumber, right, 12, 8, false, muted, "right");
-    }
     write("Thank you for your business.", left, height - 12, 8, false, muted);
-    write(
-      `${invoice.invoiceNumber} | ${page} / ${pages}`,
-      right,
-      height - 12,
-      8,
-      false,
-      muted,
-      "right",
-    );
+    write(invoice.invoiceNumber, right, height - 12, 8, false, muted, "right");
   }
-  return Buffer.from(doc.output("arraybuffer"));
+  return { doc, fits, requiredHeight };
 }
