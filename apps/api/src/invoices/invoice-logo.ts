@@ -1,4 +1,5 @@
-import { BadRequestException } from "@nestjs/common";
+import { Logger } from "@nestjs/common";
+import jsPDF from "jspdf";
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import { request as httpRequest } from "node:http";
@@ -13,6 +14,7 @@ export type InvoiceLogo = {
   contentType: string;
 };
 const MAX_BYTES = 5 * 1024 * 1024;
+const logger = new Logger("InvoiceLogo");
 const blocked = new BlockList();
 for (const [address, prefix] of [
   ["0.0.0.0", 8],
@@ -49,11 +51,15 @@ function decodeLogo(bytes: Buffer): InvoiceLogo {
   const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
   if (!png && !jpeg) throw Error("Logo format");
   const contentType = png ? "image/png" : "image/jpeg";
+  const dataUrl = `data:${contentType};base64,${bytes.toString("base64")}`;
+  const { width, height } = new jsPDF().getImageProperties(dataUrl);
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0)
+    throw Error("Invalid logo dimensions");
   return {
     bytes,
     format: png ? "PNG" : "JPEG",
     contentType,
-    dataUrl: `data:${contentType};base64,${bytes.toString("base64")}`,
+    dataUrl,
   };
 }
 async function download(url: URL, redirects = 0): Promise<Buffer> {
@@ -159,10 +165,8 @@ export async function loadInvoiceLogo(
       return decodeLogo(await readFile(filename));
     }
     return decodeLogo(await download(new URL(source)));
-  } catch (cause) {
-    throw new BadRequestException(
-      "The business logo could not be loaded. In Business Profile, use a public PNG or JPEG image URL (up to 5 MB), then try again.",
-      { cause },
-    );
+  } catch {
+    logger.warn("Business logo unavailable. Rendering the invoice with the business name.");
+    return null;
   }
 }
