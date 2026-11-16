@@ -5,6 +5,7 @@ import { BlockList, isIP } from "node:net";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { UploadsService } from "../uploads/uploads.service";
 
 export type InvoiceLogo = {
@@ -166,7 +167,22 @@ export async function loadInvoiceLogo(
     }
     return decodeLogo(await download(new URL(source)));
   } catch {
-    logger.warn("Business logo unavailable. Rendering the invoice with the business name.");
+    logger.warn("Configured business logo unavailable.");
+    return null;
+  }
+}
+
+export async function resolveInvoiceLogo(
+  business?: { name?: string | null; logoUrl?: string | null } | null,
+): Promise<InvoiceLogo | null> {
+  const configured = await loadInvoiceLogo(business?.logoUrl);
+  if (configured) return configured;
+  const name = business?.name?.trim().toLowerCase().replace(/[,.]/g, "").replace(/\s+/g, " ");
+  if (!name || !/^united\s*link security agency(?: llc)?$/.test(name)) return null;
+  try {
+    return decodeLogo(await readFile(join(__dirname, "../employee-forms/united-link-letterhead.jpg")));
+  } catch {
+    logger.error("Bundled United Link Security Agency logo unavailable.");
     return null;
   }
 }

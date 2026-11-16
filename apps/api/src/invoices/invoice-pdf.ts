@@ -1,4 +1,4 @@
-import { InvoiceLogo, loadInvoiceLogo } from "./invoice-logo";
+import { InvoiceLogo, resolveInvoiceLogo } from "./invoice-logo";
 import { billingAddress, billingList } from "./invoice-billing";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -19,7 +19,7 @@ export async function generateInvoicePdf({
   const doc = new jsPDF({ format: "letter" });
   const logo =
     suppliedLogo === undefined
-      ? await loadInvoiceLogo(business?.logoUrl)
+      ? await resolveInvoiceLogo(business)
       : suppliedLogo;
   const tracked =
     invoice.balanceDue !== undefined ? invoice : invoiceTracking(invoice);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   loadInvoiceLogo,
   publicLogoAddress,
+  resolveInvoiceLogo,
 } from "../src/invoices/invoice-logo";
 import { generateInvoicePdf } from "../src/invoices/invoice-pdf";
 import { PDFDocument } from "pdf-lib";
@@ -26,18 +27,12 @@ async function main() {
   ])
     assert.equal(publicLogoAddress(ip), false, ip);
   assert.equal(publicLogoAddress("8.8.8.8"), true);
-  await assert.rejects(
-    () => loadInvoiceLogo("http://127.0.0.1/private"),
-    /could not be loaded/,
-  );
-  await assert.rejects(
-    () => loadInvoiceLogo("/uploads/../private"),
-    /could not be loaded/,
-  );
-  await assert.rejects(
-    () => loadInvoiceLogo("data:text/html;base64,PHNjcmlwdD4="),
-    /could not be loaded/,
-  );
+  assert.equal(await loadInvoiceLogo("http://127.0.0.1/private"), null);
+  assert.equal(await loadInvoiceLogo("/uploads/../private"), null);
+  assert.equal(await loadInvoiceLogo("data:text/html;base64,PHNjcmlwdD4="), null);
+  const agency = { name: "United Link Security Agency, LLC", logoUrl: "invalid" };
+  assert.equal((await resolveInvoiceLogo(agency))?.format, "JPEG");
+  assert.equal(await resolveInvoiceLogo({ ...agency, name: "Other Business" }), null);
   const logo = await loadInvoiceLogo(png);
   assert.equal(logo?.format, "PNG");
   const invoice = {
@@ -62,6 +57,8 @@ async function main() {
   });
   const pdf = await PDFDocument.load(bytes);
   assert.equal(pdf.getPageCount(), 1);
+  const brandedPdf = await generateInvoicePdf({ business: agency, invoice });
+  assert.match(brandedPdf.toString("latin1"), /\/Subtype \/Image/);
   const mailer: any = new SmtpMailerService();
   const oldFrom = process.env.INVOICE_FROM;
   process.env.INVOICE_FROM = "sender@example.test";
@@ -95,22 +92,29 @@ async function main() {
   const businesses: any = {
     businessA: { name: "Business A", logoUrl: png, currencyCode: "USD" },
     businessB: { name: "Business B", logoUrl: secondLogo, currencyCode: "USD" },
+    businessC: agency,
   };
   const service: any = new InvoicesService(
     {
       business: { findUnique: async ({ where }: any) => businesses[where.id] },
-      invoice: { updateMany: async () => ({ count: 0 }) },
+      $transaction: async (run: any) => run({
+        $queryRaw: async () => [],
+        invoice: {
+          findUniqueOrThrow: async ({ where }: any) => service.invoiceAccess(where.id),
+          update: async () => ({ ...invoice, payments: [] }),
+        },
+      }),
     } as any,
     { send: async (payload: any) => sent.push(payload) } as any,
   );
   service.invoiceAccess = async (id: string) => ({
     ...invoice,
     id,
-    businessId: id === "invoiceA" ? "businessA" : "businessB",
+    businessId: id.replace("invoice", "business"),
     updatedAt: new Date(),
     payments: [],
   });
-  service.findOneInvoice = async () => invoice;
+  service.audit = async () => {};
   await service.sendInvoice("invoiceA", {
     role: "SUPER_ADMIN",
     userId: "admin",
@@ -119,6 +123,8 @@ async function main() {
     role: "SUPER_ADMIN",
     userId: "admin",
   });
+  await service.sendInvoice("invoiceC", { role: "SUPER_ADMIN", userId: "admin" });
+  assert.equal(sent[2].attachments[1].contentType, "image/jpeg");
   assert(
     sent[0].attachments[1].content.equals((await loadInvoiceLogo(png))!.bytes),
   );

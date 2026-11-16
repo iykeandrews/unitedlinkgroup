@@ -1,6 +1,6 @@
 import { invoiceEmail } from "./invoice-email";
 import { firstEmailTerms } from "./invoice-terms";
-import { loadInvoiceLogo } from "./invoice-logo";
+import { resolveInvoiceLogo } from "./invoice-logo";
 import { invoiceRecipients } from "./invoice-billing";
 import {
   Injectable,
@@ -596,7 +596,7 @@ export class InvoicesService {
           extractEmail(process.env.INVOICE_SMTP_USER || "") ||
           "";
 
-        const logo = await loadInvoiceLogo(invoice.business?.logoUrl);
+        const logo = await resolveInvoiceLogo(invoice.business);
         const pdf = await generateInvoicePdf({
           logo,
           business: invoice.business,
