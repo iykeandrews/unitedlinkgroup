@@ -11,6 +11,7 @@ export interface Availability {
   endOption?: string | null;
   endOn?: string | null;
   comment?: string | null;
+  reviewedAt?: string | null;
 }
 
 const valid = (value: Date) => Number.isFinite(+value);
@@ -45,6 +46,8 @@ export function isAvailableOnDate(record: Availability, date: Date): boolean {
 
 export function availabilityForDay(records: Availability[], date: Date): Availability[] {
   const matches = records.filter(record=>isAvailableOnDate(record,date));
+  const approvedRestrictions = matches.filter(record=>!record.isAvailable && record.reviewedAt);
+  if (approvedRestrictions.length) return approvedRestrictions;
   const dated = matches.filter(record=>record.repeat !== 'WEEKLY');
   return dated.length ? dated : matches;
 }

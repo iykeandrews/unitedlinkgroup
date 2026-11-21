@@ -2,8 +2,8 @@
 export function fitsAvailability(records: any[], start: Date, end: Date): boolean {
   records = records.filter(record => !record.status || record.status === 'APPROVED');
   if (!records.length) return true;
-  const windows: Array<{ start: number; end: number; available: boolean }> = [];
-  const datedWindows: Array<{ start: number; end: number; available: boolean }> = [];
+  const windows: Array<{ start: number; end: number; available: boolean; reviewed?: boolean }> = [];
+  const datedWindows: Array<{ start: number; end: number; available: boolean; reviewed?: boolean }> = [];
   for (const record of records) {
     const base = new Date(record.startDate);
     const finish = record.endDate ? new Date(record.endDate) : null;
@@ -15,8 +15,8 @@ export function fitsAvailability(records: any[], start: Date, end: Date): boolea
         to.setHours(0, 0, 0, 0);
         to.setDate(to.getDate() + 1);
       }
-      windows.push({ start: +from, end: +to, available: record.isAvailable });
-      datedWindows.push({ start: +from, end: +to, available: record.isAvailable });
+      windows.push({ start: +from, end: +to, available: record.isAvailable, reviewed: !!record.reviewedAt });
+      datedWindows.push({ start: +from, end: +to, available: record.isAvailable, reviewed: !!record.reviewedAt });
       continue;
     }
     const days = String(record.repeatDays || '').toLowerCase().split(',').map(d => d.trim());
@@ -40,11 +40,12 @@ export function fitsAvailability(records: any[], start: Date, end: Date): boolea
         to.setHours(finish?.getHours() ?? 23, finish?.getMinutes() ?? 59, 0, 0);
         if (to <= from) to.setDate(to.getDate() + 1);
       }
-      windows.push({ start: +from, end: +to, available: record.isAvailable });
+      windows.push({ start: +from, end: +to, available: record.isAvailable, reviewed: !!record.reviewedAt });
     }
   }
   // A dated availability exception overrides recurring preferences only within its window.
-  if (!datedWindows.some(w => !w.available && w.start < +end && w.end > +start)) {
+  if (!windows.some(w => !w.available && w.reviewed && w.start < +end && w.end > +start) &&
+      !datedWindows.some(w => !w.available && w.start < +end && w.end > +start)) {
     let covered = +start;
     for (const window of datedWindows.filter(w => w.available).sort((a, b) => a.start - b.start)) {
       if (window.start > covered) break;
