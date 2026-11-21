@@ -25,6 +25,9 @@ export function fitsAvailability(records: any[], start: Date, end: Date): boolea
     // Include the preceding day for windows that continue overnight.
     day.setDate(day.getDate() - 1);
     for (; day < end; day.setDate(day.getDate() + 1)) {
+      const firstDay = new Date(base);
+      firstDay.setHours(0, 0, 0, 0);
+      if (day < firstDay) continue;
       if (!days.includes(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][day.getDay()])) continue;
       if (record.endOption === 'ENDS_ON' && record.endOn) {
         const last = new Date(record.endOn);

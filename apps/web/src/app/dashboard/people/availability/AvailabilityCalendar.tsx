@@ -52,9 +52,9 @@ export function AvailabilityCalendar({
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-auto">
         {/* Sidebar (Employees) */}
-        <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-y-auto">
+        <div className="w-64 flex-shrink-0 border-r border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 sticky left-0 z-20">
           <div className="h-12 border-b border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 sticky top-0 z-10 flex items-center px-4 font-medium text-sm text-gray-500">
             Employee
           </div>
@@ -80,7 +80,7 @@ export function AvailabilityCalendar({
         </div>
 
         {/* Grid */}
-        <div className="flex-1 overflow-auto bg-white dark:bg-slate-900">
+        <div className="flex-1 min-w-[800px] bg-white dark:bg-slate-900">
           <div className="min-w-[800px]">
             {/* Days Header */}
             <div className="flex sticky top-0 z-10 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">

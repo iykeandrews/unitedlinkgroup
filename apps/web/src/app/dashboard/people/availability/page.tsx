@@ -203,6 +203,7 @@ function AvailabilityPageContent() {
     return true;
   });
 
+  const employeeAvailableInRange = (employee: Employee) => eachDayOfInterval({start:startDate,end:endDate}).every(day=>employeeAvailableOnDate(allAvailabilities.filter(a=>a.employeeId===employee.id),day));
   const totalPages = Math.max(1,Math.ceil(filteredEmployees.length / itemsPerPage));
   useEffect(()=>{setCurrentPage(1);},[filterAvailable,startDate,endDate]);
   useEffect(()=>{setCurrentPage(page=>Math.min(page,totalPages));},[totalPages]);
@@ -327,7 +328,7 @@ function AvailabilityPageContent() {
             return <div key={record.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 dark:border-slate-700 pt-3">
               <div className="text-sm text-gray-700 dark:text-gray-200">
                 {!isEmployeeUser ? <strong>{person?`${person.firstName || ''} ${person.lastName || ''}`:'Employee'} · </strong>:null}
-                {record.isAvailable?'Available':'Unavailable'} · {record.startDate.slice(0,10)}{record.endDate?` – ${record.endDate.slice(0,10)}`:''}
+                {record.isAvailable?'Available':'Unavailable'} · {new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',dateStyle:'medium',timeStyle:record.allDay?undefined:'short'}).format(new Date(record.startDate))}{record.endDate?` – ${new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',dateStyle:'medium',timeStyle:record.allDay?undefined:'short'}).format(new Date(record.endDate))}`:''}
                 {record.repeat==='WEEKLY'?` · Weekly (${record.repeatDays || ''})`:''}
                 <span className="ml-2 font-medium">{record.status==='PENDING'?'Pending approval':record.status==='REJECTED'?'Rejected':'Approved'}</span>
                 {record.comment?<p className="text-xs text-gray-500">{record.comment}</p>:null}
@@ -668,9 +669,9 @@ function AvailabilityPageContent() {
                         {String(employee.role || 'EMPLOYEE').replaceAll('_', ' ')}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${employeeAvailableInRange(employee) ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
                           <CalendarCheck className="w-3 h-3" />
-                          {eachDayOfInterval({start:startDate,end:endDate}).every(day=>employeeAvailableOnDate(allAvailabilities.filter(a=>a.employeeId===employee.id),day)) ? 'Available' : 'Has availability restrictions'}
+                          {employeeAvailableInRange(employee) ? 'Available' : 'Has availability restrictions'}
                         </span>
                       </td>
                       {!isEmployeeUser ? (
@@ -720,7 +721,7 @@ function AvailabilityPageContent() {
           availabilities={allAvailabilities}
           startDate={startDate}
           endDate={endDate}
-          onEdit={handleEdit}
+          onEdit={isEmployeeUser ? () => openCreateAvailabilityModal() : handleEdit}
         />
       )}
     </div>
