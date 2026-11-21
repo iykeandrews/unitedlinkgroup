@@ -150,7 +150,7 @@ export default function DeductionsPage() {
           updatedAt?: string;
           reason?: string;
         }>;
-        const approved = loans.filter(l => l.status === 'APPROVED');
+        const approved = loans.filter(l => l.status === 'APPROVED' || l.status === 'PAID');
         const mapped: Deduction[] = approved.map(l => {
           const employeeId = l.employee?.id || '';
           const employeeName = `${l.employee?.firstName || ''} ${l.employee?.lastName || ''}`.trim();
@@ -163,7 +163,7 @@ export default function DeductionsPage() {
             type: 'LOAN',
             taxClass: 'POST_TAX',
             amountType: 'FIXED',
-            amountValue: l.perPayPeriodDeduction,
+            amountValue: l.balance > 0 ? l.perPayPeriodDeduction : l.amount,
             frequency: 'BIWEEKLY',
             status,
             startDate: l.createdAt,
