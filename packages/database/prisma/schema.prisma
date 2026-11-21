@@ -1248,6 +1248,10 @@ model Availability {
   employeeId   String
   employee     Employee @relation(fields: [employeeId], references: [id])
   
+  status       String   @default("APPROVED")
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  rejectionReason String?
   isAvailable  Boolean
   startDate    DateTime
   endDate      DateTime?

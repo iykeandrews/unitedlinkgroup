@@ -1,5 +1,5 @@
 import React from 'react';
-import { format, startOfDay, endOfDay, isBefore, isAfter, isSameDay, eachDayOfInterval } from 'date-fns';
+import { format, isSameDay, eachDayOfInterval } from 'date-fns';
 
 interface Employee {
   id: string;
@@ -11,19 +11,9 @@ interface Employee {
   availability?: any[];
 }
 
-export interface Availability {
-  id: string;
-  employeeId: string;
-  isAvailable: boolean;
-  startDate: string;
-  endDate?: string;
-  allDay: boolean;
-  repeat: string;
-  repeatDays?: string;
-  endOption?: string;
-  endOn?: string;
-  comment?: string;
-}
+export type { Availability } from './availability-model';
+import { Availability, availabilityForDay, employeeAvailableOnDate } from './availability-model';
+export { isAvailableOnDate } from './availability-model';
 
 interface AvailabilityCalendarProps {
   employees: Employee[];
@@ -33,27 +23,6 @@ interface AvailabilityCalendarProps {
   onEdit: (employee: Employee) => void;
 }
 
-export const isAvailableOnDate = (availability: Availability, date: Date) => {
-  const dateDay = format(date, 'eee').toLowerCase(); // 'mon', 'tue', ...
-  const start = new Date(availability.startDate);
-  
-  const endOn = availability.endOn ? new Date(availability.endOn) : null;
-
-  // Check date range
-  if (isBefore(date, startOfDay(start))) return false;
-  if (endOn && isAfter(date, endOfDay(endOn))) return false;
-
-  // Check repetition
-  if (availability.repeat === 'DOES_NOT_REPEAT') {
-    return isSameDay(date, start);
-  }
-  if (availability.repeat === 'WEEKLY') {
-    const repeatDays = availability.repeatDays?.split(',').map(d => d.trim().toLowerCase()) || [];
-    return repeatDays.includes(dateDay);
-  }
-  return false;
-};
-
 export function AvailabilityCalendar({ 
   employees, 
   availabilities, 
@@ -61,10 +30,10 @@ export function AvailabilityCalendar({
   endDate,
   onEdit 
 }: AvailabilityCalendarProps) {
-  const days = eachDayOfInterval({ start: startDate, end: endDate });
+  const days = Number.isFinite(+startDate) && Number.isFinite(+endDate) && startDate <= endDate ? eachDayOfInterval({ start: startDate, end: endDate }) : [];
 
   const getEmployeeAvailabilityForDay = (employeeId: string, date: Date) => {
-    return availabilities.filter(a => a.employeeId === employeeId && isAvailableOnDate(a, date));
+    return availabilityForDay(availabilities.filter(a => a.employeeId === employeeId), date);
   };
 
   return (
@@ -96,14 +65,14 @@ export function AvailabilityCalendar({
               onClick={() => onEdit(employee)}
             >
               <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-700 dark:text-indigo-300 text-xs font-bold">
-                {employee.firstName[0]}{employee.lastName[0]}
+                {employee.firstName?.[0]}{employee.lastName?.[0]}
               </div>
               <div className="overflow-hidden">
                 <div className="font-medium text-sm text-gray-900 dark:text-white truncate">
                   {employee.firstName} {employee.lastName}
                 </div>
                 <div className="text-xs text-gray-500 truncate">
-                  {employee.role.replace('_', ' ')}
+                  {String(employee.role || 'EMPLOYEE').replaceAll('_', ' ')}
                 </div>
               </div>
             </div>
@@ -143,7 +112,7 @@ export function AvailabilityCalendar({
                           {dayAvailabilities.length > 0 ? (
                             dayAvailabilities.map((a, idx) => (
                               <div 
-                                key={idx}
+                                key={a.id}
                                 className={`text-[10px] px-1.5 py-0.5 rounded border truncate ${
                                   a.isAvailable 
                                     ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800' 
@@ -151,14 +120,12 @@ export function AvailabilityCalendar({
                                 }`}
                                 title={a.comment || (a.isAvailable ? 'Available' : 'Unavailable')}
                               >
-                                {a.allDay ? 'All Day' : `${format(new Date(a.startDate), 'HH:mm')} - ${a.endDate ? format(new Date(a.endDate), 'HH:mm') : '?'}`}
+                                {a.allDay ? 'All Day' : `${new Intl.DateTimeFormat('en-GB',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit'}).format(new Date(a.startDate))} - ${a.endDate ? new Intl.DateTimeFormat('en-GB',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit'}).format(new Date(a.endDate)) : 'End not set'}`}
                                 {a.comment && <span className="ml-1 opacity-75">- {a.comment}</span>}
                               </div>
                             ))
                           ) : (
-                            <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100">
-                               <span className="text-xs text-gray-300 dark:text-slate-600">+</span>
-                            </div>
+                            <div className="text-[10px] px-1.5 py-0.5 rounded border bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-gray-300">{employeeAvailableOnDate(availabilities.filter(a => a.employeeId === employee.id), day) ? 'Available' : 'Outside available hours'}</div>
                           )}
                         </div>
                       </div>

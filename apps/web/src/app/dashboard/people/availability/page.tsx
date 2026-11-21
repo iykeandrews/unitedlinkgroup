@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AvailabilityCalendar, isAvailableOnDate, Availability } from './AvailabilityCalendar';
+import { AvailabilityCalendar, Availability } from './AvailabilityCalendar';
 import { 
   Plus,
   Search, 
@@ -19,6 +19,9 @@ import {
 } from 'lucide-react';
 import api from '../../../../lib/api';
 import { EmployeeProfileModal } from '../../../../components/EmployeeProfileModal';
+import { employeeAvailableOnDate } from './availability-model';
+import { useBusiness } from '../../../../context/business-context';
+import { toast } from 'sonner';
 import { useAuth } from '../../../../context/auth-context';
 import { 
   format, 
@@ -57,6 +60,10 @@ function AvailabilityPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const { selectedBusiness } = useBusiness();
+  const [errorMessage,setErrorMessage] = useState('');
+  const [reviewingId,setReviewingId] = useState<string | null>(null);
+  const requestId = useRef(0);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,16 +77,16 @@ function AvailabilityPageContent() {
   const [filterAvailable, setFilterAvailable] = useState(false);
   
   // Date Range State
-  const [startDate, setStartDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [endDate, setEndDate] = useState(() => endOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [startDate, setStartDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 0 }));
+  const [endDate, setEndDate] = useState(() => endOfWeek(new Date(), { weekStartsOn: 0 }));
   const [allAvailabilities, setAllAvailabilities] = useState<Availability[]>([]);
   const itemsPerPage = 10;
   const isEmployeeUser = String(user?.role || '').toUpperCase() === 'EMPLOYEE';
 
   useEffect(() => {
-    fetchEmployees();
-    fetchAvailabilities();
-  }, [isEmployeeUser]);
+    if (user) void refreshAvailability();
+    return () => { requestId.current++; };
+  }, [user?.id, isEmployeeUser, selectedBusiness?.id]);
 
   // Date Range Handlers
   const handlePrevRange = () => {
@@ -95,13 +102,14 @@ function AvailabilityPageContent() {
   };
 
   const handleToday = () => {
-    setStartDate(startOfWeek(new Date(), { weekStartsOn: 1 }));
-    setEndDate(endOfWeek(new Date(), { weekStartsOn: 1 }));
+    setStartDate(startOfWeek(new Date(), { weekStartsOn: 0 }));
+    setEndDate(endOfWeek(new Date(), { weekStartsOn: 0 }));
   };
 
   const handleDateChange = (type: 'start' | 'end', value: string) => {
     if (!value) return;
-    const date = new Date(value);
+    const date = new Date(`${value}T00:00:00`);
+    if (!Number.isFinite(+date)) return;
     if (type === 'start') {
       setStartDate(date);
       if (date > endDate) setEndDate(date);
@@ -136,39 +144,43 @@ function AvailabilityPageContent() {
     }
   }, [searchParams, router, employees]);
 
-  const fetchEmployees = async () => {
+  async function refreshAvailability() {
+    const current = ++requestId.current;
+    setLoading(true); setErrorMessage('');
     try {
-      setLoading(true);
-      if (isEmployeeUser) {
-        const res = await api.get('/employees/me');
-        setEmployees(res.data ? [res.data] : []);
-      } else {
-        const res = await api.get('/employees');
-        setEmployees(res.data);
+      const [people,slots] = await Promise.all([
+        api.get(isEmployeeUser ? '/employees/me' : '/employees',{params:isEmployeeUser?undefined:{status:'ACTIVE'}}),
+        api.get(isEmployeeUser ? '/employees/me/availability' : '/employees/availability/all'),
+      ]);
+      if (current!==requestId.current) return;
+      const list = isEmployeeUser ? [people.data] : people.data;
+      setEmployees((Array.isArray(list)?list:[]).filter(Boolean));
+      setAllAvailabilities(Array.isArray(slots.data)?slots.data:[]);
+    } catch {
+      if(current===requestId.current) {
+        setEmployees([]); setAllAvailabilities([]);
+        setErrorMessage('Availability could not be loaded. Please retry.');
       }
-    } catch (error) {
-      console.error('Failed to fetch employees', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    } finally {if(current===requestId.current) setLoading(false);}
+  }
 
-  const fetchAvailabilities = async () => {
+  async function reviewRequest(record: Availability,status: 'APPROVED' | 'REJECTED') {
+    setReviewingId(record.id);
     try {
-      const res = await api.get(isEmployeeUser ? '/employees/me/availability' : '/employees/availability/all');
-      setAllAvailabilities(res.data);
-    } catch (error) {
-      console.error('Failed to fetch availabilities', error);
-    }
-  };
+      await api.patch(`/employees/${record.employeeId}/availability/${record.id}/review`,{status});
+      await refreshAvailability();
+      toast.success(status==='APPROVED'?'Unavailability approved':'Unavailability rejected');
+    } catch(error: any) {toast.error(error?.response?.data?.message || 'The request could not be reviewed.');}
+    finally {setReviewingId(null);}
+  }
 
   // Filter and Pagination Logic
   const filteredEmployees = employees.filter(emp => {
     const searchLower = searchQuery.toLowerCase();
     const matchesSearch = (
-      emp.firstName.toLowerCase().includes(searchLower) ||
-      emp.lastName.toLowerCase().includes(searchLower) ||
-      emp.email.toLowerCase().includes(searchLower)
+      String(emp.firstName || '').toLowerCase().includes(searchLower) ||
+      String(emp.lastName || '').toLowerCase().includes(searchLower) ||
+      String(emp.email || '').toLowerCase().includes(searchLower)
     );
 
     if (!matchesSearch) return false;
@@ -182,7 +194,7 @@ function AvailabilityPageContent() {
       const empAvailabilities = allAvailabilities.filter(a => a.employeeId === emp.id);
       
       const isAvailableInRange = days.some(day => 
-        empAvailabilities.some(a => isAvailableOnDate(a, day) && a.isAvailable)
+        employeeAvailableOnDate(empAvailabilities, day)
       );
       
       if (!isAvailableInRange) return false;
@@ -191,7 +203,9 @@ function AvailabilityPageContent() {
     return true;
   });
 
-  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const totalPages = Math.max(1,Math.ceil(filteredEmployees.length / itemsPerPage));
+  useEffect(()=>{setCurrentPage(1);},[filterAvailable,startDate,endDate]);
+  useEffect(()=>{setCurrentPage(page=>Math.min(page,totalPages));},[totalPages]);
   const paginatedEmployees = filteredEmployees.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -235,6 +249,10 @@ function AvailabilityPageContent() {
   const saveEmployeeAvailability = async () => {
     try {
       setSavingAvailability(true);
+      if (!availabilityForm.startDate || !Number.isFinite(+new Date(availabilityForm.startDate))) throw new Error('Choose a valid start date.');
+      if (!availabilityForm.allDay && !availabilityForm.endDate) throw new Error('Enter an end time.');
+      if (availabilityForm.endDate && new Date(availabilityForm.endDate) < new Date(availabilityForm.startDate)) throw new Error('End must be on or after start.');
+      if (availabilityForm.repeat==='WEEKLY' && !availabilityForm.repeatDays.length) throw new Error('Choose repeat days.');
       const payload: any = {
         isAvailable: availabilityForm.isAvailable,
         startDate: new Date(availabilityForm.startDate).toISOString(),
@@ -251,11 +269,12 @@ function AvailabilityPageContent() {
       } else {
         await api.post('/employees/me/availability', payload);
       }
-      await fetchAvailabilities();
+      await refreshAvailability();
+      toast.success(availabilityForm.isAvailable ? 'Availability saved' : 'Unavailability submitted for approval');
       setEmployeeAvailabilityModalOpen(false);
       resetAvailabilityForm();
     } catch (error) {
-      console.error('Failed to save availability', error);
+      toast.error((error as any)?.response?.data?.message || (error as Error).message || 'Availability could not be saved');
     } finally {
       setSavingAvailability(false);
     }
@@ -266,11 +285,11 @@ function AvailabilityPageContent() {
     try {
       setSavingAvailability(true);
       await api.delete(`/employees/me/availability/${availabilityForm.id}`);
-      await fetchAvailabilities();
+      await refreshAvailability();
       setEmployeeAvailabilityModalOpen(false);
       resetAvailabilityForm();
     } catch (error) {
-      console.error('Failed to delete availability', error);
+      toast.error((error as any)?.response?.data?.message || 'Availability could not be deleted');
     } finally {
       setSavingAvailability(false);
     }
@@ -283,7 +302,7 @@ function AvailabilityPageContent() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Availability</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {isEmployeeUser ? 'Review your availability and constraints' : 'Manage employee availability and constraints'}
+            {isEmployeeUser ? 'Unavailability requests require approval. You remain available until approved.' : 'Manage availability and approve employee unavailability requests'}
           </p>
         </div>
         {isEmployeeUser ? (
@@ -298,12 +317,34 @@ function AvailabilityPageContent() {
         ) : null}
       </div>
 
+      {errorMessage ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{errorMessage} <button type="button" onClick={()=>void refreshAvailability()} className="underline font-medium">Retry</button></div> : null}
+      <div className="flex justify-end"><button type="button" disabled={loading} onClick={()=>void refreshAvailability()} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">Refresh availability</button></div>
+      {(isEmployeeUser || allAvailabilities.some(a=>a.status==='PENDING' && !a.isAvailable)) ? (
+        <section className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 space-y-3">
+          <h2 className="font-semibold text-gray-900 dark:text-white">{isEmployeeUser?'Your availability records':'Unavailability awaiting approval'}</h2>
+          {allAvailabilities.filter(a=>isEmployeeUser || (a.status==='PENDING' && !a.isAvailable)).map(record=>{
+            const person=employees.find(e=>e.id===record.employeeId);
+            return <div key={record.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 dark:border-slate-700 pt-3">
+              <div className="text-sm text-gray-700 dark:text-gray-200">
+                {!isEmployeeUser ? <strong>{person?`${person.firstName || ''} ${person.lastName || ''}`:'Employee'} · </strong>:null}
+                {record.isAvailable?'Available':'Unavailable'} · {record.startDate.slice(0,10)}{record.endDate?` – ${record.endDate.slice(0,10)}`:''}
+                {record.repeat==='WEEKLY'?` · Weekly (${record.repeatDays || ''})`:''}
+                <span className="ml-2 font-medium">{record.status==='PENDING'?'Pending approval':record.status==='REJECTED'?'Rejected':'Approved'}</span>
+                {record.comment?<p className="text-xs text-gray-500">{record.comment}</p>:null}
+              </div>
+              {isEmployeeUser?<button type="button" onClick={()=>openEditAvailabilityModal(record)} className="rounded border px-3 py-1 text-sm">Edit</button>:<div className="flex gap-2"><button type="button" disabled={reviewingId!==null} onClick={()=>void reviewRequest(record,'APPROVED')} className="rounded bg-green-700 px-3 py-1 text-sm text-white disabled:opacity-50">Approve</button><button type="button" disabled={reviewingId!==null} onClick={()=>void reviewRequest(record,'REJECTED')} className="rounded border px-3 py-1 text-sm disabled:opacity-50">Reject</button></div>}
+            </div>;
+          })}
+          {isEmployeeUser && !allAvailabilities.length?<p className="text-sm text-gray-500">You are available by default. Add a request to change your availability.</p>:null}
+        </section>
+      ):null}
+
       {!isEmployeeUser ? (
         <EmployeeProfileModal
           isOpen={!!selectedEmployee}
-          onClose={() => setSelectedEmployee(null)}
+          onClose={() => {setSelectedEmployee(null); void refreshAvailability();}}
           employee={selectedEmployee}
-          onUpdate={fetchEmployees}
+          onUpdate={refreshAvailability}
           initialTab="Availability"
         />
       ) : null}
@@ -396,6 +437,7 @@ function AvailabilityPageContent() {
                   </div>
                 </div>
               ) : null}
+              {availabilityForm.repeat==='WEEKLY' ? <div className="md:col-span-2 flex flex-wrap gap-3"><label className="text-sm">Repeat ends <select value={availabilityForm.endOption || 'NO_END'} onChange={e=>setAvailabilityForm(prev=>({...prev,endOption:e.target.value}))} className="ml-2 rounded border bg-white dark:bg-slate-950 p-2"><option value="NO_END">Never</option><option value="ENDS_ON">On a date</option></select></label>{availabilityForm.endOption==='ENDS_ON'?<input aria-label="Repeat end date" type="date" value={availabilityForm.endOn} onChange={e=>setAvailabilityForm(prev=>({...prev,endOn:e.target.value}))} className="rounded border bg-white dark:bg-slate-950 p-2"/>:null}</div>:null}
               <label className="md:col-span-2 space-y-2">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Comment</span>
                 <textarea
@@ -588,19 +630,19 @@ function AvailabilityPageContent() {
                   <th className="px-6 py-4 text-left text-sm font-bold text-gray-900 dark:text-white">Employee</th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-gray-900 dark:text-white">Role</th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-gray-900 dark:text-white">Status</th>
-                  {!isEmployeeUser ? <th className="px-6 py-4 text-right text-sm font-bold text-gray-900 dark:text-white">Actions</th> : null}
+                  <th className="px-6 py-4 text-right text-sm font-bold text-gray-900 dark:text-white">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
                 {loading ? (
                   <tr>
-                    <td colSpan={isEmployeeUser ? 3 : 4} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
                       Loading...
                     </td>
                   </tr>
                 ) : paginatedEmployees.length === 0 ? (
                   <tr>
-                    <td colSpan={isEmployeeUser ? 3 : 4} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                       {isEmployeeUser ? 'No availability records found.' : 'No employees found.'}
                     </td>
                   </tr>
@@ -610,7 +652,7 @@ function AvailabilityPageContent() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-3">
                           <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-medium">
-                            {employee.firstName[0]}{employee.lastName[0]}
+                            {employee.firstName?.[0]}{employee.lastName?.[0]}
                           </div>
                           <div>
                             <div className="font-medium text-gray-900 dark:text-white">
@@ -623,12 +665,12 @@ function AvailabilityPageContent() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                        {employee.role.replace('_', ' ')}
+                        {String(employee.role || 'EMPLOYEE').replaceAll('_', ' ')}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                           <CalendarCheck className="w-3 h-3" />
-                          Active
+                          {eachDayOfInterval({start:startDate,end:endDate}).every(day=>employeeAvailableOnDate(allAvailabilities.filter(a=>a.employeeId===employee.id),day)) ? 'Available' : 'Has availability restrictions'}
                         </span>
                       </td>
                       {!isEmployeeUser ? (

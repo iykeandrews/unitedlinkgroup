@@ -1,5 +1,6 @@
 // Intervals are half-open: an employee may start another shift exactly when one ends.
 export function fitsAvailability(records: any[], start: Date, end: Date): boolean {
+  records = records.filter(record => !record.status || record.status === 'APPROVED');
   if (!records.length) return true;
   const windows: Array<{ start: number; end: number; available: boolean }> = [];
   const datedWindows: Array<{ start: number; end: number; available: boolean }> = [];

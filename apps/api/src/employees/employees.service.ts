@@ -1,3 +1,4 @@
+import { availabilityInput } from './availability-input';
 import { qualificationFields } from "./qualification-fields";
 import { rateChanges } from "./rate-history.util";
 import { normalizeEmployment, effectivePay } from "./employment.util";
@@ -413,49 +414,16 @@ export class EmployeesService {
 
   async createMyAvailability(user: any, body: any, businessIdHeader?: string) {
     const employee = await this.getMe(user, businessIdHeader);
-    const {
-      isAvailable,
-      startDate,
-      endDate,
-      allDay = true,
-      repeat = 'DOES_NOT_REPEAT',
-      repeatDays,
-      endOption,
-      endOn,
-      comment,
-    } = body;
-
-    return (this.prisma as any).availability.create({
-      data: {
-        employeeId: employee.id,
-        isAvailable: !!isAvailable,
-        startDate: new Date(startDate),
-        endDate: endDate ? new Date(endDate) : null,
-        allDay,
-        repeat,
-        repeatDays: Array.isArray(repeatDays) ? repeatDays.join(',') : repeatDays,
-        endOption,
-        endOn: endOn ? new Date(endOn) : null,
-        comment,
-      },
-    });
+    const data = availabilityInput(body);
+    return (this.prisma as any).availability.create({data:{...data,employeeId:employee.id,status:data.isAvailable ? 'APPROVED' : 'PENDING'}});
   }
 
   async updateMyAvailability(user: any, availabilityId: string, body: any, businessIdHeader?: string) {
     const employee = await this.getMe(user, businessIdHeader);
-    const record = await (this.prisma as any).availability.findUnique({ where: { id: availabilityId } });
-    if (!record || record.employeeId !== employee.id) {
-      throw new NotFoundException('Availability not found');
-    }
-    const data: any = { ...body };
-    if (data.startDate) data.startDate = new Date(data.startDate);
-    if (data.endDate) data.endDate = new Date(data.endDate);
-    if (data.endOn) data.endOn = new Date(data.endOn);
-    if (Array.isArray(data.repeatDays)) data.repeatDays = data.repeatDays.join(',');
-    return (this.prisma as any).availability.update({
-      where: { id: availabilityId },
-      data,
-    });
+    const record = await (this.prisma as any).availability.findUnique({where:{id:availabilityId}});
+    if (!record || record.employeeId !== employee.id) throw new NotFoundException('Availability not found');
+    const data = availabilityInput(body,record);
+    return (this.prisma as any).availability.update({where:{id:availabilityId},data:{...data,status:data.isAvailable ? 'APPROVED' : 'PENDING',reviewedBy:null,reviewedAt:null,rejectionReason:null}});
   }
 
   async deleteMyAvailability(user: any, availabilityId: string, businessIdHeader?: string) {
@@ -1087,56 +1055,33 @@ export class EmployeesService {
   }
 
   async createAvailability(user: any, employeeId: string, body: any, businessIdHeader?: string) {
-    const businessId = await this.getBusinessId(user, businessIdHeader);
-    const employee = await this.prisma.employee.findFirst({
-      where: { id: employeeId, businessId },
-    });
+    const businessId = await this.getBusinessId(user,businessIdHeader);
+    const employee = await this.prisma.employee.findFirst({where:{id:employeeId,businessId}});
     if (!employee) throw new NotFoundException('Employee not found');
-    const {
-      isAvailable,
-      startDate,
-      endDate,
-      allDay = true,
-      repeat = 'DOES_NOT_REPEAT',
-      repeatDays,
-      endOption,
-      endOn,
-      comment
-    } = body;
-    return (this.prisma as any).availability.create({
-      data: {
-        employeeId,
-        isAvailable: !!isAvailable,
-        startDate: new Date(startDate),
-        endDate: endDate ? new Date(endDate) : null,
-        allDay,
-        repeat,
-        repeatDays: Array.isArray(repeatDays) ? repeatDays.join(',') : repeatDays,
-        endOption,
-        endOn: endOn ? new Date(endOn) : null,
-        comment
-      }
-    });
+    const data = availabilityInput(body);
+    return (this.prisma as any).availability.create({data:{...data,employeeId,status:'APPROVED',reviewedBy:user.userId || user.id || user.sub,reviewedAt:new Date()}});
   }
 
   async updateAvailability(user: any, employeeId: string, availabilityId: string, body: any, businessIdHeader?: string) {
-    const businessId = await this.getBusinessId(user, businessIdHeader);
-    const employee = await this.prisma.employee.findFirst({
-      where: { id: employeeId, businessId },
-    });
-    if (!employee) throw new NotFoundException('Employee not found');
-    const record = await (this.prisma as any).availability.findUnique({ where: { id: availabilityId } });
-    if (!record || record.employeeId !== employeeId) {
-      throw new NotFoundException('Availability not found');
-    }
-    const data: any = { ...body };
-    if (data.startDate) data.startDate = new Date(data.startDate);
-    if (data.endDate) data.endDate = new Date(data.endDate);
-    if (data.endOn) data.endOn = new Date(data.endOn);
-    if (Array.isArray(data.repeatDays)) data.repeatDays = data.repeatDays.join(',');
-    return (this.prisma as any).availability.update({
-      where: { id: availabilityId },
-      data
+    const businessId = await this.getBusinessId(user,businessIdHeader);
+    const record = await (this.prisma as any).availability.findFirst({where:{id:availabilityId,employeeId,employee:{businessId}}});
+    if (!record) throw new NotFoundException('Availability not found');
+    const data = availabilityInput(body,record);
+    return (this.prisma as any).availability.update({where:{id:availabilityId},data:{...data,status:'APPROVED',reviewedBy:user.userId || user.id || user.sub,reviewedAt:new Date(),rejectionReason:null}});
+  }
+
+  async reviewAvailability(user: any, employeeId: string, availabilityId: string, decision: any, businessIdHeader?: string) {
+    if (!['BUSINESS_ADMIN','SUPER_ADMIN','MANAGER'].includes(user.role)) throw new ForbiddenException('Administrator approval is required');
+    if (!['APPROVED','REJECTED'].includes(decision?.status)) throw new BadRequestException('Choose approve or reject');
+    const businessId = await this.getBusinessId(user,businessIdHeader);
+    return this.prisma.$transaction(async tx=>{
+      const record = await (tx as any).availability.findFirst({where:{id:availabilityId,employeeId,employee:{businessId}}});
+      if (!record || record.isAvailable || record.status!=='PENDING') throw new BadRequestException('This request is no longer pending');
+      const reviewedBy = user.userId || user.id || user.sub;
+      const changed = await (tx as any).availability.updateMany({where:{id:availabilityId,status:'PENDING'},data:{status:decision.status,reviewedBy,reviewedAt:new Date(),rejectionReason:decision.status==='REJECTED'?String(decision.reason || '').slice(0,1000):null}});
+      if (changed.count!==1) throw new BadRequestException('This request was already reviewed');
+      await tx.auditLog.create({data:{businessId,userId:reviewedBy,action:'UNAVAILABILITY_'+decision.status,resource:'Availability',resourceId:availabilityId,details:JSON.stringify({employeeId,status:decision.status})}});
+      return (tx as any).availability.findUnique({where:{id:availabilityId}});
     });
   }
 

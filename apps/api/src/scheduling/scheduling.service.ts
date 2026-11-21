@@ -2003,6 +2003,7 @@ export class SchedulingService {
       entries.push({
           employeeId: employee.id,
           isAvailable: item.available,
+          status: item.available ? 'APPROVED' : 'PENDING',
           startDate: startDateTime,
           endDate: endDateTime,
           allDay: allDay,
@@ -2011,6 +2012,8 @@ export class SchedulingService {
           endOption: 'NO_END'
       });
     }
+    // Pending unavailable days retain an approved available baseline until reviewed.
+    entries.push(...entries.filter(entry=>!entry.isAvailable).map(entry=>({...entry,isAvailable:true,status:'APPROVED'})));
     await this.prisma.$transaction(async tx => {
       await tx.availability.deleteMany({ where: { employeeId: employee.id, repeat: 'WEEKLY' } });
       await tx.availability.createMany({ data: entries });

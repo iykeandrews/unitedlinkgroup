@@ -194,6 +194,12 @@ export class EmployeesController {
     return this.employeesService.updateAvailability(req.user, id, availabilityId, body, businessId);
   }
 
+  @Patch(':id/availability/:availabilityId/review')
+  @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
+  reviewAvailability(@Request() req: any, @Param('id') id: string, @Param('availabilityId') availabilityId: string, @Body() body: any, @Headers('x-business-id') businessId?: string) {
+    return this.employeesService.reviewAvailability(req.user,id,availabilityId,body,businessId);
+  }
+
   @Delete(':id/availability/:availabilityId')
   @Roles(UserRole.BUSINESS_ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER)
   deleteAvailability(@Request() req: any, @Param('id') id: string, @Param('availabilityId') availabilityId: string, @Headers('x-business-id') businessId?: string) {
