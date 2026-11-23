@@ -219,8 +219,8 @@ export default function PayrollDetailsModal({
             <div>
               <span className="text-slate-500">Pay Period:</span>{" "}
               <span className="font-medium text-slate-900 dark:text-white ml-2">
-                {formatDate(payroll.periodStart, selectedBusiness?.country)} -{" "}
-                {formatDate(payroll.periodEnd, selectedBusiness?.country)}
+                {formatDate(payroll.periodStart, selectedBusiness?.country, {timeZone: payroll.calendarTimeZone || "UTC"})} -{" "}
+                {formatDate(payroll.periodEnd, selectedBusiness?.country, {timeZone: payroll.calendarTimeZone || "UTC"})}
               </span>
             </div>
             <div>

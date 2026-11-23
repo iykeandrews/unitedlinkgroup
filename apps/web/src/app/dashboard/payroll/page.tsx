@@ -708,8 +708,9 @@ function PayrollTable({
                 {formatDate(p.periodStart, selectedBusiness?.country, {
                   month: "short",
                   day: "numeric",
+                  timeZone: p.calendarTimeZone || "UTC",
                 })}{" "}
-                - {formatDate(p.periodEnd, selectedBusiness?.country)}
+                - {formatDate(p.periodEnd, selectedBusiness?.country, {timeZone: p.calendarTimeZone || "UTC"})}
               </td>
               <td className="px-6 py-4 text-slate-500 dark:text-slate-400 capitalize">
                 {p.type?.toLowerCase() || "Regular"}
