@@ -139,7 +139,7 @@ export class TimeTrackingController {
       body.lat,
       body.lng,
       realIp,
-      { timeZone: shift.timeZone || undefined },
+      { timeZone: shift.timeZone || undefined, shiftId: shift.id },
     );
   }
 

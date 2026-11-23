@@ -5,6 +5,7 @@ import {
   validateReportPeriod,
   reportPdf,
   reportExcel,
+  reportDay,
 } from "./timesheet-report";
 import { MobileOperationsService } from "./mobile-operations.service";
 import { Optional } from "@nestjs/common";
@@ -704,7 +705,7 @@ export class TimeTrackingService {
     lat: number | undefined,
     lng: number | undefined,
     ip?: string,
-    opts?: { bypassGeofence?: boolean; workerType?: string; timeZone?: string; fieldSchedule?: {businessId:string;userId:string} },
+    opts?: { bypassGeofence?: boolean; workerType?: string; timeZone?: string; shiftId?: string; fieldSchedule?: {businessId:string;userId:string} },
   ): Promise<Timesheet> {
     // Check if already clocked in
     const activeTimesheet = await this.prisma.timesheet.findFirst({
@@ -822,12 +823,19 @@ export class TimeTrackingService {
           "This officer is already clocked in. Clock out the officer in Time & Attendance before attempting another clock-in.",
         );
       }
+      const clockInTime = new Date();
+      if (!opts?.bypassGeofence && !opts?.fieldSchedule) {
+        const scheduled = opts?.shiftId ? await tx.shift.findFirst({where:{id:opts.shiftId,employeeId,locationId,status:'PUBLISHED'}}) : null;
+        if (!scheduled || scheduled.endTime <= clockInTime) {
+          throw new BadRequestException('This scheduled shift has ended. You cannot clock in at or after its end time.');
+        }
+      }
       const created = await tx.timesheet.create({
         data: {
           timeZone: opts?.timeZone || siteZone?.timeZone || "America/New_York",
           employeeId,
           workerType,
-          startTime: new Date(),
+          startTime: clockInTime,
           status: "IN_PROGRESS",
           locationId: locationId || undefined,
           clockInIp: ip,
@@ -1166,37 +1174,19 @@ export class TimeTrackingService {
 
   async requireClockInShift(employeeId: string) {
     const now = new Date();
-    const endOfToday = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-    );
-    const shift = await this.prisma.shift.findFirst({
-      where: {
-        employeeId,
-        status: "PUBLISHED",
-        startTime: { lt: endOfToday },
-        endTime: { gt: now },
-      } as any,
-      select: {
-        id: true,
-        startTime: true,
-        endTime: true,
-        locationId: true,
-        timeZone: true,
-      },
-      orderBy: { startTime: "asc" },
+    const candidates = await this.prisma.shift.findMany({
+      where:{employeeId,status:'PUBLISHED',startTime:{lt:new Date(+now+24*3600000)},endTime:{gt:now}},
+      select:{id:true,startTime:true,endTime:true,locationId:true,timeZone:true,location:{select:{timeZone:true}}},
+      orderBy:{startTime:'asc'},
     });
-    if (!shift) {
-      throw new BadRequestException(
-        "No scheduled shift available for clock-in today",
-      );
-    }
-    if (!shift.locationId) {
-      throw new BadRequestException(
-        "This shift has no assigned site. Contact your manager.",
-      );
-    }
+    // The officer's work-location date determines today, including overnight shifts.
+    const shift = candidates.find(candidate=>{
+      if (candidate.endTime <= now) return false;
+      const zone = candidate.timeZone || candidate.location?.timeZone || 'America/New_York';
+      return candidate.startTime <= now || reportDay(candidate.startTime,zone)===reportDay(now,zone);
+    });
+    if (!shift) throw new BadRequestException('No scheduled shift available for clock-in today. Clock-in is not allowed at or after the scheduled end.');
+    if (!shift.locationId) throw new BadRequestException('This shift has no assigned site. Contact your manager.');
     return shift;
   }
 

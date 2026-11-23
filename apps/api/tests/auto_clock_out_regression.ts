@@ -21,6 +21,11 @@ async function main() {
   active.locationId='site';
   await service.handleShiftReminders();assert.equal(changes,1);
   assert.equal(+breakEnd,+shift.endTime+3600000);
+  active={...active,startTime:new Date(+shift.endTime-60000)};
+  await service.handleShiftReminders();assert.equal(changes,2,'A clock-in one minute before scheduled end must auto-close');
+  assert.equal(+breakEnd,+shift.endTime+3600000,'Automatic clock-out is one hour after scheduled end, not one hour after clock-in');
+  active={...active,startTime:new Date(+shift.endTime+60000)};
+  await service.handleShiftReminders();assert.equal(changes,2,'A punch after shift end is not valid shift attendance');
   console.log('Auto clock-out protects new attendance and other sites; matching attendance and breaks close correctly');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
