@@ -125,10 +125,10 @@ export default function TimeTrackingPage() {
 
   // State
   const [startDate, setStartDate] = useState(() =>
-    startOfWeek(new Date(), { weekStartsOn: 1 }),
+    startOfWeek(new Date(), { weekStartsOn: 0 }),
   );
   const [endDate, setEndDate] = useState(() =>
-    endOfWeek(new Date(), { weekStartsOn: 1 }),
+    endOfWeek(new Date(), { weekStartsOn: 0 }),
   );
   const [periodFrom, setPeriodFrom] = useState(() => format(startDate,"yyyy-MM-dd"));
   const [periodTo, setPeriodTo] = useState(() => format(endDate,"yyyy-MM-dd"));
